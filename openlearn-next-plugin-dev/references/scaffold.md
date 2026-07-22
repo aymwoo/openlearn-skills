@@ -51,7 +51,7 @@ export default {
     requires: ['@openlearn/core:ICommandBusService@^1.0.0'],
     capabilitiesProposed: ['lesson:read'],
     classroomTools: [{ id: '...', name: '...', icon: '...', commandType: '...' }],
-    engines: { openlearn: '>=5.0.0' },
+    engines: { openlearn: '>=2.5.0' },
   },
   async activate(ctx) { /* 注册 Action、Handler */ },
   async deactivate() { /* 清理 */ },
