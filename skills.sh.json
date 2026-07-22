@@ -1,0 +1,11 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "top",
+  "groupings": [
+    {
+      "title": "OpenLearn 教学平台插件",
+      "description": "面向 OpenLearnV2 教学平台的可复用 AI Agent 技能，帮助开发者快速创建和发布教育类插件。",
+      "skills": ["openlearn-next-plugin-dev"]
+    }
+  ]
+}

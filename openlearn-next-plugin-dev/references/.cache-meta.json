@@ -1,0 +1,10 @@
+{
+  "source": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/",
+  "cacheDate": "2026-07-22",
+  "lastUpdated": "2026-07-14",
+  "documents": {
+    "scaffold": { "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/scaffold.html", "dumped": true },
+    "architecture": { "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/architecture_review_report.html", "dumped": true },
+    "tutorial": { "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin-development-tutorial.html", "dumped": true }
+  }
+}
