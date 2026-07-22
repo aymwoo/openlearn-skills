@@ -279,7 +279,7 @@ interface Manifest {
   description?: string;          // 描述
   author?: string;               // 作者
   engines?: {                    // 引擎版本约束
-    openlearn?: string;          // 如 "^2.5.0"
+    openlearn?: string;          // 如 "^0.1.9"
   };
   requires: string[];            // 依赖的服务 Token（格式 @openlearn/core:TokenName@^1.0.0）
   optional?: string[];           // 可选依赖
@@ -417,7 +417,7 @@ export default {
     main: 'index.js',
     description: '在课堂上创建实时投票，收集学生回答',
     author: 'Your Name',
-    engines: { openlearn: '^2.5.0' },
+    engines: { openlearn: '^0.1.9' },
     requires: [
       '@openlearn/core:ICommandBusService@^1.0.0',
       '@openlearn/core:IActionRegistryService@^1.0.0',
@@ -1587,7 +1587,7 @@ export default {
     main: 'index.js',
     description: '插件描述',
     author: '作者名',
-    engines: { openlearn: '^2.5.0' },
+    engines: { openlearn: '^0.1.9' },
     requires: [
       '@openlearn/core:ICommandBusService@^1.0.0',
       '@openlearn/core:IActionRegistryService@^1.0.0',

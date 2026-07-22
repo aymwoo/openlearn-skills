@@ -156,7 +156,7 @@ export default {
   manifest: {
     id: '@scope/name',        // 全局唯一
     name: '名称', version: '0.1.0',
-    engines: { openlearn: '>=2.5.0' },
+    engines: { openlearn: '>=0.1.9' },
     requires: ['@openlearn/core:ICommandBusService@^1.0.0'],
     capabilitiesProposed: ['lesson:read'],
   },
