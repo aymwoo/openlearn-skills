@@ -1,6 +1,5 @@
 // frontend.tsx — {{pluginName}} 前端组件
-// 注意：此文件在宿主应用中运行，React 由 window.HostSharedDeps.React 提供
-// JSX 必须使用经典转换模式（"jsx": "react"）
+import React, { useState, useEffect } from 'react';
 
 let ctx: any = null;
 

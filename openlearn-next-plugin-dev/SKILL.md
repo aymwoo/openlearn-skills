@@ -115,10 +115,14 @@ references/ 中的本地快照已包含：
 
 1. **manifest.classroomTools 必须有对应的 Handler**：即使只为了触发前端面板，也要注册空 handler
 2. **数据库表命名**：使用 `ctx.db.ensureTable()` + `ctx.db.table()`，不要手动拼接
-3. **事件命名**：过去式，格式 `{commandPrefix}.action_done`
+3. **事件命名与广播**：过去式，格式 `{commandPrefix}.action_done`；实时 Socket 同步建议同时发布 `prefix:action_done` 和 `prefix.action_done`
 4. **Action description**：用中文，这是 AI Agent 理解工具用途的关键
-5. **前端组件**：用 `function` 声明不用箭头函数；`jsx: "react"` 经典模式；`default export` 是 `{ activate, deactivate }`
-6. **避免 Node.js 内置模块**：用 `crypto.randomUUID()` 替代 `import { randomUUID } from 'crypto'`；用 VFS API 替代 `fs`
+5. **前端 React 导入规范**：`frontend.tsx` 第一行**必须显式导入 React** (`import React from 'react';`)，切勿因 React 17+ 自动转换而省略，否则 esbuild external 打包后浏览器会抛出 `ReferenceError: React is not defined`
+6. **扩展槽位 UI 设计规范**：
+   - `classroom.tool` 槽位组件在白板工具栏内**只渲染精简图标按钮**（与画笔/点名按钮尺寸对齐）
+   - 复杂的控制条、悬浮面板或全屏 Mask 遮罩必须通过 `createPortal(..., document.body)` 挂载到 `document.body`，避免遮挡或挤压白板工具栏
+7. **插件内组件状态同步**：推荐使用轻量订阅者模式 (`globalState`, `listeners`, `updateGlobalState`) 跨工具栏按钮、控制条和学生端 Overlay 同步状态
+8. **避免 Node.js 内置模块**：用 `crypto.randomUUID()` 替代 `import { randomUUID } from 'crypto'`；用 VFS API 替代 `fs`
 
 ### 第四步：构建与检查
 
@@ -131,10 +135,12 @@ npx @openlearn/plugin-sdk build
 ```
 
 检查清单：
+- [ ] `dist/frontend.js` 包含 `import React from "react";` 导入头（防止浏览器 scope 下 React 未定义）
 - [ ] `dist/index.js` 无非法裸导入：`grep -E '^import .+ from "[^@\./]' dist/index.js` 应无输出
 - [ ] 前端 JSX 为经典模式（构建产物中无 `react/jsx-runtime` 引用）
 - [ ] `manifest.json` 与代码中 manifest 一致
 - [ ] 所有 `classroomTools[].commandType` 都有对应的 handler
+- [ ] `classroom.tool` 扩展组件保持纯粹图标按钮，无内联遮罩或展开栏挤压工具栏
 
 ### 第五步：安装测试
 
