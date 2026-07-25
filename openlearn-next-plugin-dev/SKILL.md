@@ -75,11 +75,11 @@ references/ 中的本地快照已包含：
 4. **UI 扩展点**（full-stack / frontend-only 时确认）：
    - `teacher.tab` — 教师侧边栏标签页（管理页）
    - `teacher.dashboard.widget` — 白板可拖拽卡片（课堂交互，需匹配 teacherWidgetId）
-   - `teacher.panel` — 教师独立全宽面板（v2.5+）
+   - `teacher.panel` — 教师独立全宽面板（v0.1.9+）
    - `student.view` — 学生端全屏视图
-   - `student.fullscreen` — 学生全屏视图/考试模式（v2.5+）
+   - `student.fullscreen` — 学生全屏视图/考试模式（v0.1.9+）
    - `classroom.tool` — 课堂工具架按钮
-   - `global.setting` — 全局设置页扩展（v2.5+）
+   - `global.setting` — 全局设置页扩展（v0.1.9+）
 5. **权限需求**：检查在线文档中可用的权限字符串列表
 6. **AI 能力**：是否需要 AI Agent 调用？（需注册 Action）
 7. **数据库需求**：需要哪些表？是否需要版本迁移？

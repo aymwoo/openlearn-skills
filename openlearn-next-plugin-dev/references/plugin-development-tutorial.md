@@ -166,7 +166,7 @@ interface PluginContext {
   // 插件专用数据库
   db: PluginDatabaseAPI;      // 命名空间隔离的 SQLite 操作（含 migrate() 迁移）
 
-  // V2.5 结构化日志（自动注入 pluginId 和 timestamp）
+  // V0.1.9 结构化日志（自动注入 pluginId 和 timestamp）
   log: IPluginLogger;         // 支持 debug/info/warn/error 四级
 
   // V3.2: 类型安全的配置服务
@@ -202,11 +202,11 @@ ERROR ──→ ACTIVATING（重试）          UNINSTALLED ←─────�
 
 | 特性                      | 最低版本 | 说明                                                     |
 | ----------------------- | ---- | ------------------------------------------------------ |
-| ctx.log                 | 2.5  | 结构化日志（debug/info/warn/error），自动注入 pluginId 和 timestamp |
+| ctx.log                 | 0.1.9| 结构化日志（debug/info/warn/error），自动注入 pluginId 和 timestamp |
 | ctx.config              | 3.0  | 类型安全的配置读取，配合 manifest.configuration 声明                 |
 | ctx.provide()           | 3.0  | 向 DI 容器注册自定义服务供其他插件消费                                  |
 | ctx.require()           | 5.1  | 引用主应用白名单共享模块（recharts、jspdf 等）                         |
-| ctx.invokeCommand()（前端） | 2.5  | 前端直接调用后端 CommandBus                                    |
+| ctx.invokeCommand()（前端） | 0.1.9| 前端直接调用后端 CommandBus                                    |
 | teacher.panel 扩展槽位      | 5.1  | 教师独立全宽管理面板                                             |
 | student.fullscreen 扩展槽位 | 5.1  | 学生全屏视图/考试模式                                            |
 | global.setting 扩展槽位     | 5.1  | 全局设置页扩展                                                |
@@ -789,7 +789,7 @@ interface PluginDatabaseAPI {
 * 使用 `ctx.db.ensureTable()` \+ `ctx.db.table()` 管理表名，不要手动拼接
 * 数据库操作优先使用 `ctx.db` PluginDatabaseAPI 封装，仅在需要精细控制时直接操作 Database 实例
 
-### 5.10 IPluginLogger（V2.5 新增）[](#ipluginlogger-v2-5 "链接到此标题。")
+### 5.10 IPluginLogger（V0.1.9 新增）[](#ipluginlogger-v2-5 "链接到此标题。")
 
 interface IPluginLogger {
   debug(message: string, meta?: Record<string, unknown>): void;
@@ -915,7 +915,7 @@ interface FrontendPluginContext {
     registerExtensionPoint(slot: ExtensionSlot, config: ExtensionPointConfig): void;
     unregisterExtensionPoint(slot: ExtensionSlot, id: string): void;
   };
-  invokeCommand<T = any>(type: string, payload?: any): Promise<T>; // V2.5: 调用后端 Command Handler
+  invokeCommand<T = any>(type: string, payload?: any): Promise<T>; // V0.1.9: 调用后端 Command Handler
 }
 
 ### 6.3 前端服务接口[](#id19 "链接到此标题。")
@@ -964,7 +964,7 @@ export default function MyStudentPlugin(props: { studentId?: string }) {
 
 | `classroom.tool` | 课堂工具 | | `global.setting` | 全局设置页扩展（v3.2） |
 
-### 6.5 invokeCommand（自 V2.5 起可用）[](#invokecommand-v2-5 "链接到此标题。")
+### 6.5 invokeCommand（自 V0.1.9 起可用）[](#invokecommand-v2-5 "链接到此标题。")
 
 前端插件可以通过 `ctx.invokeCommand()` 调用后端已注册的 Command Handler：
 
