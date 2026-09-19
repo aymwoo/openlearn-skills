@@ -1,10 +1,26 @@
 {
   "source": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/",
-  "cacheDate": "2026-07-22",
-  "lastUpdated": "2026-07-14",
+  "cacheDate": "2026-09-19",
+  "lastUpdated": "2026-09-09",
+  "docSiteVersion": "0.3.16",
+  "note": "探活需同时比对索引页页脚的『最后更新：YYYY-MM-DD』与页面标题中的构建版本『OpenLearnV2 x.y.z 文档』；页脚日期可能滞后于实际构建版本（本次页脚为 v0.3.14，而实际构建为 0.3.16）。两者任一变化即视为有更新。",
   "documents": {
-    "scaffold": { "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/scaffold.html", "dumped": true },
-    "architecture": { "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/architecture_review_report.html", "dumped": true },
-    "tutorial": { "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin-development-tutorial.html", "dumped": true }
+    "tutorial": {
+      "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/tutorials/plugin-development-tutorial.html",
+      "dumped": true
+    },
+    "architecture": {
+      "url": "multi-page: architecture/system-overview.html + architecture/platform-kernel.html + architecture/command-event-bus.html + architecture/dependency-injection.html + architecture/security-permissions.html + architecture/service-registry.html + plugin/plugin-architecture.html + plugin/plugin-lifecycle.html + plugin/anchor-slots.html + plugin/extension-registry.html + reference/plugin-host-shared-deps.html + reference/plugin-database-api.html",
+      "dumped": true
+    },
+    "scaffold": {
+      "url": "multi-page: sdk/scaffold-cli.html + sdk/plugin-sdk.html + sdk/plugin-test-kit.html + examples/verifiable-examples.html + examples/existing-plugins-guide.html + reference/plugin-database-api.html + getting-started/quickstart.html + plugin/plugin-manifest-spec.html",
+      "dumped": true
+    },
+    "troubleshooting": {
+      "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/troubleshooting/troubleshooting-faq.html",
+      "dumped": true,
+      "note": "归因决策树/证据门槛/Bug 报告 SOP 为 skill 自建，并综合 plugin-lifecycle、plugin-manifest-spec、security-permissions、capability-matrix 及 Release Notes v0.3.13–v0.3.16"
+    }
   }
 }

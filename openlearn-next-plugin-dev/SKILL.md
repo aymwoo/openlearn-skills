@@ -1,13 +1,16 @@
 ---
 name: openlearn-next-plugin-dev
-description: 为 OpenLearnV2 教学平台开发插件。通过读取 https://openlearn-next-v2.readthedocs.io/zh-cn/latest/ 在线文档获取最新插件开发文档，与开发者讨论需求后指导开发相应插件。支持三类插件模板（server-only / full-stack / frontend-only）。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、或课堂工具时使用此 skill。
+description: 为 OpenLearnV2 教学平台开发插件。通过读取 https://openlearn-next-v2.readthedocs.io/zh-cn/latest/ 在线文档获取最新插件开发文档，与开发者讨论需求后指导开发相应插件。内置插件侧/系统侧故障归因流程，可在插件报错时判定责任方，并在确认为系统缺陷时生成可直接提交的 bug 报告。支持三类插件模板（server-only / full-stack / frontend-only）。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，或报告插件报错/不工作/需要判断是插件问题还是平台问题时使用此 skill。
 ---
 
-# OpenLearnV2 插件开发
+# OpenLearnV2 插件开发指南与规范
 
 ## 核心原则
 
-**在线文档是权威来源，本地缓存加速读取。** skill 自带三份文档的本地快照（`references/`），每次使用前通过索引页探活。缓存未过期则直接用本地，发现远端更新才重新拉取——将月消耗从 ~100K token 降至 ~22K token。
+**在线文档是权威来源，本地缓存加速读取，规则约束保证代码正确性。** 
+skill 自带三份文档的本地快照（`references/`），每次使用前通过索引页探活。缓存未过期则直接用本地，发现远端更新才重新拉取——将月消耗从 ~100K token 降至 ~22K token。
+
+---
 
 ## 工作流程
 
@@ -15,13 +18,16 @@ description: 为 OpenLearnV2 教学平台开发插件。通过读取 https://ope
 
 #### 1a. 探活（每次必做，~200 token）
 
-webfetch 索引页检查「最后更新」日期：
+webfetch 索引页，**同时**提取两个版本信号：
 
 ```
 https://openlearn-next-v2.readthedocs.io/zh-cn/latest/
 ```
 
-提取文档底部的「最后更新：YYYY-MM-DD」。
+1. 页面标题中的构建版本：`OpenLearnV2 x.y.z 文档`
+2. 页脚的最近更新日期：`最后更新：YYYY-MM-DD (vX.Y.Z)`
+
+> 页脚日期可能滞后于实际构建版本（曾出现页脚标 v0.3.14、实际构建已是 0.3.16）。**两个信号任一变化都视为有更新。**
 
 #### 1b. 比对缓存
 
@@ -40,29 +46,15 @@ https://openlearn-next-v2.readthedocs.io/zh-cn/latest/
 | 查 API 签名、Action/Handler/Event 怎么写 | **插件开发完全指南** | ~12,000 | `references/plugin-development-tutorial.md` |
 | 理解架构原理、安全模型 | **架构总览** | ~8,000 | `references/architecture.md` |
 | 初始化项目、构建打包、CLI 命令 | **脚手架指南** | ~4,000 | `references/scaffold.md` |
+| 排查报错、判断插件侧/系统侧、写 bug 报告 | **故障排查与归因 SOP** | ~3,000 | `references/troubleshooting.md` |
+
+> 全部为多页汇编或单页快照，具体来源 URL 见 `.cache-meta.json` 与各文件末尾的「来源」节。
 
 拉取后更新 references/ 和 .cache-meta.json。
 
-#### 1d. 本地缓存可覆盖大部分场景
+---
 
-references/ 中的本地快照已包含：
-- 完整 API 接口文档（PluginContext、Manifest、所有 Service 接口）
-- 命令-事件-Action 三件套模式与完整代码示例
-- 前端插件开发指南（扩展槽位、HostSharedDeps、JSX 配置）
-- 安全权限模型（四层防护、审批流程、Token Enforcer 白名单）
-- CLI 脚手架命令参考与常见问题
-
-典型的"开发新插件"场景可直接使用缓存，只有遇到以下情况才需要在线拉取：文档版本不一致、用户提到新 SDK/CLI 版本、缓存中找不到需要的 API。
-
-**Token 消耗对比**：
-
-| 场景 | 纯在线方案 | 缓存+探活方案 |
-|------|-----------|-------------|
-| 日常开发（命中缓存） | ~10,000 | **~200** |
-| 文档更新后首次 | ~10,000 | ~12,200 |
-| 月均（10 次使用，1 次更新） | ~100,000 | **~14,000**
-
-### 第二步：需求讨论
+### 第二步：需求讨论与预检查
 
 获取最新文档后，与开发者进行结构化讨论，逐项确认：
 
@@ -80,16 +72,20 @@ references/ 中的本地快照已包含：
    - `student.fullscreen` — 学生全屏视图/考试模式（v0.1.9+）
    - `classroom.tool` — 课堂工具架按钮
    - `global.setting` — 全局设置页扩展（v0.1.9+）
-5. **权限需求**：检查在线文档中可用的权限字符串列表
-6. **AI 能力**：是否需要 AI Agent 调用？（需注册 Action）
+   - `anchor:<区域>:<锚点id>` — 在宿主原生按钮/元素前后插入（v0.2.6+，如 `anchor:whiteboard-toolbar:rollcall`）
+   - `nav.user_menu` — 顶部 Header 用户菜单扩展
+5. **权限需求 (Capabilities)**：显式核对需申请的权限列表（见后文权限全集字典）
+6. **AI 能力与 Action 关联**：是否需要 AI Agent 调用？（必须注册 Action 且描述清晰）
 7. **数据库需求**：需要哪些表？是否需要版本迁移？
-8. **目标版本**：声明在 `manifest.engines.openlearn` 中的版本
+8. **目标版本**：声明在 `manifest.engines.openlearn` 中的**宿主版本**兼容范围，推荐 `>=0.2.5`（**不是** SDK 版本）
 
-### 第三步：生成代码
+---
+
+### 第三步：生成代码与编码规范
 
 方案确认后，根据插件类型选择对应模板生成代码。
 
-#### 模板对照
+#### 1. 模板对照
 
 | 模板 | 位置 | 生成文件 |
 |------|------|---------|
@@ -97,8 +93,7 @@ references/ 中的本地快照已包含：
 | full-stack | `assets/full-stack/` | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx` |
 | frontend-only | `assets/frontend-only/` | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx` |
 
-使用 Create-React-App: 读取对应模板文件，将 `{{placeholder}}` 替换为用户确认的参数：
-
+将 `{{placeholder}}` 替换为用户确认的参数：
 - `{{pluginId}}` → 如 `@teacher-li/class-polls`
 - `{{pluginName}}` → 显示名称
 - `{{description}}` → 功能描述
@@ -107,26 +102,32 @@ references/ 中的本地快照已包含：
 - `{{toolId}}` / `{{toolName}}` → classroomTools 配置
 - `{{tabId}}` → 前端 tab ID
 
-模板提供了启动代码骨架，需要在 TODO 标记处填充根据需求讨论确认的实际业务逻辑。
+#### 2. 关键编码规范与防御规则 (Mandatory Guardrails)
 
-#### 关键编码规范
+1. **Manifest 1:1 映射约束**：`manifest.classroomTools` 中声明的所有 `commandType`，必须在 `activate()` 中通过 `ctx.services.commandBus.registerHandler()` 注册对应的 Handler！
+2. **React 导入与 JSX 模式**：`frontend.tsx` 第一行**推荐显式导入 React** (`import React from 'react';`)。在经典模式下（`"jsx": "react"`，≤0.3.14 唯一可用）省略会直接报 `ReferenceError: React is not defined`；0.3.15+ 启用自动 JSX 运行时时可不显式导入，但必须把 `react` / `react-dom` / `react-dom/client` / `react/jsx-runtime` 全部标记为 `external`。
+3. **classroom.tool 挂载规范（防挤压/防遮挡）**：
+   - 槽位组件必须保持为**单纯的图标按钮**（尺寸与画笔/点名按钮对齐）。
+   - 展开的控制面板、全屏弹窗或遮罩，必须通过 `ReactDOM.createPortal(..., document.body)` 挂载到 `document.body`，绝对禁止在工具栏 DOM 内直接扩展大尺寸面板。
+4. **前后端 Socket.IO + EventBus 实时同步架构**：
+   - **后端发**：Handler 变更数据后，发布 EventBus 事件 (`prefix.action_done`)，并通过 Socket.IO 服务向前端频道/房间广播。
+   - **前端收**：前端在 `useEffect` / 组件挂载时监听 Socket 事件，收到更新后触发 state 刷新。
+5. **全生命周期清理 SOP (Resource Cleanup SOP)**：
+   - 在 `deactivate()` 函数中，**必须**显式取消订阅 EventBus (`subscription.unsubscribe()`)、清除所有 `setInterval`/`setTimeout` 定时器、注销监听器、以及调用 `processManager` 停止后台进程。
+6. **数据库表命名与操作**：使用 `ctx.db.ensureTable()` + `ctx.db.table()`，绝不手动拼接 SQL 表名。
+7. **Node.js 原生模块避坑**：用 `crypto.randomUUID()` 代替 `import { randomUUID } from 'crypto'`；文件读写必须使用系统提供的 VFS API，不可直接引入 `fs` / `path`。
 
-编写代码时，结合在线文档确认以下规范：
+#### 3. Manifest 关键字段（v0.3.x）
 
-1. **manifest.classroomTools 必须有对应的 Handler**：即使只为了触发前端面板，也要注册空 handler
-2. **数据库表命名**：使用 `ctx.db.ensureTable()` + `ctx.db.table()`，不要手动拼接
-3. **事件命名与广播**：过去式，格式 `{commandPrefix}.action_done`；实时 Socket 同步建议同时发布 `prefix:action_done` 和 `prefix.action_done`
-4. **Action description**：用中文，这是 AI Agent 理解工具用途的关键
-5. **前端 React 导入规范**：`frontend.tsx` 第一行**必须显式导入 React** (`import React from 'react';`)，切勿因 React 17+ 自动转换而省略，否则 esbuild external 打包后浏览器会抛出 `ReferenceError: React is not defined`
-6. **扩展槽位 UI 设计规范**：
-   - `classroom.tool` 槽位组件在白板工具栏内**只渲染精简图标按钮**（与画笔/点名按钮尺寸对齐）
-   - 复杂的控制条、悬浮面板或全屏 Mask 遮罩必须通过 `createPortal(..., document.body)` 挂载到 `document.body`，避免遮挡或挤压白板工具栏
-7. **插件内组件状态同步**：推荐使用轻量订阅者模式 (`globalState`, `listeners`, `updateGlobalState`) 跨工具栏按钮、控制条和学生端 Overlay 同步状态
-8. **避免 Node.js 内置模块**：用 `crypto.randomUUID()` 替代 `import { randomUUID } from 'crypto'`；用 VFS API 替代 `fs`
+- `engines.openlearn`：填**宿主版本**兼容范围（推荐 `>=0.2.5`）；SDK 版本随平台 release 同步、**勿写死**。
+- 按目标版本可用的新字段：`api.routes`（配合 `ctx.http` 注册 REST 路由，0.3.11+）、`provides`（对外暴露服务，供其他插件 `requires`）、`optional`、`pluginDependencies`、`contributes`（声明式贡献点，仅供管理后台枚举）、`updateSource`（热更新源）、`deploy`、`configuration.showInDashboard`。
+- 完整字段与 Zod 校验规则见 `references/scaffold.md`「Manifest 字段全表」与 `references/plugin-development-tutorial.md §3.1`。
 
-### 第四步：构建与检查
+---
 
-生成代码后，给出构建和验证指令：
+### 第四步：构建与脚本化预检
+
+代码生成后，指导开发者或自动化执行构建：
 
 ```bash
 cd <plugin-directory>
@@ -134,88 +135,203 @@ npm install
 npx @openlearn/plugin-sdk build
 ```
 
-检查清单：
-- [ ] `dist/frontend.js` 包含 `import React from "react";` 导入头（防止浏览器 scope 下 React 未定义）
-- [ ] `dist/index.js` 无非法裸导入：`grep -E '^import .+ from "[^@\./]' dist/index.js` 应无输出
-- [ ] 前端 JSX 为经典模式（构建产物中无 `react/jsx-runtime` 引用）
-- [ ] `manifest.json` 与代码中 manifest 一致
-- [ ] 所有 `classroomTools[].commandType` 都有对应的 handler
-- [ ] `classroom.tool` 扩展组件保持纯粹图标按钮，无内联遮罩或展开栏挤压工具栏
+#### 构建产物预检清单 (Pre-flight Inspection)
 
-### 第五步：安装测试
+- [ ] **React 显式导入检查**：`grep 'import React from "react"' dist/frontend.js` 或检查 Bundle 头部包含 React 全局/模块引用。
+- [ ] **三件套映射检查**：`manifest.json` 中所有的 `classroomTools[].commandType` 均已在 `src/index.ts` 注册了 `registerHandler`。
+- [ ] **裸导入非法引用检查**：执行 `grep -E '^import .+ from "[^@\./]' dist/index.js` 应无输出。
+- [ ] **JSX 模式检查**：目标为 **≤0.3.14** 时，构建产物中**不得**出现 `react/jsx-runtime` 引用；**0.3.15+** 允许自动模式，但仍需确认 `react/jsx-runtime` 已标记 `external`（版本口径不一，稳妥做法是直接标记 external）。
+- [ ] **Worker 兼容检查**：若插件声明 worker 模式，确认未使用 `ctx.config` / `ctx.provide()`，`eventBus` 用 `subscribe/unsubscribe`，`commandBus.execute` 手动加了前缀（详见速查字典 §5）。
+- [ ] **生命周期清理检查**：`deactivate()` 中包含了定时器与 EventBus 监听器的取消注册代码。
+
+---
+
+### 第五步：安装与验证
 
 提醒开发者在 OpenLearn 管理后台上传 `dist/<plugin-name>.zip`：
 
-1. 系统设置 → 插件中心 → 上传插件
-2. 激活插件
-3. 如声明了 `classroomTools`，进入课堂白板查看工具栏
-4. 服务端日志带 `[Plugin:<id>]` 前缀
+1. **管理后台** → 系统设置 → 插件中心 → 上传插件
+2. **激活插件**：检查服务日志输出带 `[Plugin:<id>]` 前缀
+3. **UI 工具验证**：若声明了 `classroomTools`，进入课堂白板，验证工具栏图标正常显示且无布局挤压
+4. **AI 工具测试**：发送自然语言命令测试 AI Agent 是否能够正确识别并触发 Actions
 
-## 核心概念速查
+---
 
-以下是最常被问到的基础概念，在线文档提供完整细节。
+### 第六步：故障归因（插件侧 vs 系统侧）
 
-### 插件最小结构
+当开发者报告「插件报错 / 不工作」时，**先归因，再动手**。不要立刻改代码，也不要立刻断言是平台问题。**完整方法见 `references/troubleshooting.md`，此处为速用版。**
 
-```typescript
-export default {
-  manifest: {
-    id: '@scope/name',        // 全局唯一
-    name: '名称', version: '0.1.0',
-    engines: { openlearn: '>=0.1.9' },
-    requires: ['@openlearn/core:ICommandBusService@^1.0.0'],
-    capabilitiesProposed: ['lesson:read'],
-  },
-  async activate(ctx) { /* 注册 Action、Handler、Event */ },
-  async deactivate() { /* 清理 */ },
-};
+**三条铁律**
+
+1. **堆栈归属**：顶层帧在 `dist/index.js`、`dist/frontend.js` → 插件侧；在 `packages/core/...`、`src/plugin-host/...`、`node_modules/@openlearn/...` → 系统 / SDK 侧。
+2. **对照实验**：官方脚手架原始产物、或 ≤50 行最小复现插件（仅 manifest + 空 `activate`）能否稳定复现——**能复现的才是系统侧**。
+3. **先核版本**：系统版本 / 插件 `engines.openlearn` / 所用 API 的最低版本。大量「系统 bug」其实是插件用了未来版本 API 或声明了不兼容 engines。
+
+**判为「系统侧」的 4 个必要条件（缺一即只能给「待定」）**
+
+1. 官方脚手架原始产物或最小复现插件稳定复现；
+2. 具体版本号、复现步骤、完整堆栈（不截断）齐全；
+3. 报错点位于宿主 / 内核 / SDK / 文档承诺范围内，而非插件自身代码或构建配置；
+4. 已排除：版本不匹配、产物未重新构建、浏览器缓存、热重载未生效、权限未审批、插件间冲突。
+
+**结论与动作**
+
+| 结论 | 动作 |
+|------|------|
+| **插件侧** | 指出具体修改点，走第四步预检清单复查；**不生成报告** |
+| **系统侧** | 生成 bug 报告：`<插件项目根目录>/BUG-REPORT-<slug>-<YYYYMMDD>.md`（模板 `assets/bug-report-template.md`），并提示用户可直接发送给系统作者 |
+| **插件间冲突** | 定位命名空间 / 事件名 / 表名 / 槽位 id 撞车的双方并改名 |
+| **环境与配置** | 给出修复步骤（升级 / 重建 / 强刷 / 重新审批），不算缺陷 |
+| **待定** | 列出缺失的证据项与取证命令，收齐后重判 |
+
+**必给的简要汇总（≤10 行）**
+
+```
+【故障归因】<插件侧 / 系统侧 / 插件间冲突 / 环境与配置 / 待定>
+现象：<一句话>
+关键证据：
+  1. <堆栈归属 / 版本核对 / 对照实验>
+判定依据：<为什么是这一类，而非另一类>
+建议动作：<修复方式 或 已生成 bug 报告：<路径>>
 ```
 
-### 三件套模式
+> 生成报告前务必确认已包含：**具体版本号、完整堆栈、最小复现插件**。缺这三项的报告通常会被系统作者以「信息不足」退回。
 
-```
-Action   → actionRegistry.register()     AI 可调用
-  ↓ (关联 commandType)
-Command  → commandBus.registerHandler()  业务逻辑
-  ↓ (执行后发布)
-Event    → eventBus.publish()           审计日志 + 实时推送
-```
+---
 
-### 七个内核服务
+## 知识库与速查字典 (Reference Dictionaries)
 
-| 服务 | `ctx.services.xxx` | 用途 |
-|------|-------------------|------|
-| CommandBus | `.commandBus` | 注册/执行命令 |
-| EventBus | `.eventBus` | 发布/订阅事件 |
-| ActionRegistry | `.actionRegistry` | 注册 AI 工具 |
-| Capability | `.capability` | 权限管理 |
-| Process | `.processManager` | 后台进程 |
-| Storage | `.storage` | K-V 存储 |
-| AI | `.ai` | 文本生成 |
+### 1. 内核 Service Token & 接口方法速查
 
-其他通过 `ctx.resolve(Token)` 获取：`IDatabaseToken`、`IPluginHostToken` 等。
+在 `ctx.services` 或通过 `ctx.resolve(Token)` 获取的核心服务列表及 API 方法签名：
 
-### 权限格式
+| 服务 Token | 别名 / 获取途径 | 核心 API 方法及用途 |
+| :--- | :--- | :--- |
+| `ICommandBusServiceToken` | `ctx.services.commandBus` | `registerHandler(type, handler)`: 注册命令处理逻辑<br>`execute(command)`: 执行命令管线<br>`unregisterHandler(type)`: 注销命令 |
+| `IEventBusServiceToken` | `ctx.services.eventBus` | `publish(event)`: 发布事件<br>`subscribe(pattern, listener)`: 订阅事件（支持 `*` 通配符，返回 `Disposable`） |
+| `IActionRegistryServiceToken` | `ctx.services.actionRegistry` | `register(action)`: 注册 AI 工具（供 Agent 检索）<br>`unregister(actionId)`: 注销 AI 工具 |
+| `IDatabaseToken` | `ctx.db` / `ctx.resolve(IDatabaseToken)` | `ensureTable(tableName, schema)`: 创建表<br>`table(tableName)`: 获取安全表名<br>`prepare(sql).run(...args)`: 执行原始 SQL 语句 |
+| `ICapabilityServiceToken` | `ctx.services.capability` | `check(actor, capability)`: 检查权限<br>`grant(actor, capability)`: 授权 |
+| `IProcessManagerServiceToken` | `ctx.services.processManager` | `spawn(options)`: 派生后台进程<br>`kill(pid)`: 终止进程 |
+| `IStorageServiceToken` | `ctx.services.storage` | `get(key)` / `set(key, val)` / `delete(key)`: 简易 Key-Value 键值对存储 |
+| `IAIServiceToken` | `ctx.services.ai` | `generateText(prompt, options)`: 快速调用宿主配置的 LLM 文本生成能力 |
 
-`{resource}:{action}`，如 `lesson:read`、`lesson:write`、`whiteboard:*`
+---
+
+### 2. Capabilities 权限全集字典
+
+声明在 `manifest.capabilitiesProposed` 中的标准权限格式为 `{resource}:{action}`。常见权限分类如下：
+
+| 权限字符串 | 权限描述 | 风险等级 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `lesson:read` | 读取课程及课堂数据 | 低 | 查询课程基本信息、学生列表 |
+| `lesson:write` | 修改课程及课堂数据 | 中 | 创建/更新课堂任务、点名记录 |
+| `whiteboard:read` | 读取白板内容及板书 | 低 | 导出白板元素、抓取快照 |
+| `whiteboard:write` | 绘制/修改白板内容 | 中 | 向白板插入图形、文本、清空白板 |
+| `user:read` | 获取用户基础信息 | 低 | 获取教师/学生的姓名、角色、Avatar |
+| `system:process` | 运行后台进程/定时任务 | **高** | 触发 `ProcessManager` 创建子进程 |
+| `ai:invoke` | 直接调用 AI 大模型接口 | 中 | 使用 `ctx.services.ai` 消耗 Tokens |
+| `network:fetch` | 允许发起外部 HTTP 请求 | **高** | 需要动态审批白板域名 |
+
+---
+
+### 3. UI 扩展槽位 Context & Props 全景表
+
+前端扩展槽位组件被 Host 渲染时传递的 `props` 以及适用的挂载场景：
+
+| 槽位 ID (`pointId`) | 说明与适用场景 | Host 传递的标准 `props` 类型 |
+| :--- | :--- | :--- |
+| `teacher.tab` | 教师侧边栏独立标签页 | `{ ctx: HostContext, lessonId: string, currentTab: string }` |
+| `teacher.dashboard.widget` | 白板工作台可拖拽卡片 | `{ ctx: HostContext, widgetId: string, isEditing: boolean }` |
+| `teacher.panel` | 教师端独立全宽全屏面板 (v0.1.9+) | `{ ctx: HostContext, onClose: () => void }` |
+| `student.view` | 学生端主视图/内容区 | `{ ctx: HostContext, lessonId: string, studentId: string }` |
+| `student.fullscreen` | 学生全屏遮罩/答题模式 | `{ ctx: HostContext, lockExit: boolean, onSubmit: (data: any) => void }` |
+| `classroom.tool` | 课堂底部工具架图标按钮 | `{ ctx: HostContext, isActive: boolean, toggleActive: () => void }` |
+| `global.setting` | 插件全局配置组件 | `{ ctx: HostContext, saveConfig: (cfg: any) => Promise<void> }` |
+| `anchor:<区域>:<锚点id>` | 在宿主原生按钮/元素前后插入按钮（**v0.2.6+**），如 `anchor:whiteboard-toolbar:rollcall` | `{ placement, position, component }` |
+| `nav.user_menu` | 顶部 Header 用户菜单扩展 | — |
+
+> 版本口径提示：上表部分槽位在官方文档中带「v3.2 / v5.2」等旧标签，但自平台 v0.2.3 起宿主 API 版本已与发行版本统一。**具体可用性与 props 以 `references/plugin-development-tutorial.md §6.4` 与 `references/architecture.md §8` 为准。** 锚点渲染是命令式的（`ctx.ui.registerExtensionPoint`），`manifest.contributes` 中的声明仅供管理后台枚举。
+
+---
+
+### 4. 前端共享依赖 (HostSharedDeps) 白名单
+
+宿主通过 `window.HostSharedDeps` 全局提供以下共享运行时，**切勿重复打入插件 bundle**（构建时全部标记为 `external`）：
+
+| 共享对象 | NPM 包 | 内容 |
+|---------|--------|------|
+| `React` | `react` | React 核心与 Hooks |
+| `ReactDOM` | `react-dom` | DOM 渲染与 `createPortal` |
+| `ReactDOMClient` | `react-dom/client` | 现代 Root API (`createRoot`) |
+| `jsxRuntime` | `react/jsx-runtime` | 现代 JSX 运行时 (`jsx`/`jsxs`) |
+| `Recharts` | `recharts` | 图表库 |
+| `LucideReact` | `lucide-react` | 图标库 |
+
+- **JSX 模式**：平台 **0.3.15+** 已内置 `react/jsx-runtime` 映射，经典模式（`"jsx": "react"`）与自动模式（`"jsx": "react-jsx"`）均可；**≤0.3.14 只能用经典模式**，否则报 `Failed to resolve module specifier "react/jsx-runtime"`。
+  > 口径提示：`tutorial §6.7` 与 `architecture` 均记为 0.3.15+，Release Notes v0.3.16 将白名单由 4 扩充至 6。**不同来源口径不一，归因时以 Release Notes 为准，写代码时按“稳妥优先”处理。**
+  > **稳妥做法**：无论目标版本，都把 `react/jsx-runtime` 一并标记为 `external`，并优先用经典模式 + 显式 `import React`。
+- `@openlearn/plugin-sdk` 也由宿主提供，不必打包。
+- **必须自行打包（宿主不共享）**：`socket.io-client`、`zustand`、`motion`、`react-konva`/`konva`、`react-markdown`、`xlsx`、`jspdf` 等。
+
+---
+
+### 5. Worker 与 Inline 模式 API 差异（必读）
+
+插件可能在 `execution_mode: 'worker'` 下运行，**此时部分 API 不可用或方法名不同**。写代码和排查故障时都要先确认执行模式：
+
+| API | Inline | Worker |
+|-----|--------|--------|
+| `ctx.config` / `ctx.provide()` | 可用 | ❌ 不可用 |
+| `ctx.services.eventBus` | `on()` / `off()` | `subscribe()` / `unsubscribe()` |
+| `ctx.services.commandBus.execute()` | 自动加 `manifest.id` 前缀 | **不自动加前缀**，需手动拼完整 type |
+| `ctx.db.migrate()` / `IDatabaseToken` | 同步 `better-sqlite3` | 异步 `prepare().run/get/all` + `exec()`（0.3.9+），无 `transaction` |
+| `ctx.db.table()` | 返回 manifest ID 前缀 | 返回 **UUID 前缀**（切模式会导致表名变化，属预期行为） |
+| `ctx.http` | 完整 | 完整（RPC 跨线程，5000ms 熔断，0.3.11+） |
+| `ctx.log` / `ctx.manifest` | 可用 | 可用 |
+
+> 插件违反上表属于**插件侧**问题；已按上表适配仍失败，才可能是**系统侧**。完整归因流程见 `references/troubleshooting.md`。
+
+---
+
+## 调试 SOP 与故障排查指南 (Troubleshooting SOP)
+
+> 本表是「症状 → 直接处理」的速查。**若需判定责任方（插件侧还是系统侧）并产出 bug 报告，请先走第六步，并阅读 `references/troubleshooting.md`。**
+
+| 现象 / 报错信息 | 可能原因 | 解决办法 (SOP) |
+| :--- | :--- | :--- |
+| `ReferenceError: React is not defined` | `frontend.tsx` 缺少显式 `import React from 'react';` 或 esbuild 把 JSX 转为了自动注入模式 | 1. 确保 `frontend.tsx` 第一行为 `import React from 'react';`<br>2. ≤0.3.14 检查 tsconfig/esbuild 用经典模式（`jsx: 'transform'` / `"jsx": "react"`）；0.3.15+ 两种模式均可 |
+| `CAPABILITY_DENIED: Required capability 'xxx' missing` | 插件未在 `manifest.capabilitiesProposed` 申请该权限，或未获得用户/管理员批准 | 1. 在 `manifest.capabilitiesProposed` 中补充对应的权限字符串<br>2. 在 OpenLearn 管理后台重新激活插件并确认授权 |
+| `TOKEN_NOT_FOUND: Service Token 'xxx' is not registered` | 在 `manifest.requires` 中遗漏了所需依赖服务的 Token | 检查代码中调用的 `ctx.services` 或 `ctx.resolve(Token)`，确保在 `manifest.requires` 数组中添加对应的包 Token 声明 |
+| `HANDLER_ALREADY_EXISTS: CommandType 'xxx' is already registered` | 试图对同一个 commandType 多次调用 `registerHandler` | 检查插件是否有重复激活逻辑，或前一次 `deactivate` 未成功注销 handler |
+| 白板工具栏样式错乱/工具按钮被挤压 | `classroom.tool` 槽位直接渲染了带有 `width/height` 的弹窗或 Modal DOM | 使用 `ReactDOM.createPortal(JSX, document.body)` 将弹窗面板挂载到 `document.body`，让槽位组件本身仅保持图标尺寸 |
+| 无法收发 Socket.IO 实时消息 | 前后端 channel 名称未统一，或前端未解绑导致重复监听 | 格式化频道命名规则（如 `prefix.action_done`），并在组件卸载时在 `useEffect` 清理函数中调用 `socket.off(...)` |
+
+---
 
 ## 资源文件说明
 
 | 文件 | 说明 |
 |------|------|
-| `references/.cache-meta.json` | 缓存元信息（lastUpdated 日期），用于探活比对 |
+| `references/.cache-meta.json` | 缓存元信息（lastUpdated 日期 + docSiteVersion 构建版本），用于探活比对 |
 | `references/plugin-development-tutorial.md` | 插件开发完全指南本地快照（API、Action/Handler/Event、前端、安全） |
 | `references/architecture.md` | 架构总览本地快照（CommandBus、生命周期、Worker Thread、DI、安全模型） |
-| `references/scaffold.md` | 脚手架指南本地快照（CLI 命令、模板、常见问题） |
-| `assets/server-only/` | server-only 插件模板 |
-| `assets/full-stack/` | full-stack 插件模板 |
-| `assets/frontend-only/` | frontend-only 插件模板 |
+| `references/scaffold.md` | 脚手架指南本地快照（CLI 命令、模板、构建、测试、常见问题） |
+| `references/troubleshooting.md` | **故障归因 SOP**（证据清单、归因决策树、系统侧证据门槛、最小复现实验、已知系统问题索引、输出规范） |
+| `assets/bug-report-template.md` | **系统侧 Bug 报告模板**（环境信息、复现步骤、完整堆栈、最小复现插件、对照实验、已排除项） |
+| `assets/server-only/` | server-only 插件模板（已增加完整清理 SOP 与 Token 注释） |
+| `assets/full-stack/` | full-stack 插件模板（包含 Socket 架构、Portal 防挤压与规范导入） |
+| `assets/frontend-only/` | frontend-only 插件模板（全槽位 Props 与响应式组件示范） |
 
 ### 在线文档地址
 
 | 文档 | URL |
 |------|-----|
 | 索引页（探活用） | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/` |
-| 插件开发完全指南 | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin-development-tutorial.html` |
-| 架构总览 | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/architecture_review_report.html` |
-| 脚手架指南 | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/scaffold.html` |
+| 插件开发完全指南 | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/tutorials/plugin-development-tutorial.html` |
+| 架构总览（多页汇编入口） | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/architecture/system-overview.html` |
+| 插件宿主与生命周期 | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin/plugin-architecture.html` |
+| 脚手架指南 | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/sdk/scaffold-cli.html` |
+| 故障排查 FAQ | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/troubleshooting/troubleshooting-faq.html` |
+| Release Notes（已知缺陷） | `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/release-notes/v0.3.16.html` |
+

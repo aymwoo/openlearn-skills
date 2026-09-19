@@ -1,35 +1,20 @@
-<!DOCTYPE html> 
+[缓存自 https://openlearn-next-v2.readthedocs.io/zh-cn/latest/tutorials/plugin-development-tutorial.html]
 
-* [](https://openlearn-next-v2.readthedocs.io/zh-cn/latest/index.html)
-* OpenLearnV2 插件开发完全指南
-* [ 查看页面源码](https://openlearn-next-v2.readthedocs.io/zh-cn/latest/%5Fsources/plugin-development-tutorial.md.txt)
+# OpenLearnV2 插件开发完全指南
 
----
+> 📅 **最后更新**：2026-07-27
+>
+> 本文档描述 Worker Thread 隔离模式与 Inline 模式的 API 差异。若你的插件运行在 Worker 模式下，请务必阅读 [§8.1.1 Worker 与 Inline 模式 API 差异](#worker-inline-mode-api)。
 
-# OpenLearnV2 插件开发完全指南[](#openlearnv2 "链接到此标题。")
 
-## 目录[](#id1 "链接到此标题。")
 
-1. [系统架构概述](#id2)
-2. [开发原理](#id6)
-3. [插件结构详解](#id11)
-4. [手把手实例项目](#id12)
-5. [API 及接口文档](#api)
-6. [前端插件系统](#id18)
-7. [安全与权限](#id21)
-8. [高级特性](#id25)
-9. [测试与调试](#9-%E6%B5%8B%E8%AF%95%E4%B8%8E%E8%B0%83%E8%AF%95)
-10. [发布前自检清单](#id33)
-11. [发布与分发](#id38)
+## 1. 系统架构概述
 
----
-
-## 1\. 系统架构概述[](#id2 "链接到此标题。")
-
-### 1.1 设计理念[](#id3 "链接到此标题。")
+### 1.1 设计理念
 
 OpenLearnV2 采用 **插件驱动的命令-事件总线架构**（Plugin-Driven Command-Event Bus）。灵感来源于操作系统内核设计：一个精简的核心内核提供基础能力，所有业务功能通过插件实现。
 
+```
 ┌──────────────────────────────────────────────────────────────┐
 │                      OpenLearnV2 OS                          │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -57,25 +42,27 @@ OpenLearnV2 采用 **插件驱动的命令-事件总线架构**（Plugin-Driven 
 │  │     SQLite Database (30+ 表) + ServiceRegistry    │      │
 │  └───────────────────────────────────────────────────┘      │
 └──────────────────────────────────────────────────────────────┘
+```
 
-### 1.2 核心子系统[](#id4 "链接到此标题。")
+### 1.2 核心子系统
 
-| 子系统                    | 文件                                            | 职责                                                               |
-| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------- |
-| **Kernel**             | packages/core/kernel/index.ts                 | 全局单例容器，分层组装所有子系统（Layer 0-3），引导系统插件启动                             |
-| **CommandBus**         | packages/core/command-bus/index.ts            | 命令执行管线：注册 handler → 拦截器链（JSON Schema校验→CapabilityGuard→高危审批）→ 执行 |
-| **EventBus**           | packages/core/event-bus/index.ts              | 发布/订阅事件，支持通配符 \*，异步并行通知                                          |
-| **ActionRegistry**     | packages/core/registry/index.ts               | 注册 AI Agent 可发现的工具                                               |
-| **CapabilityGuard**    | packages/core/capability-system/index.ts      | 基于字符串的 RBAC 权限控制                                                 |
-| **ProcessManager**     | packages/core/process-manager/index.ts        | 后台进程和定时任务管理                                                      |
-| **PluginHost**         | packages/core/plugin-host/index.ts            | 插件生命周期：安装/激活/停用/卸载/热重载，中间件管道                                     |
-| **ServiceRegistry**    | packages/core/di/service-registry.ts          | 依赖注入容器，Token 驱动，依赖图验证                                            |
-| **ResourceTracker**    | packages/core/plugin-host/resource-tracker.ts | 按 pluginId 管理 Disposable 资源，保证精确清理                               |
-| **WorkerManager**      | packages/core/worker-manager/index.ts         | Worker Thread 隔离模式管理                                             |
-| **FrontendPluginHost** | src/plugin-host/plugin-host.ts                | 前端插件生命周期管理，支持 inline/worker 模式                                   |
+| 子系统 | 文件 | 职责 |
+|--------|------|------|
+| **Kernel** | `packages/core/kernel/index.ts` | 全局单例容器，分层组装所有子系统（Layer 0-3），引导系统插件启动 |
+| **CommandBus** | `packages/core/command-bus/index.ts` | 命令执行管线：注册 handler → 拦截器链（JSON Schema校验→CapabilityGuard→高危审批）→ 执行 |
+| **EventBus** | `packages/core/event-bus/index.ts` | 发布/订阅事件，支持通配符 `*`，异步并行通知 |
+| **ActionRegistry** | `packages/core/registry/index.ts` | 注册 AI Agent 可发现的工具 |
+| **CapabilityGuard** | `packages/core/capability-system/index.ts` | 基于字符串的 RBAC 权限控制 |
+| **ProcessManager** | `packages/core/process-manager/index.ts` | 后台进程和定时任务管理 |
+| **PluginHost** | `packages/core/plugin-host/index.ts` | 插件生命周期：安装/激活/停用/卸载/热重载，中间件管道 |
+| **ServiceRegistry** | `packages/core/di/service-registry.ts` | 依赖注入容器，Token 驱动，依赖图验证 |
+| **ResourceTracker** | `packages/core/plugin-host/resource-tracker.ts` | 按 pluginId 管理 Disposable 资源，保证精确清理 |
+| **WorkerManager** | `packages/core/worker-manager/index.ts` | Worker Thread 隔离模式管理 |
+| **FrontendPluginHost** | `src/plugin-host/plugin-host.ts` | 前端插件生命周期管理，支持 inline/worker 模式 |
 
-### 1.3 数据流[](#id5 "链接到此标题。")
+### 1.3 数据流
 
+```
 用户发送消息 → POST /api/agent/chat
   → AI 模型返回 functionCall（如 lesson.create）
   → executeAgentToolCall() 通过 ActionRegistry.getActionByToolName() 查找 action
@@ -87,24 +74,28 @@ OpenLearnV2 采用 **插件驱动的命令-事件总线架构**（Plugin-Driven 
   → EventBus.publish() 发布事件（异步并行通知所有订阅者）
   → Socket.IO 推送给在线客户端
   → 返回结果给 AI Agent（继续对话或结束）
+```
 
 ---
 
-## 2\. 开发原理[](#id6 "链接到此标题。")
+## 2. 开发原理
 
-### 2.1 插件即 ESM 模块[](#esm "链接到此标题。")
+### 2.1 插件即 ESM 模块
 
 插件是一个导出了 `manifest` 和 `activate` 函数的 JavaScript/TypeScript 模块：
 
+```typescript
 // 插件的最小结构
 export default {
   manifest: { ... },
   activate: async (ctx: PluginContext) => { ... },
   deactivate: async () => { ... },  // 可选
 };
+```
 
-### 2.2 双运行时架构[](#id7 "链接到此标题。")
+### 2.2 双运行时架构
 
+```
 ┌─ 服务端（Node.js） ─────────────────────┐
 │  PluginHost → inline/worker 执行模式     │
 │  • inline: 直接在同一进程中运行           │
@@ -118,11 +109,13 @@ export default {
 │  • 扩展点注册（UI 面板/工具/视图）       │
 │  • 浏览器 API 服务注入                   │
 └─────────────────────────────────────────┘
+```
 
-### 2.3 依赖注入[](#id8 "链接到此标题。")
+### 2.3 依赖注入
 
 插件通过 **Token** 声明依赖，由 ServiceRegistry 自动解析注入：
 
+```typescript
 import { ICommandBusServiceToken, IDatabaseToken } from '@openlearn/plugin-sdk';
 
 // 在 activate 中解析依赖
@@ -133,18 +126,22 @@ const db = await ctx.resolve(IDatabaseToken);
 // 也可以通过 ctx.services 直接访问 7 个内核服务
 const eventBus = ctx.services.eventBus;
 const ai = ctx.services.ai;
+```
 
 **V3.2 新增**：插件可通过 `ctx.provide()` 向 DI 容器注册自定义服务给其他插件消费：
 
+```typescript
 // 插件 A：注册自定义服务
 // V3.2: use Token instead of string
 await ctx.provide(QuestionBankToken, myQuestionBank);
 
 // 插件 B：消费该服务
 const qb = await ctx.resolve({ name: '@my-scope/IQuestionBankService' } as any);
+```
 
-### 2.4 PluginContext 完整接口[](#plugincontext "链接到此标题。")
+### 2.4 PluginContext 完整接口
 
+```typescript
 interface PluginContext {
   // 7 个内核服务接口（直接访问）
   services: {
@@ -166,7 +163,7 @@ interface PluginContext {
   // 插件专用数据库
   db: PluginDatabaseAPI;      // 命名空间隔离的 SQLite 操作（含 migrate() 迁移）
 
-  // V0.1.9 结构化日志（自动注入 pluginId 和 timestamp）
+  // V2.5 结构化日志（自动注入 pluginId 和 timestamp）
   log: IPluginLogger;         // 支持 debug/info/warn/error 四级
 
   // V3.2: 类型安全的配置服务
@@ -175,76 +172,101 @@ interface PluginContext {
   // V3.2: 声明式贡献点只读视图
   contributions: ContributionAccessor; // list(): 内省插件在 manifest 中声明的贡献点
 
-  // V5.1: 主应用共享模块引用（白名单控制）
+  // V2.5: 主应用共享模块引用（白名单控制）
   require(moduleName: string): any;
 }
+```
 
-### 2.5 生命周期状态机[](#id9 "链接到此标题。")
+> ⚠️ **Worker 模式限制**：以上接口为 Inline 模式的完整 API。在 Worker Thread 隔离模式下，`ctx.config`、`ctx.provide()` 不可用，`ctx.db.migrate()` 回调仅暴露 `prepare()`，`eventBus` 使用 `subscribe()/unsubscribe()` 而非 `on()/off()`。详见 [8.1.1 Worker 与 Inline 模式 API 差异](#worker-inline-mode-api)。
 
+### 2.5 生命周期状态机
+
+```
 INSTALLED ──→ ACTIVATING ──→ ACTIVE ──→ DEACTIVATING ──→ INACTIVE
                                   │                           │
                                   └──── ERROR ←───────────────┘
                                                         │
 INACTIVE ──→ ACTIVATING（重新激活）                      │
 ERROR ──→ ACTIVATING（重试）          UNINSTALLED ←──────┘
+```
 
-* **INSTALLED**：源码已持久化，尚未激活
-* **ACTIVATING**：正在执行 `activate()`（瞬态，不超过 10 秒）
-* **ACTIVE**：正常运行中
-* **INACTIVE**：已停用，可通过 toggle 重新激活
-* **ERROR**：激活失败，可重试或卸载
+- **INSTALLED**：源码已持久化，尚未激活
+- **ACTIVATING**：正在执行 `activate()`（瞬态，不超过 10 秒）
+- **ACTIVE**：正常运行中
+- **INACTIVE**：已停用，可通过 toggle 重新激活
+- **ERROR**：激活失败，可重试或卸载
 
-### 2.6 版本兼容性速查表[](#id10 "链接到此标题。")
+
+### 2.6 版本兼容性速查表
 
 开发插件前，先确认目标 OpenLearn 版本。以下特性按版本分组，选择适合你的目标版本。
 
+> **版本说明**：自 v0.2.3 起，宿主 API 版本与平台发行版本已统一（现为 `0.2.x`）。下表“最低版本”为统一后的平台版本。
+
 **API 特性版本要求：**
 
-| 特性                      | 最低版本 | 说明                                                     |
-| ----------------------- | ---- | ------------------------------------------------------ |
-| ctx.log                 | 0.1.9| 结构化日志（debug/info/warn/error），自动注入 pluginId 和 timestamp |
-| ctx.config              | 3.0  | 类型安全的配置读取，配合 manifest.configuration 声明                 |
-| ctx.provide()           | 3.0  | 向 DI 容器注册自定义服务供其他插件消费                                  |
-| ctx.require()           | 5.1  | 引用主应用白名单共享模块（recharts、jspdf 等）                         |
-| ctx.invokeCommand()（前端） | 0.1.9| 前端直接调用后端 CommandBus                                    |
-| teacher.panel 扩展槽位      | 5.1  | 教师独立全宽管理面板                                             |
-| student.fullscreen 扩展槽位 | 5.1  | 学生全屏视图/考试模式                                            |
-| global.setting 扩展槽位     | 5.1  | 全局设置页扩展                                                |
+| 特性 | 最低版本 | 说明 |
+|------|----------|------|
+| `ctx.log` | 0.2.x | 结构化日志（debug/info/warn/error），自动注入 pluginId 和 timestamp |
+| `ctx.config` | 0.2.x | 类型安全的配置读取，配合 manifest.configuration 声明 |
+| `ctx.provide()` | 0.2.x | 向 DI 容器注册自定义服务供其他插件消费 |
+| `ctx.require()` | 0.2.x | 引用主应用白名单共享模块（recharts、jspdf 等） |
+| `ctx.invokeCommand()`（前端） | 0.2.x | 前端直接调用后端 CommandBus |
+| `teacher.panel` 扩展槽位 | 0.2.x | 教师独立全宽管理面板 |
+| `student.fullscreen` 扩展槽位 | 0.2.x | 学生全屏视图/考试模式 |
+| `global.setting` 扩展槽位 | 0.2.x | 全局设置页扩展 |
+| `anchor:*` 锚点扩展槽位 | 0.2.6 | 宿主原生按钮/元素前后插入插件按钮 |
+| Worker DB `exec()` 转发 | 0.3.9 | Worker 隔离模式下支持通过 `ctx.resolve(IDatabaseToken)` 执行异步 `exec()` |
+| `ctx.http` RESTful API | 0.3.11 | 内置 RESTful 路由器、网关纵深防御与 Worker RPC 隔离（SDK 3.6.0） |
 
 **扩展槽位版本可用性一览：**
 
-| 槽位                       | 最低版本 | 适用角色 |
-| ------------------------ | ---- | ---- |
-| teacher.tab              | 1.0  | 教师   |
-| teacher.dashboard.widget | 1.0  | 教师   |
-| student.view             | 1.0  | 学生   |
-| student.lesson.tool      | 1.0  | 学生   |
-| classroom.tool           | 1.0  | 课堂教学 |
-| teacher.panel            | 5.1  | 教师   |
-| student.fullscreen       | 5.1  | 学生   |
-| global.setting           | 5.1  | 管理员  |
+| 槽位 | 最低版本 | 适用角色 |
+|------|----------|----------|
+| `teacher.tab` | 0.1.x | 教师 |
+| `teacher.dashboard.widget` | 0.1.x | 教师 |
+| `student.view` | 0.1.x | 学生 |
+| `student.lesson.tool` | 0.1.x | 学生 |
+| `classroom.tool` | 0.1.x | 课堂教学 |
+| `teacher.panel` | 0.2.x | 教师 |
+| `student.fullscreen` | 0.2.x | 学生 |
+| `global.setting` | 0.2.x | 管理员 |
+| `anchor:*` | 0.2.6 | 教师/学生（按锚点所在宿主界面） |
 
-> **提示**：在 manifest.engines.openlearn 中声明目标版本，如 `"^5.1.0"`。安装时 PluginHost 自动检查兼容性。
+> **提示**：在 manifest.engines.openlearn 中声明目标版本范围，如 `">=0.2.5"`。安装时 PluginHost 自动检查兼容性。
+>
+> ⚠️ **版本号说明**：OpenLearn 存在独立的版本号维度，请勿混淆：
+> | 版本 | 说明 | 用途 |
+> |------|------|------|
+> | 平台发行版本 | 当前 `0.3.11` | 主应用平台发布版本（根目录 `package.json`） |
+> | 宿主 API 版本 | 当前 `0.3.11` | `engines.openlearn` 检查所用的版本（与平台版本单一真理源保持强一致） |
+> | SDK 版本 | 当前 `3.6.0` | `@openlearn/plugin-sdk` npm 包版本，独立语义化版本管理 |
+>
+> **`engines.openlearn` 应填写宿主版本兼容范围（推荐声明为 `>=0.2.5`）**，而非 SDK 版本。
 
-### 2.4 导航页面 vs. 白板组件 — 如何区分？[](#vs "链接到此标题。")
+### 2.7 导航页面 vs. 白板组件 — 如何区分？
 
 同一个插件可以注册到不同的 slot，**每个 slot 绑定独立的 React 组件**，无需任何 if-else 分支来区分。
 
 **核心规则：**
 
-| Slot                     | 渲染位置           | 组件收到的 props             | 适用场景                         |
-| ------------------------ | -------------- | ----------------------- | ---------------------------- |
-| teacher.tab              | 侧边栏导航 → 全屏独立页面 | { renderType: 'panel' } | 管理界面（列表、设置、数据看板）             |
-| teacher.dashboard.widget | 白板内的可拖拽卡片      | { elementId, lessonId } | 课堂交互组件（编辑、答题、展示）             |
-| classroom.tool           | 课堂互动工具架按钮      | —                       | 工具栏入口，点击后通过 commandType 触发动作 |
-| student.view             | 学生端全屏视图        | { studentId }           | 学生操作界面                       |
+| Slot | 渲染位置 | 组件收到的 props | 适用场景 |
+|------|---------|-----------------|---------|
+| `teacher.tab` | 侧边栏导航 → 全屏独立页面 | `{ renderType: 'panel' }` | 管理界面（列表、设置、数据看板） |
+| `teacher.dashboard.widget` | 白板内的可拖拽卡片 | `{ elementId, lessonId }` | 课堂交互组件（编辑、答题、展示） |
+| `classroom.tool` | 课堂工具架按钮 & 备课画板组件卡片 | — | 画板工具栏快捷入口与 `LessonPalette` 组件列表入口，注册后教师可在画板中快速点击/插入 |
+| `student.view` | 学生端全屏视图 | `{ studentId }` | 学生操作界面 |
+| `anchor:*` | 宿主原生按钮/元素前后（`placement: 'before'/'after'`） | — | 在指定按钮前后插入插件按钮，锚点目录见 [`docs/plugin/anchor-slots.md`](../plugin/anchor-slots.md) |
 
 **`teacher.tab` 和 `teacher.dashboard.widget` 的关键区别：**
 
 1. **容器不同**：`teacher.tab` 是全屏页面（`flex-1 overflow-auto`），适合列表、设置等管理界面；`teacher.dashboard.widget` 是白板内固定尺寸的卡片，适合课堂即时交互。
+
 2. **props 不同**：白板组件额外接收 `elementId`（当前白板元素 ID）和 `lessonId`（当前课节 ID），可用于数据隔离和持久化。
+
 3. **ID 匹配机制**：`teacher.dashboard.widget` 的 `id` 必须与 `manifest.classroomTools[].payload.data.teacherWidgetId` 一致，`PluginCardRenderer` 通过这个 ID 查找对应组件：
 
+```json
 // manifest.json — classroomTools 声明
 {
   "classroomTools": [{
@@ -256,21 +278,76 @@ ERROR ──→ ACTIVATING（重试）          UNINSTALLED ←─────�
     }
   }]
 }
+```
 
+```js
 // frontend.js — 组件注册，id 必须与 payload 中的 teacherWidgetId 一致
 ctx.ui.registerExtensionPoint('teacher.dashboard.widget', {
     id: 'my-widget',           // ← 匹配 payload.data.teacherWidgetId
     component: MyWidget,
 });
+```
 
 **典型模式：导航页 = 管理界面，白板组件 = 交互工具。** 例如作业中心应在 `teacher.tab` 注册作业列表管理页，在 `teacher.dashboard.widget` 注册具体某次作业的提交/批改面板。两者共享 `elementId`/`lessonId` 即可通过后端 API 打通数据。
 
+> **控制 Dashboard 可见性**：插件可在 `manifest.configuration.properties` 中声明 `showInDashboard`（`boolean`，默认 `true`）。用户可在插件中心的每张卡片上切换此开关，系统将自动隐藏/显示该插件的 Dashboard 小部件。详见 [5.11 IConfigService](#511-iconfigservicev32-新增)。
+
 ---
 
-## 3\. 插件结构详解[](#id11 "链接到此标题。")
+### 2.8 使用 AI Skill 快速开发（推荐）
 
-### 3.1 Manifest 完整规范[](#manifest "链接到此标题。")
+除了手动参考本指南编写代码，推荐使用官方的 **OpenLearn 插件开发 Skill** 来辅助开发。Skill 是运行在 Antigravity / Codex / Claude Code 中的 AI 代理套件，整合了最新 OpenLearn V2（平台 `0.2.9`、SDK `@openlearn/plugin-sdk@3.5.2` 与测试包 `@openlearn/plugin-test-kit`）的架构规范，能自动化插件开发的大部分流程。
 
+**安装与配置：**
+
+```bash
+# 使用 Antigravity CLI 或 npx 快捷添加官方开发 Skill
+npx skills add aymwoo/openlearn-skills/openlearn-next-plugin-dev
+```
+
+安装后，在 Agent 对话中提及 OpenLearn 插件开发相关需求（例如：“*帮我写一个基于 Node 隔离沙箱的课堂互动抽奖插件*”），Skill 将会自动激活。
+
+**Skill 核心能力（适配 OpenLearn V2 最新架构）：**
+
+| 能力维度 | 最新架构适配说明 |
+|---|---|
+| 📖 **权威文档与 SDK 契约** | 实时对齐 `@openlearn/plugin-sdk@3.5.2` API，包含强类型 `Token<T>`、`ctx.provide()` 自定义服务共享以及活动生态 `IActivityRegistryToken` 契约。 |
+| 💬 **结构化交互设计确认** | 自动引导确认插件模式（`server-only` / `full-stack` / `frontend-only`）、Worker Thread 沙箱权限、UI 扩展槽位（`teacherTab`, `classroomTool` 等）及表结构。 |
+| 🏗️ **标准脚手架与代码生成** | 自动生成包含 `package.json`、`tsconfig.json`、`src/index.ts` (后端 Worker 逻辑) 和 `src/frontend.tsx` (React 19 组件) 的标准项目工程。 |
+| 🛡️ **安全与规范防错** | 自动校验 CQRS 三件套模式（`ActionRegistry` → `CommandBus` → `EventBus`）、CapabilityGuard 权限申报、SQLite 增量迁移脚本与 ESM 沙箱导出规范。 |
+| 🧪 **测试套件集成** | 自动生成基于 `@openlearn/plugin-test-kit@3.3.1` 的 Vitest 单元测试桩（支持 `createMockContext()` 工厂）。 |
+| 📦 **一键打包与发布** | 提供 `npx @openlearn/plugin-sdk build` 命令行指导，生成经过 Manifest Schema 验证的插件 `.zip` 分发包。 |
+
+**AI 辅助开发标准化工作流：**
+
+```
+用户提出需求：「帮我开发一个随堂互动小测验插件」
+  → Skill 自动载入 @openlearn/plugin-sdk@3.5.2 规格与核心 Token
+  → 交互式确认：用途、沙箱权限 (vfs/lesson/db)、扩展槽位 (teacherTab/classroomTool)
+  → 选择插件模板 (full-stack / server-only / frontend-only)
+  → 生成项目结构与代码 (Action/Command/Event + React 19 UI)
+  → 自动生成 @openlearn/plugin-test-kit 单元测试
+  → 执行 npx @openlearn/plugin-sdk build 编译生成 ZIP 扩展包
+  → 提示在 OpenLearn V2 后台管理中上传激活并测试
+```
+
+**支持的标准插件模板：**
+
+| 模板类型 | 运行环境 | 生成的核心文件 |
+|---|---|---|
+| `server-only` | Node.js Worker Thread | `package.json`, `tsconfig.json`, `src/index.ts` |
+| `full-stack` | Worker Thread + 前端微前端 | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx` |
+| `frontend-only` | 前端 React 19 渲染层 | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx` |
+
+**官方 Skill 资源与存储库**：[github.com/aymwoo/openlearn-skills](https://github.com/aymwoo/openlearn-skills)
+
+> 💡 **提示**：在开发复杂插件时，直接使用 AI Skill 生成的基础代码天然遵循平台的 5 阶段启动流水线、DI Token 依赖注入与沙箱隔离规范，可提升 5~10 倍的开发效率。
+
+## 3. 插件结构详解
+
+### 3.1 Manifest 完整规范
+
+```typescript
 interface Manifest {
   id: string;                    // 唯一标识，推荐格式 @scope/name
   name: string;                  // 显示名称
@@ -279,7 +356,7 @@ interface Manifest {
   description?: string;          // 描述
   author?: string;               // 作者
   engines?: {                    // 引擎版本约束
-    openlearn?: string;          // 如 "^0.1.9"
+    openlearn?: string;          // 宿主版本范围，如 ">=0.2.5"
   };
   requires: string[];            // 依赖的服务 Token（格式 @openlearn/core:TokenName@^1.0.0）
   optional?: string[];           // 可选依赖
@@ -288,6 +365,10 @@ interface Manifest {
   provides?: string[];           // V3.2: 插件对外提供的自定义服务 Token 名称
   configuration?: {              // V3.2: 声明式配置 schema
     properties: Record<string, ConfigProperty>;
+  };
+  updateSource?: {               // V3.4.3: 远端更新源声明
+    type: 'github-release' | 'gitee-release';
+    repo: string;                // 仓库路径，如 "user/repo-name"
   };
 }
 
@@ -307,32 +388,80 @@ interface ClassroomTool {
   commandType: string; // 关联的命令类型
   payload?: any;      // 默认 payload
 }
+```
 
-### 3.2 PluginContext — 插件上下文的完整 API[](#plugincontext-api "链接到此标题。")
+#### 3.1.1 远端更新检测（V3.4.3 新增）
 
-插件通过 `activate(ctx)` 接收上下文对象。`ctx.services` 直接提供 7 个内核服务，无需 DI 解析：
+在 `manifest.json` 中声明 `updateSource` 字段后，平台插件中心可自动检测远端仓库（GitHub / Gitee）Release 中的新版本，并支持一键热更新。
 
-| 服务             | 访问方式                        | 用途       |
-| -------------- | --------------------------- | -------- |
-| CommandBus     | ctx.services.commandBus     | 注册/执行命令  |
-| EventBus       | ctx.services.eventBus       | 发布/订阅事件  |
-| ActionRegistry | ctx.services.actionRegistry | 注册 AI 工具 |
-| Capability     | ctx.services.capability     | 权限管理     |
-| Process        | ctx.services.processManager | 后台进程     |
-| Storage        | ctx.services.storage        | K-V 存储   |
-| AI             | ctx.services.ai             | 文本生成     |
+```json
+{
+  "updateSource": {
+    "type": "github-release",
+    "repo": "user/plugin-repo-name"
+  }
+}
+```
+
+**检测机制**：
+1. 服务端优先使用 `git ls-remote --tags` 获取所有 semver tag，若不可用则回退到 GitHub/Gitee Releases HTTP API
+2. 优先推荐最新稳定版；若无稳定版更新则提示预发布（pre-release）版本
+3. Version tag 需遵循 semver 格式（可带 `v` 前缀），如 `v1.2.0`、`2.0.0-beta.1`
+
+**下载与安装**：
+- 服务端优先从 Release Assets 中拉取 `.zip` 更新包直接安装
+- 若服务端下载超时（15s），自动切换至浏览器直传安装
+- 用户可在插件卡片上点击「检查更新」手动触发检测
+
+> 💡 **提示**：`updateSource` 为可选字段。不声明此字段的插件在点击「检查更新」时会自动回退扫描本地 `v2_plugins/*/manifest.json` 进行对比更新（v0.3.10+）。
+
+#### 3.1.2 静态 RESTful 路由与安全配置声明（v0.3.11 新增）
+
+若插件对外暴露 HTTP API，建议在 `manifest.json` 中声明 `api.routes`，以便宿主安全网关进行静态合规审计与前置 RBAC 拦截：
+
+```json
+{
+  "api": {
+    "routes": [
+      { "method": "GET", "path": "/public-stats", "auth": false },
+      { "method": "POST", "path": "/records", "auth": true, "roles": ["teacher", "administrator"], "rateLimit": { "max": 60, "windowMs": 60000 } }
+    ]
+  }
+}
+```
+
+### 3.2 PluginContext — 插件上下文的完整 API
+
+插件通过 `activate(ctx)` 接收上下文对象。`ctx.services` 直接提供 7 个内核核心服务，同时还直接提供了内置的日志、自建表数据库与 HTTP 路由器：
+
+| 功能 / 服务 | 访问方式 | 用途 |
+|---|---|---|
+| CommandBus | `ctx.services.commandBus` | 注册/执行命令 |
+| EventBus | `ctx.services.eventBus` | 发布/订阅事件 |
+| ActionRegistry | `ctx.services.actionRegistry` | 注册 AI 工具 |
+| Capability | `ctx.services.capability` | 权限管理 |
+| Process | `ctx.services.processManager` | 后台进程 |
+| Storage | `ctx.services.storage` | 专属键值存储 |
+| AI | `ctx.services.ai` | 文本与大模型生成 |
+| **HTTP Router** | `ctx.http` | **（v0.3.11 新增）注册 RESTful API（GET/POST/PUT/DELETE 等）** |
+| Database API | `ctx.db` | 命名空间自建表操作与版本迁移 (`migrate`) |
+| Structured Log | `ctx.log` | 自动携带 pluginId 与时间戳的结构化日志 |
 
 通过 DI 解析更多服务（`IDatabaseToken`、`IPluginHostToken` 等）：
 
+```typescript
 import { IDatabaseToken } from '@openlearn/plugin-sdk';
 const db = await ctx.resolve(IDatabaseToken);
 
-### 3.3 命令-事件-Action 三件套[](#action "链接到此标题。")
+```
+
+### 3.3 命令-事件-Action 三件套
 
 这是插件开发的核心模式。每个业务功能需要三样东西：
 
-#### 3.3.1 Action 注册（AI Agent 可调用）[](#action-ai-agent "链接到此标题。")
+#### 3.3.1 Action 注册（AI Agent 可调用）
 
+```typescript
 await actionRegistry.register({
   id: 'my-plugin-action',          // 唯一 ID
   commandType: 'myplugin.action',   // 对应的命令类型
@@ -348,9 +477,11 @@ await actionRegistry.register({
     required: ['param1'],
   },
 });
+```
 
-#### 3.3.2 Command Handler（业务逻辑）[](#command-handler "链接到此标题。")
+#### 3.3.2 Command Handler（业务逻辑）
 
+```typescript
 await commandBus.registerHandler('myplugin.action', {
   async execute(command) {
     const payload = command.payload as any;
@@ -372,11 +503,13 @@ await commandBus.registerHandler('myplugin.action', {
     return { success: true, result };
   },
 });
+```
 
-#### 3.3.3 Event 发布[](#event "链接到此标题。")
+#### 3.3.3 Event 发布
 
 事件命名规则：**过去式**，点号分隔，如 `lesson.created`、`assignment.graded`。
 
+```typescript
 await eventBus.publish({
   id: crypto.randomUUID(),
   type: 'myplugin.action_done',
@@ -385,6 +518,7 @@ await eventBus.publish({
   timestamp: Date.now(),
   correlationId: command.id,  // 关联原始命令
 });
+```
 
 **⚠️ classroomTools 必须注册 Handler：**
 
@@ -392,22 +526,25 @@ await eventBus.publish({
 
 即使命令不执行实际业务逻辑（仅用于触发前端面板打开），也需注册一个空 handler：
 
+```typescript
 await commandBus.registerHandler('myplugin.open_panel', {
   async execute() {
     return { panel: 'teacher' };
   },
 });
+```
 
 ---
 
-## 4\. 手把手实例项目[](#id12 "链接到此标题。")
+## 4. 手把手实例项目
 
-### 4.1 项目：随堂投票插件[](#id13 "链接到此标题。")
+### 4.1 项目：随堂投票插件
 
 我们将创建一个完整的"随堂投票"插件，教师可以在白板上创建投票，学生提交选票，实时显示结果。
 
-#### 4.1.1 创建数据库表[](#id14 "链接到此标题。")
+#### 4.1.1 创建数据库表
 
+```typescript
 // poll-plugin.ts
 export default {
   manifest: {
@@ -417,7 +554,7 @@ export default {
     main: 'index.js',
     description: '在课堂上创建实时投票，收集学生回答',
     author: 'Your Name',
-    engines: { openlearn: '^0.1.9' },
+    engines: { openlearn: '>=0.2.5' },
     requires: [
       '@openlearn/core:ICommandBusService@^1.0.0',
       '@openlearn/core:IActionRegistryService@^1.0.0',
@@ -608,31 +745,35 @@ export default {
     console.log('[Poll Plugin] Deactivated');
   },
 };
+```
 
-#### 4.1.2 在系统设置中安装[](#id15 "链接到此标题。")
+#### 4.1.2 在系统设置中安装
 
 1. 进入「系统设置」→「插件中心」
 2. 将上述代码粘贴到代码编辑器
 3. 点击「安装插件」
 4. 在插件列表中找到 `@openlearn/plugin-poll`，点击激活
 
-#### 4.1.3 使用 AI Agent 调用[](#ai-agent "链接到此标题。")
+#### 4.1.3 使用 AI Agent 调用
 
 安装后，AI Agent 自动获得以下工具：
 
+```
 poll.create   — 创建随堂投票
 poll.vote     — 学生投票
 poll.get_results — 查询结果
 poll.close    — 关闭投票
+```
 
 教师可以直接对 AI 说：**"在今天的物理课上创建一个投票，问题是'光速是否为宇宙中最快的速度？'，选项为：是、否、不确定"**
 
 ---
 
-## 5\. API 及接口文档[](#api "链接到此标题。")
+## 5. API 及接口文档
 
-### 5.1 命令定义[](#id16 "链接到此标题。")
+### 5.1 命令定义
 
+```typescript
 interface PlatformCommand<T = unknown> {
   id: string;           // UUID v7
   type: string;         // 命令类型，点号分隔如 "lesson.create"
@@ -646,31 +787,79 @@ interface PlatformCommand<T = unknown> {
     [key: string]: unknown;
   };
 }
+```
 
-### 5.2 服务 Token（依赖注入）[](#token "链接到此标题。")
+### 5.2 服务 Token（依赖注入）
 
-| Token 常量                    | 标识符                                    | 返回类型                      | 用途        |
-| --------------------------- | -------------------------------------- | ------------------------- | --------- |
-| ICommandBusServiceToken     | @openlearn/core:ICommandBusService     | ICommandBusService        | 命令执行、注册   |
-| IEventBusServiceToken       | @openlearn/core:IEventBusService       | IEventBusService          | 事件发布/订阅   |
-| IActionRegistryServiceToken | @openlearn/core:IActionRegistryService | IActionRegistryService    | AI 工具注册   |
-| ICapabilityServiceToken     | @openlearn/core:ICapabilityService     | ICapabilityService        | 权限管理      |
-| IProcessServiceToken        | @openlearn/core:IProcessService        | IProcessService           | 后台进程      |
-| IStorageServiceToken        | @openlearn/core:IStorageService        | IStorageService           | K-V 存储    |
-| IAIServiceToken             | @openlearn/core:IAIService             | IAIService                | AI 文本生成   |
-| IDatabaseToken              | @openlearn/core:IDatabase              | Database (better-sqlite3) | 直接 SQL 访问 |
+| Token 常量 | 标识符 | 返回类型 | 用途 |
+|-----------|--------|---------|------|
+| `ICommandBusServiceToken` | `@openlearn/core:ICommandBusService` | `ICommandBusService` | 命令执行、注册 |
+| `IEventBusServiceToken` | `@openlearn/core:IEventBusService` | `IEventBusService` | 事件发布/订阅 |
+| `IActionRegistryServiceToken` | `@openlearn/core:IActionRegistryService` | `IActionRegistryService` | AI 工具注册 |
+| `ICapabilityServiceToken` | `@openlearn/core:ICapabilityService` | `ICapabilityService` | 权限管理 |
+| `IProcessServiceToken` | `@openlearn/core:IProcessService` | `IProcessService` | 后台进程 |
+| `IStorageServiceToken` | `@openlearn/core:IStorageService` | `IStorageService` | K-V 存储 |
+| `IAIServiceToken` | `@openlearn/core:IAIService` | `IAIService` | AI 文本生成 |
+| `IDatabaseToken` | `@openlearn/core:IDatabase` | `Database` (better-sqlite3) | 直接 SQL 访问 |
 
-> **⚠️ better-sqlite3 版本差异**：`ctx.resolve(IDatabaseToken)` 返回宿主进程的 `better-sqlite3` `Database` 实例。可用 API 取决于宿主安装版本，`exec()` 仅 v9.0+ 可用，建议优先使用 `prepare().run()` / `.get()` / `.all()`。 | `IPluginHostToken` | `@openlearn/core:IPluginHost` | `PluginHost` | 插件主机管理 | | `ISemesterGradeServiceToken` | `@openlearn/core:ISemesterGradeService` | `ISemesterGradeService` | 学期成绩管理 |
+> **⚠️ better-sqlite3 版本差异**：`ctx.resolve(IDatabaseToken)` 返回宿主进程的 `better-sqlite3` `Database` 实例。可用 API 取决于宿主安装版本，`exec()` 仅 v9.0+ 可用，建议优先使用 `prepare().run()` / `.get()` / `.all()`。
+| `IPluginHostToken` | `@openlearn/core:IPluginHost` | `PluginHost` | 插件主机管理 |
+| `ISemesterGradeServiceToken` | `@openlearn/core:ISemesterGradeService` | `ISemesterGradeService` | 学期成绩管理 |
 
 在 `manifest.requires` 中使用格式：`@openlearn/core:TokenName@^1.0.0`
 
 在代码中解析：
-
+```typescript
 import { IDatabaseToken } from '@openlearn/plugin-sdk';
 const db = await ctx.resolve(IDatabaseToken);
 
-### 5.3 ICommandBusService[](#icommandbusservice "链接到此标题。")
+```
 
+### P7-A2 统一插件服务（Unified Plugin Services）
+
+P7-A2 将原本分散在插件宿主内部的能力收敛为一组统一的门面（Facade）服务。插件无需感知内核装配细节，直接经 `ctx.resolve(...)` 即可消费。下列 Token 已在 `@openlearn/plugin-sdk` 中导出，返回类型亦同包提供。
+
+| Token 常量 | 标识字符串 | 返回类型 | 用途 |
+|-----------|-----------|---------|------|
+| `IPluginLifecycleManagerToken` | `@openlearn/core:IPluginLifecycleManager` | `PluginLifecycleManager` | 插件的安装 / 卸载 / 启用 / 停用等生命周期管理 |
+| `IPluginDistributionManagerToken` | `@openlearn/core:IPluginDistributionManager` | `PluginDistributionManager` | 插件分发：ZIP 上传、版本与市场 |
+| `IPluginRuntimeCompositionToken` | `@openlearn/core:IPluginRuntimeComposition` | `PluginRuntimeComposition` | 统一运行时组合（内核 + 插件运行时适配） |
+| `IUnifiedExtensionRegistryToken` | `@openlearn/core:IUnifiedExtensionRegistry` | `UnifiedExtensionRegistry` | 扩展点统一注册表 |
+| `IPluginCapabilityGatewayToken` | `@openlearn/core:IPluginCapabilityGateway` | `PluginCapabilityGateway` | 插件能力网关：列举 / 查询能力 |
+| `ICapabilityRegistryToken` | `@openlearn/core:ICapabilityRegistry` | `CapabilityRegistry` | 能力注册表：底层能力元数据 |
+
+在 `manifest.requires` 中声明依赖，格式为 `@openlearn/core:TokenName@^1.0.0`，例如：
+
+```json
+{
+  "requires": [
+    "@openlearn/core:IPluginLifecycleManager@^1.0.0",
+    "@openlearn/core:IPluginCapabilityGateway@^1.0.0"
+  ]
+}
+```
+
+在代码中解析：
+
+```typescript
+import {
+  IPluginLifecycleManagerToken,
+  IPluginCapabilityGatewayToken,
+} from '@openlearn/plugin-sdk';
+
+const lifecycle = await ctx.resolve(IPluginLifecycleManagerToken); // 类型: PluginLifecycleManager
+const gateway = await ctx.resolve(IPluginCapabilityGatewayToken);   // 类型: PluginCapabilityGateway
+
+await lifecycle.uninstallPlugin(pluginId);
+gateway.listCapabilities().forEach((c) => console.log(c.id));
+```
+
+> 注意：这些统一服务由内核在启动期装配完成，插件侧仅通过 Token 消费，避免在插件代码中直接依赖 `@openlearn/core` 的内部模块。
+
+
+### 5.3 ICommandBusService
+
+```typescript
 interface ICommandBusService {
   execute<T>(command: PlatformCommand<T>): Promise<unknown>;
   registerHandler(commandType: string, handler: { execute(cmd: PlatformCommand): Promise<any> }): Promise<void>;
@@ -678,19 +867,23 @@ interface ICommandBusService {
   createCommand<T>(type: string, payload: T, actorId: string, metadata?: CommandMetadata): Promise<PlatformCommand<T>>;
   setInterceptor(interceptor: (command: PlatformCommand) => Promise<void>): Promise<void>;
 }
+```
 
-### 5.4 IEventBusService[](#ieventbusservice "链接到此标题。")
+### 5.4 IEventBusService
 
+```typescript
 interface IEventBusService {
   publish(event: PlatformEvent): Promise<void>;
   subscribe(eventType: string, subscriber: (event: PlatformEvent) => void | Promise<void>): Promise<void>;
   unsubscribe(eventType: string, subscriber: (event: PlatformEvent) => void | Promise<void>): Promise<void>;
 }
+```
 
 **重要**: `subscribe('*', handler)` 可订阅所有事件。事件订阅器在插件 deactivate 时由 ResourceTracker 自动取消。
 
-### 5.5 IActionRegistryService[](#iactionregistryservice "链接到此标题。")
+### 5.5 IActionRegistryService
 
+```typescript
 interface ActionDescriptor {
   id: string;                // 唯一 ID
   commandType: string;        // 对应命令类型
@@ -708,11 +901,13 @@ interface IActionRegistryService {
   getActionByToolName(toolName: string): Promise<ActionDescriptor | undefined>;
   getActionByCommandType(commandType: string): Promise<ActionDescriptor | undefined>;
 }
+```
 
-### 5.6 inputSchema 格式规范[](#inputschema "链接到此标题。")
+### 5.6 inputSchema 格式规范
 
 遵循 Google GenAI `functionDeclarations` 格式：
 
+```typescript
 {
   type: 'OBJECT',
   properties: {
@@ -724,9 +919,11 @@ interface IActionRegistryService {
   },
   required: ['stringParam'],  // 必填参数
 }
+```
 
-### 5.7 IAIService[](#iaiservice "链接到此标题。")
+### 5.7 IAIService
 
+```typescript
 interface IAIService {
   generateText(
     prompt: string,
@@ -736,9 +933,10 @@ interface IAIService {
     },
   ): Promise<string>;
 }
+```
 
 使用示例：
-
+```typescript
 const summary = await ctx.services.ai.generateText(
   `请分析以下学生作业并给出评分：\n${homework}`,
   {
@@ -746,25 +944,30 @@ const summary = await ctx.services.ai.generateText(
     temperature: 0.3,
   }
 );
+```
 
-### 5.8 IStorageService[](#istorageservice "链接到此标题。")
+### 5.8 IStorageService
 
+```typescript
 interface IStorageService {
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
 }
+```
 
 底层使用 SQLite `plugin_storage` 表，自动按插件 namespace 隔离。
 
-### 5.9 PluginDatabaseAPI[](#plugindatabaseapi "链接到此标题。")
+### 5.9 PluginDatabaseAPI
 
+```typescript
 interface PluginDatabaseAPI {
   ensureTable(tableName: string, schema: string): Promise<void>;
   table(tableName: string): string;                      // 返回完整表名
   dropAllTables(): Promise<void>;
   migrate(targetVersion: number, upgradeFn: (db: any) => Promise<void> | void): Promise<void>;
 }
+```
 
 **新增 `migrate()` 方法**：支持声明式数据库版本迁移，参数 `version` 表示目标版本号，若当前版本低于目标版本则执行 `upgradeFn`。
 
@@ -774,46 +977,53 @@ interface PluginDatabaseAPI {
 
 `ctx.resolve(IDatabaseToken)` 返回宿主编译的 `better-sqlite3` `Database` 实例。由于宿主可能在较老版本的 better-sqlite3 上运行，建议只使用以下兼容方法：
 
-| 方法              | better-sqlite3 版本要求 | 说明                    |
-| --------------- | ------------------- | --------------------- |
-| prepare().run() | 全版本                 | 执行单条 SQL              |
-| prepare().get() | 全版本                 | 查询单行                  |
-| prepare().all() | 全版本                 | 查询多行                  |
-| exec()          | \>= 9.0.0           | 批量执行多条 SQL（**可能不可用**） |
-| pragma()        | \>= 4.0.0           | PRAGMA 语句             |
-| transaction()   | 全版本                 | 事务包装                  |
+| 方法 | better-sqlite3 版本要求 | 说明 |
+|------|------------------------|------|
+| `prepare().run()` | 全版本 | 执行单条 SQL |
+| `prepare().get()` | 全版本 | 查询单行 |
+| `prepare().all()` | 全版本 | 查询多行 |
+| `exec()` | >= 9.0.0 | 批量执行多条 SQL（**Worker 模式不可用**） |
+| `pragma()` | >= 4.0.0 | PRAGMA 语句 |
+| `transaction()` | 全版本 | 事务包装 |
 
 **最佳实践：**
 
-* 使用 `prepare().run()` 逐条执行，代替 `exec()` 批量执行
-* 使用 `ctx.db.ensureTable()` \+ `ctx.db.table()` 管理表名，不要手动拼接
-* 数据库操作优先使用 `ctx.db` PluginDatabaseAPI 封装，仅在需要精细控制时直接操作 Database 实例
+- 使用 `prepare().run()` 逐条执行，代替 `exec()` 批量执行
+- 使用 `ctx.db.ensureTable()` + `ctx.db.table()` 管理表名，不要手动拼接
+- 数据库操作优先使用 `ctx.db` PluginDatabaseAPI 封装，仅在需要精细控制时直接操作 Database 实例
 
-### 5.10 IPluginLogger（V0.1.9 新增）[](#ipluginlogger-v2-5 "链接到此标题。")
+### 5.10 IPluginLogger（V2.5 新增）
 
+```typescript
 interface IPluginLogger {
   debug(message: string, meta?: Record<string, unknown>): void;
   info(message: string, meta?: Record<string, unknown>): void;
   warn(message: string, meta?: Record<string, unknown>): void;
   error(message: string, meta?: Record<string, unknown>): void;
 }
+```
 
 自动注入 `pluginId` 和 `timestamp`，替代传统 `console.log`。示例：
 
+```typescript
 ctx.log.info('Activation completed', { handlerCount: 5 });
 ctx.log.error('DB migration failed', { error: err.message });
+```
 
-### 5.11 IConfigService（V3.2 新增）[](#iconfigservice-v3-2 "链接到此标题。")
+### 5.11 IConfigService（V3.2 新增）
 
+```typescript
 interface IConfigService {
   get<T = unknown>(key: string): T;
   getAll(): Record<string, unknown>;
   set(key: string, value: unknown): Promise<void>;
   onChange(callback: (key: string, newValue: unknown, oldValue: unknown) => void): () => void;
 }
+```
 
 配合 `manifest.configuration` 声明使用，自动应用默认值。示例：
 
+```typescript
 // manifest 中声明：
 // configuration: {
 //   properties: {
@@ -826,20 +1036,62 @@ const maxOptions = ctx.config.get<number>('maxOptions'); // 10
 ctx.config.onChange('maxOptions', (newVal, oldVal) => {
   ctx.log.info('Config changed', { key: 'maxOptions', oldVal, newVal });
 });
+```
 
-### 5.12 共享模块 require（V5.1）[](#require-v5-1 "链接到此标题。")
+> **系统内置配置键**：`showInDashboard`（`boolean`）是一个被框架识别的特殊键。当插件在 `configuration.properties` 中声明此键后，插件卡片的「总览」开关可用，关闭后将隐藏 `teacher.dashboard.widget` 注册的小部件。此行为由框架在渲染层实现，无需插件自行处理。
+
+### 5.12 共享模块 require（V2.5）
 
 插件可通过 `ctx.require()` 引用白名单中的 npm 包，无需自行打包：
 
+```typescript
 const recharts = ctx.require('recharts');
+```
+
+### 5.13 ResourceService（V2.5 新增）
+
+插件可通过 Command Bus 直接操作系统资源库（`system_resources` 表），无需自行发起 HTTP 请求。
+
+**命令列表：**
+
+| 命令 | payload | 返回值 | 说明 |
+|------|---------|--------|------|
+| `resource.list` | `{}` | `{ resources: [...] }` | 列出所有资源（id, name, type, created_at） |
+| `resource.get` | `{ id }` | `{ resource: {...} }` | 获取单个资源完整内容（含 content 字段） |
+| `resource.create` | `{ name, type, content }` | `{ success, id }` | 创建新资源。type 为 `"html"` 或 `"folder"` |
+| `resource.delete` | `{ id }` | `{ success }` | 删除指定资源 |
+
+**调用的能力要求**：`resource.create` 和 `resource.delete` 需要 `file:write` 权限，插件须在 `capabilitiesProposed` 中声明。
+
+**使用示例：**
+
+```typescript
+// 查询所有资源
+const { resources } = await ctx.services.commandBus.execute('resource.list', {});
+
+// 创建 HTML 课件资源
+const { id } = await ctx.services.commandBus.execute('resource.create', {
+  name: 'my-courseware-v1',
+  type: 'html',
+  content: '<html>...</html>',
+});
+
+// 读取资源内容
+const { resource } = await ctx.services.commandBus.execute('resource.get', { id });
+console.log(resource.content);
+```
+
+**注意**：当前 ResourceService 未注册为 ActionRegistry 条目，因此不能通过 AI Agent 的 function call 触发，仅供插件代码内直接调用。
 const pdf = ctx.require('jspdf');
 const markdown = ctx.require('react-markdown');
 const xlsx = ctx.require('xlsx');
 const icons = ctx.require('lucide-react');
 const uuid = ctx.require('uuid');
+```
 
-### 5.13 权限字符串规范[](#id17 "链接到此标题。")
+### 5.13 权限字符串规范
 
+```
 格式: {resource}:{action}
 示例:
   lesson:read        — 读取课程
@@ -855,15 +1107,125 @@ const uuid = ctx.require('uuid');
   management:write   — 写入管理数据
 
 通配符: lesson:* 匹配 lesson:read, lesson:write, lesson:delete
+```
+
+### 5.14 插件 RESTful API 开发实战（v0.3.11 新增）
+
+自 OpenLearn V2 `v0.3.11`（SDK `3.6.0`）起，平台正式支持插件对外导出标准 RESTful API，使插件能够与外部系统、前端交互组件或第三方工具直接进行 HTTP 通信。
+
+#### 1. 统一挂载路径规范
+所有插件的 HTTP 路由均统一由平台主安全网关挂载至：
+```text
+/api/plugins/:pluginId/*
+```
+例如插件 ID 为 `ext-homework-hub`，注册了 `/students/:id/summary` 端点，客户端访问的完整路径为：
+```text
+GET /api/plugins/ext-homework-hub/students/stu_1001/summary
+```
+
+#### 2. 在 `activate(ctx)` 中注册路由
+
+插件无需引入任何第三方路由库，直接通过 `ctx.http` 注册路由处理函数：
+
+```typescript
+import type { PluginContext, PluginApiRequest } from '@openlearn/plugin-sdk';
+
+export default {
+  manifest: {
+    id: 'ext-course-quiz',
+    name: '随堂测验服务',
+    version: '1.0.0',
+    main: 'index.js',
+    api: {
+      routes: [
+        // 声明静态安全与 RBAC 规则
+        { method: 'GET', path: '/public-info', auth: false },
+        { method: 'GET', path: '/questions/:qid', auth: true },
+        { method: 'POST', path: '/submit', auth: true, roles: ['student', 'teacher'] }
+      ]
+    }
+  },
+  activate: async (ctx: PluginContext) => {
+    // 1. 公开端点（auth: false 免认证直接放行）
+    ctx.http.get('/public-info', async () => {
+      return { status: 'online', plugin: ctx.pluginId, timestamp: Date.now() };
+    });
+
+    // 2. 提取动态路径参数 (:qid) 与查询参数
+    ctx.http.get('/questions/:qid', async (req: PluginApiRequest) => {
+      const questionId = req.params.qid;
+      const difficulty = req.query.difficulty || 'normal';
+
+      return {
+        id: questionId,
+        difficulty,
+        title: '计算题：求解未知数 x',
+      };
+    });
+
+    // 3. POST 请求与身份上下文验证
+    ctx.http.post('/submit', async (req: PluginApiRequest) => {
+      // 获取经过网关校验的安全身份
+      const { actorId, username, role } = req.actor;
+      const { answers } = req.body || {};
+
+      if (!answers) {
+        return { status: 400, body: { success: false, error: '缺少答题数据' } };
+      }
+
+      ctx.log.info('收到答卷提交', { user: username, actorId });
+
+      // 返回标准自定义响应结构
+      return {
+        status: 201,
+        headers: { 'x-quiz-processed': 'true' },
+        body: { success: true, submissionId: 'sub_9981', student: username }
+      };
+    });
+  }
+};
+```
+
+#### 3. 请求与响应 DTO 规范
+
+为保证宿主进程的安全与沙箱隔离，插件绝不直接接触 Node.js 原生 Express `req`/`res` 对象，全部通过类型安全的只读 DTO 进行通信：
+
+- **`PluginApiRequest` 核心字段**：
+  - `params`: 动态路径参数键值对（如 `:studentId` → `req.params.studentId`）
+  - `query`: 解析后的 URL Query 对象
+  - `headers`: 经过安全白名单过滤后的请求头（只读）
+  - `body`: 请求体 JSON 对象（受网关 1MB 硬限制保护）
+  - `ip`: 客户端真实 IP 地址
+  - `actor`: 调用方身份实体（`userId`, `username`, `role`, `permissions`）
+- **自动包装响应**：
+  - Handler 直接返回普通对象或基本类型时，路由器自动将其作为 200 OK 封装为 `{ status: 200, body: 返回值 }`。
+  - 需要自定义状态码或响应头时，显式返回 `{ status: 400, headers: { ... }, body: { ... } }`。
+
+#### 4. 平台统一安全网关 (`PluginApiGateway`) 的六道纵深防御
+
+外部发往插件的每一笔 HTTP 请求，均在主线程网关前置执行强力安全过滤：
+1. **系统保留端点避让**：核心管理动作（如 `/config`, `/toggle`, `/contributions`）自动避让至系统路由，防止插件拦截管理能力；
+2. **路径遍历防护 (Path Traversal)**：对原始子路径与规范化路径双重检测 `..`，命中直接阻断并返回 `400 Bad Request`；
+3. **Payload 体积硬限制**：请求体限制为 **1MB**（超限直接拒绝并返回 `413 Payload Too Large`），有效防范恶意刷大报文造成主线程或 Worker 线程 OOM；大文件必须通过 `IStorageService` 进行切片或流式传输；
+4. **内存滑动窗口限流器 (Rate Limiting)**：以客户端 IP + 插件 ID 为键执行滑动窗口计数，默认单端点 120 req/min，超限返回 `429 Too Many Requests`；可在 `manifest.json` 的 `rateLimit` 中自定义调优；
+5. **前置认证与细粒度 RBAC 拦截**：支持 Cookie 会话（`edu_os_token`）与 Bearer Token 鉴权。未登录返回 `401 Unauthorized`，角色不符返回 `403 Forbidden`。只有在清单中显式声明 `auth: false` 的路由方可公开免密访问；
+6. **响应脱敏清洗**：插件出站响应会被强制清洗，剥离 `Set-Cookie`、`Content-Security-Policy`、`Access-Control-Allow-Origin` 等高危标头，杜绝插件尝试劫持主域 Cookie 或篡改全站安全策略。
+
+#### 5. Worker 隔离模式下的透明 RPC 与看门狗熔断
+在 Worker 线程隔离模式下，插件代码运行在独立的子线程中。当外部请求到达时：
+- 主线程将 `PluginApiRequest` DTO 序列化后通过 IPC 发送至 Worker 线程；
+- Worker 线程在内部的 `PluginHttpRouter` 执行插件 Handler，并将响应结果回传；
+- **看门狗 5000ms 超时熔断**：若 Worker 插件陷入死循环或计算阻塞超过 5 秒，网关自动触发熔断机制，直接向客户端返回 `504 Gateway Timeout`，彻底消除由于第三方插件假死拖垮整个 Node.js 宿主连接池的隐患。
 
 ---
 
-## 6\. 前端插件系统[](#id18 "链接到此标题。")
+## 6. 前端插件系统
 
-### 6.1 FrontendPluginHost[](#frontendpluginhost "链接到此标题。")
+### 6.1 FrontendPluginHost
 
 前端插件运行在浏览器中，通过动态 `import()` 加载 ESM 模块，支持 inline 和 worker 两种执行模式：
 
+```typescript
 // 前端插件结构
 export default {
   manifest: {
@@ -899,9 +1261,11 @@ export default {
     });
   },
 };
+```
 
-### 6.2 FrontendPluginContext[](#frontendplugincontext "链接到此标题。")
+### 6.2 FrontendPluginContext
 
+```typescript
 interface FrontendPluginContext {
   services: {
     frontendApi: IFrontendAPI;        // HTTP API 调用
@@ -915,11 +1279,23 @@ interface FrontendPluginContext {
     registerExtensionPoint(slot: ExtensionSlot, config: ExtensionPointConfig): void;
     unregisterExtensionPoint(slot: ExtensionSlot, id: string): void;
   };
-  invokeCommand<T = any>(type: string, payload?: any): Promise<T>; // V0.1.9: 调用后端 Command Handler
+  invokeCommand<T = any>(type: string, payload?: any): Promise<T>; // V2.5: 调用后端 Command Handler
+  // 页面导航与 Tab 订阅控制
+  navigation?: {
+    getTeacherTab(): string;
+    setTeacherTab(tab: string): void;
+    subscribeTeacherTab(callback: (tab: string) => void): () => void;
+  };
+  // 向后兼容 shim
+  registerPanel?(config: any): void;
+  registerMenu?(config: any): void;
+  registerToolbarButton?(config: any): void;
 }
+```
 
-### 6.3 前端服务接口[](#id19 "链接到此标题。")
+### 6.3 前端服务接口
 
+```typescript
 interface IFrontendAPI {
   get<T>(path: string): Promise<{ success: boolean; result?: T; error?: string }>;
   post<T>(path: string, body?: any): Promise<{ success: boolean; result?: T; error?: string }>;
@@ -934,25 +1310,34 @@ interface ISocketService {
 }
 
 interface IUIService {
-  showToast(title: string, message: string, type: 'info' | 'success' | 'warning'): void;
+  showToast(title: string, message: string, type: 'info' | 'success' | 'warning' | 'error'): void;
   showModal(title: string, content: React.ReactNode): void;
   closeModal(): void;
   downloadFile(data: Blob | string, filename: string, mimeType?: string): void;
 }
 
-### 6.4 可用的 UI 扩展槽位[](#ui "链接到此标题。")
+interface IStorageService {
+  get(key: string): string | null;      // localStorage 读取
+  set(key: string, value: string): void;
+  delete(key: string): void;
+  clear(): void;
+}
+```
 
-| Slot                     | 用途                |
-| ------------------------ | ----------------- |
-| teacher.tab              | 教师标签页             |
-| teacher.panel            | 教师独立全宽管理面板（v3.2）  |
-| teacher.dashboard.widget | 教师仪表盘小部件          |
-| student.view             | 学生视图              |
-| student.fullscreen       | 学生全屏视图/考试模式（v3.2） |
-| student.lesson.tool      | 学生学习工具            |
+### 6.4 可用的 UI 扩展槽位
 
-**学生端插件获取当前学生 ID**：宿主在渲染学生端扩展点（`student.view`、`student.fullscreen`）时，自动通过 `slotProps` 注入当前登录学生 ID。插件组件通过 props 接收：
+| Slot | 用途 |
+|------|------|
+| `teacher.tab` | 教师标签页 |
+| `teacher.panel` | 教师独立全宽管理面板（v3.2） |
+| `teacher.dashboard.widget` | 教师仪表盘小部件 |
+| `student.view` | 学生视图 |
+| `student.fullscreen` | 学生全屏视图/考试模式（v3.2） |
+| `student.lesson.tool` | 学生学习工具 |
 
+**学生端插件获取当前学生 ID**：宿主在渲染 `student.view` 扩展点时（`src/features/student/StudentDashboardPanel.tsx` 调用点），通过 `slotProps` 注入当前学生 ID。插件组件通过 props 接收：
+
+```tsx
 // 前端插件入口 frontend.tsx
 export default function MyStudentPlugin(props: { studentId?: string }) {
   const studentId = props.studentId;
@@ -961,80 +1346,67 @@ export default function MyStudentPlugin(props: { studentId?: string }) {
   // 使用 studentId 获取该学生的个人数据
   return <div>当前学生 ID: {studentId}</div>;
 }
+```
 
-| `classroom.tool` | 课堂工具 | | `global.setting` | 全局设置页扩展（v3.2） |
+**所有扩展点组件统一收到课堂上下文（v0.2.8+）**：宿主经 `ExtensionPointRenderer` 向每个扩展点组件注入 `{ lessonId, classId }`（当前课程/班级，`string | null`）；非渲染场景用 `ctx.context.get()` / `ctx.context.subscribe()` 读取。详见 [`docs/reference/plugin-ui-extension-slots.md`](../reference/plugin-ui-extension-slots.md)。
+| `classroom.tool` | 课堂工具 |
+| `global.setting` | 全局设置页扩展（v3.2） |
+| `nav.user_menu` | 顶部 Header 用户菜单扩展（v5.2） |
+| `anchor:*` | 宿主原生按钮/元素前后插入按钮（v0.2.6，锚点目录见 `docs/plugin/anchor-slots.md`） |
 
-### 6.5 invokeCommand（自 V0.1.9 起可用）[](#invokecommand-v2-5 "链接到此标题。")
+### 6.5 invokeCommand（自 V2.5 起可用）
 
 前端插件可以通过 `ctx.invokeCommand()` 调用后端已注册的 Command Handler：
 
+```typescript
 // 前端插件中调用后端命令
 const result = await ctx.invokeCommand('poll.get_results', { pollId: 'xxx' });
 // 命令类型会自动添加插件命名空间前缀
+```
 
-### 6.6 宿主依赖共享网关 (HostSharedDeps)[](#hostshareddeps "链接到此标题。")
+### 6.6 宿主依赖共享网关 (HostSharedDeps) 与动态转译
 
-> **⚠️ JSX 运行时限制**：`HostSharedDeps` 仅提供 `React` 和 `ReactDOM` 经典运行时，**不包含 `react/jsx-runtime`**。插件前端代码必须使用经典 JSX 转换（`"jsx": "react-jsx"` 不可用）：
-> 
-> // tsconfig.json — 插件项目
-> { "compilerOptions": { "jsx": "react" } }  // 经典模式，不是 "react-jsx"
-> 
-> 或 esbuild 配置：
-> 
-> esbuild.build({
->  jsxFactory: "React.createElement",
->  jsxFragment: "React.Fragment",
->  external: ["react", "react-dom", "recharts", "lucide-react"],
-> });
+为避免每个第三方插件前端重复打包庞大的基础库，OpenLearnV2 提供了 **宿主依赖共享网关 (HostSharedDeps)** 以及 **全形态 ESM 裸模块导入转译器 (`transformBareModuleImports`)**。全局 `window.HostSharedDeps` 暴露以下共享运行时：
 
-为避免每个第三方插件前端重复打包庞大的基础库，OpenLearnV2 提供了 **宿主依赖共享网关 (HostSharedDeps)**。全局 `window.HostSharedDeps` 暴露以下对象：
+- `React` / `'react'`: React 核心与 Hooks API
+- `ReactDOM` / `'react-dom'`: DOM 渲染与 `createPortal`
+- `ReactDOMClient` / `'react-dom/client'`: 现代 Root API (`createRoot`)
+- `jsxRuntime` / `'react/jsx-runtime'`: 现代 JSX 运行时 (`jsx`, `jsxs`)
+- `Recharts` / `'recharts'`: Recharts 图表库
+- `LucideReact` / `'lucide-react'`: Lucide 图标库
 
-* `React` (npm: react)
-* `ReactDOM` (npm: react-dom)
-* `Recharts` (npm: recharts)
-* `LucideReact` (npm: lucide-react)
+插件前端构建时可安心将这些库配置为 external，宿主在执行 Blob URL 动态导入前会自动完成解构语法转译与别名对齐（如 `import React, { useState } from 'react'`、`import { createPortal } from 'react-dom'`、`import { jsx as _jsx } from 'react/jsx-runtime'`）：
 
-插件前端构建时需将这些库配置为 external：
-
+```javascript
 import esbuild from 'esbuild';
 
 esbuild.build({
   entryPoints: ['src/frontend.tsx'],
   bundle: true,
   outfile: 'dist/frontend.js',
-  external: ['react', 'react-dom', 'recharts', 'lucide-react'],
+  external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'recharts', 'lucide-react'],
   format: 'esm',
 });
+```
 
-### 6.7 前端 JSX 转换配置（重要）[](#jsx "链接到此标题。")
+### 6.7 前端 JSX 转换配置
 
-宿主通过 `window.HostSharedDeps` 提供的基础库：
+宿主通过 `window.HostSharedDeps` 与转译器提供的完整共享库：
 
-| 共享对象                       | NPM 包        | 提供的内容                      |
-| -------------------------- | ------------ | -------------------------- |
-| HostSharedDeps.React       | react        | React 对象（包含 createElement） |
-| HostSharedDeps.ReactDOM    | react-dom    | ReactDOM 对象                |
-| HostSharedDeps.Recharts    | recharts     | Recharts 组件库               |
-| HostSharedDeps.LucideReact | lucide-react | Lucide 图标库                 |
+| 共享对象 | NPM 包 | 提供的内容 | 转换支持 |
+|----------|--------|-----------|---------|
+| `HostSharedDeps.React` | `react` | React 核心 API (`createElement`, Hooks) | 经典模式 (`"jsx": "react"`) |
+| `HostSharedDeps.ReactDOM` | `react-dom` | ReactDOM 对象及 Portal | 支持 |
+| `HostSharedDeps.ReactDOMClient` | `react-dom/client` | 现代 DOM Root 创建 (`createRoot`) | 支持 |
+| `HostSharedDeps.jsxRuntime` | `react/jsx-runtime` | 自动 JSX 工厂函数 (`jsx`, `jsxs`) | 现代模式 (`"jsx": "react-jsx"`) |
+| `HostSharedDeps.Recharts` | `recharts` | Recharts 图表组件库 | 支持 |
+| `HostSharedDeps.LucideReact` | `lucide-react` | Lucide 图标库 | 支持 |
 
-**宿主不提供** `react/jsx-runtime` 子路径。因此构建前端时**必须使用经典 JSX 转换**（`React.createElement`），不能使用自动 JSX 运行时。
-
-**tsconfig.json 配置：**
-
-{
-  "compilerOptions": {
-    "jsx": "react"
-  }
-}
-
-> `"jsx"` 必须是 `"react"`，不能是 `"react-jsx"`。
-
-**esbuild 构建注意事项：**
-
-esbuild 默认读取项目根目录的 `tsconfig.json`。如果 tsconfig 中 `"jsx"` 设为 `"react-jsx"`，无论 build API 中如何设置 `jsx: 'transform'` 或 `jsxFactory`，都会被 tsconfig 覆盖，最终产物仍会包含 `import ... from "react/jsx-runtime"` 导致运行时错误。
+> **提示**：从平台 `v0.3.15+` 起，宿主已内置 `react/jsx-runtime` 映射，现代 `tsconfig.json` 的 `"jsx": "react-jsx"`（自动模式）与经典 `"jsx": "react"`（经典模式）均可原生支持。
 
 **推荐 esbuild 构建配置：**
 
+```javascript
 import esbuild from 'esbuild';
 
 esbuild.build({
@@ -1047,25 +1419,27 @@ esbuild.build({
   jsxFactory: 'React.createElement',
   jsxFragment: 'React.Fragment',
 });
+```
 
 **常见错误排查：**
 
-| 错误信息                                                   | 原因                                      | 解决方法                           |
-| ------------------------------------------------------ | --------------------------------------- | ------------------------------ |
-| Failed to resolve module specifier "react/jsx-runtime" | tsconfig.json 中 jsx 为 "react-jsx"       | 改为 "react"                     |
-| React is not defined                                   | 前端未声明 react 为 peerDependency 或 external | 在构建配置中添加 external: \['react'\] |
-| process is not defined                                 | 构建 platform 未设为 browser                 | 设置 platform: 'browser'         |
+| 错误信息 | 原因 | 解决方法 |
+|----------|------|----------|
+| `Failed to resolve module specifier "react/jsx-runtime"` | `tsconfig.json` 中 `jsx` 为 `"react-jsx"` | 改为 `"react"` |
+| `React is not defined` | 前端未声明 `react` 为 `peerDependency` 或 `external` | 在构建配置中添加 `external: ['react']` |
+| `process is not defined` | 构建 `platform` 未设为 `browser` | 设置 `platform: 'browser'` |
 
-### 6.8 前端组件如何获取通信能力（完整示例）[](#id20 "链接到此标题。")
+### 6.8 前端组件如何获取通信能力（完整示例）
 
 前端插件的组件通过**模块级变量**拿到 `invokeCommand` 和扩展点注册能力。关键点：
 
-* `registerExtensionPoint` 的 `component` 必须用**普通函数**声明（`function MyPanel() {}`），不要用箭头函数（esbuild 打包后闭包可能出问题）
-* 组件通过模块级变量拿 `ctx`，因为扩展点组件不是由你的组件树渲染，props 不可控
-* `default export` 是 `{ activate, deactivate }` 对象，不是组件本身
+- `registerExtensionPoint` 的 `component` 必须用**普通函数**声明（`function MyPanel() {}`），不要用箭头函数（esbuild 打包后闭包可能出问题）
+- 组件通过模块级变量拿 `ctx`，因为扩展点组件不是由你的组件树渲染，props 不可控
+- `default export` 是 `{ activate, deactivate }` 对象，不是组件本身
 
 **完整示例：**
 
+```typescript
 // src/frontend.tsx
 
 let ctx: any = null;
@@ -1115,6 +1489,7 @@ function deactivate() {}
 
 // ③ default export 必须是 { activate, deactivate } 对象
 export default { activate, deactivate };
+```
 
 **为什么 component 不能用箭头函数？**
 
@@ -1126,12 +1501,13 @@ esbuild 在打包箭头函数时可能改变其闭包作用域，导致 `React.c
 
 ---
 
-## 7\. 安全与权限[](#id21 "链接到此标题。")
+## 7. 安全与权限
 
-### 7.1 高危操作审批[](#id22 "链接到此标题。")
+### 7.1 高危操作审批
 
 设置 `isHighRisk: true` 的 Action，AI Agent 执行时会进入审批流程：
 
+```typescript
 await actionRegistry.register({
   id: 'dangerous-op',
   commandType: 'lesson.delete',
@@ -1140,9 +1516,9 @@ await actionRegistry.register({
   isHighRisk: true,  // ← 需要教师审批
   inputSchema: { ... },
 });
+```
 
 执行流程：
-
 1. AI Agent 调用此工具
 2. 命令被写入 `pending_commands` 审批表
 3. 教师收到审批通知
@@ -1151,59 +1527,86 @@ await actionRegistry.register({
 
 **注意**：`administrator` 角色执行时自动绕过高危审批。
 
-### 7.2 权限模型[](#id23 "链接到此标题。")
+### 7.2 权限模型
 
-* 插件通过 `capabilitiesProposed` 声明所需权限
-* 教师/管理员在安装时可审查权限
-* 运行时通过 CapabilityGuard 拦截检查
-* 支持通配符匹配（如 `lesson:*` 匹配所有课程操作）
+- 插件通过 `capabilitiesProposed` 声明所需权限
+- 教师/管理员在安装时可审查权限
+- 运行时通过 CapabilityGuard 拦截检查
+- 支持通配符匹配（如 `lesson:*` 匹配所有课程操作）
 
-### 7.3 指令隔离与命名空间保护[](#id24 "链接到此标题。")
+### 7.3 指令隔离与命名空间保护
 
 为防止第三方插件恶意冒充、拦截或篡改内核及其他插件的敏感指令，OpenLearnV2 实施了 **命名空间防欺骗保护**：
 
 **命令解析规则**：
-
-1. **系统和内核插件**（`@openlearn/` 前缀）：全局命名空间访问权，直接使用短指令名称
-2. **点号命名空间指令**（如 `quiz.create`、`vote.cast`）：直接以原名全局注册，保证协同工具无感工作
-3. **裸字符指令**（不含 `.`）：自动添加 `{pluginId}.` 前缀，实现强沙箱隔离
+1. **系统和内核插件**（`@openlearn/` 前缀）：继承全局命名空间访问权，直接使用全局指令名称
+2. **第三方插件指令**：统一自动添加 `{manifest.id}.` 前缀（如 `courseware.query` -> `@courseware-hub/plugin.courseware.query`），防止跨插件指令冲突与越权劫持
+3. **前缀显式声明**：若指令名已包含本插件前缀 `{manifest.id}.`，则保持原样，避免重复加前缀
 
 **防越权劫持**：
-
-* 内核在命令注册阶段自动执行 UUID 强检查
-* 第三方插件企图注册以其他非本插件 UUID 格式为前缀的指令时，注册拦截器抛出异常并阻止激活
+- 内核在命令注册阶段自动执行 UUID 强检查
+- 第三方插件企图注册以其他非本插件 UUID 格式为前缀的指令时，注册拦截器抛出异常并阻止激活
 
 ---
 
-## 8\. 高级特性[](#id25 "链接到此标题。")
+## 8. 高级特性
 
-### 8.1 Worker Thread 隔离模式[](#worker-thread "链接到此标题。")
+### 8.1 Worker Thread 隔离模式
 
 在生产环境中，插件可在独立 Worker Thread 中运行：
 
+```typescript
 // 数据库设置 execution_mode
 db.prepare("UPDATE plugins SET execution_mode = 'worker' WHERE id = ?").run(pluginId);
+```
 
 Worker 模式的特点：
+- 独立线程隔离，崩溃不影响主进程
+- 通过 RPC 代理访问内核服务（MethodProxy + EventBusProxy）
+- 10 秒激活超时
+- 崩溃后自动清理（dispose 强制回收）
 
-* 独立线程隔离，崩溃不影响主进程
-* 通过 RPC 代理访问内核服务（MethodProxy + EventBusProxy）
-* 10 秒激活超时
-* 崩溃后自动清理（dispose 强制回收）
+
+#### 8.1.1 Worker 与 Inline 模式 API 差异 ⚠️
+
+Worker 线程通过 IPC 代理访问宿主服务，**并非所有 `PluginContext` API 都可用**。开发时若目标运行模式为 Worker，必须遵守以下约束：
+
+| API | Inline 模式 | Worker 模式 | 说明 |
+|---|---|---|---|
+| `ctx.services.commandBus` | 完整 | `registerHandler` / `execute` | `execute` 调用不自动加命名空间前缀，见下方 |
+| `ctx.services.eventBus` | `on()` / `off()` | `subscribe()` / `unsubscribe()` | 方法名不同 |
+| `ctx.services.actionRegistry` | 完整 | `register()` | — |
+| `ctx.http` | 完整 `PluginHttpRouter` | 完整支持 (GET/POST 等) | **（v0.3.11 新增）** 通过 RPC 跨线程派发纯 DTO，内置 5000ms 熔断保护 |
+| `ctx.db.migrate(fn)` | `sqliteDb.exec()` 可用 | `prepare().run/get/all` + `exec()` | **（v0.3.9+ 补齐 exec）** 无 `transaction` |
+| `ctx.db.table()` | 返回 manifest ID 前缀 | 返回 UUID 前缀 | 同一次激活内一致，但切换模式会导致表名变化 |
+| `ctx.resolve(IDatabaseToken)` | 完整 `better-sqlite3` (同步) | `prepare().run/get/all` + `exec()` (异步) | **（v0.3.9+ 补齐 exec 异步转发）** 无 `transaction` |
+| `ctx.config` | 可用 | ❌ 不可用 | 需通过 `ctx.manifest.configuration.properties` 读取默认值 |
+| `ctx.provide()` | 可用 | ❌ 不可用 | 需 `typeof` 守卫跳过 |
+| `ctx.log` | 可用 | 可用 | — |
+| `ctx.pluginId` | manifest ID | UUID | — |
+| `ctx.manifest` | 可用 | 可用 | — |
+
+> **关键规则**：Worker 中 `commandBus.execute()` **不会**自动给 `type` 加 `manifest.id` 前缀（`registerHandler` 会）。从 Worker 内部调用另一个自己的命令时，必须手动拼接完整 type：
+> ```typescript
+> // ❌ Worker 中此调用会失败——type 缺少前缀
+> commandBus.execute({ type: 'myplugin.do_work', payload: {} });
+> 
+> // ✅ 手动加 manifest.id 前缀
+> commandBus.execute({ type: `${ctx.manifest.id}.myplugin.do_work`, payload: {} });
+> ```
 
 **结构化错误类**（`packages/core/worker-runtime/errors.ts`）：
+- `WorkerActivateError` — 插件在 Worker 内激活失败
+- `WorkerTimeoutError` — RPC 调用或激活/停用超时
+- `WorkerTransportError` — postMessage 通信层失败
+- `WorkerCapabilityError` — 跨边界能力检查拒绝
+- `WorkerNotSupportedError` — 运行时不支持的功能
 
-* `WorkerActivateError` — 插件在 Worker 内激活失败
-* `WorkerTimeoutError` — RPC 调用或激活/停用超时
-* `WorkerTransportError` — postMessage 通信层失败
-* `WorkerCapabilityError` — 跨边界能力检查拒绝
-* `WorkerNotSupportedError` — 运行时不支持的功能
-
-### 8.2 前端 Worker 模式[](#worker "链接到此标题。")
+### 8.2 前端 Worker 模式
 
 前端同样支持 Worker 隔离，通过 `BrowserWorkerManager` 将插件运行在 Web Worker 中，与后端一致的隔离保证。插件需在安装时指定 `executionMode: 'worker'`。
 
-### 8.3 热重载（开发模式）[](#id26 "链接到此标题。")
+### 8.3 热重载（开发模式）
 
 在 `NODE_ENV=development` 时，PluginHost 自动启用文件监听：
 
@@ -1212,19 +1615,22 @@ Worker 模式的特点：
 3. 自动停用旧版本 → 清除中间件 → 激活新版本
 4. 无需重启服务器
 
-### 8.4 生命周期中间件[](#id27 "链接到此标题。")
+### 8.4 生命周期中间件
 
 PluginHost 支持在 6 个生命周期阶段注册中间件（洋葱模型）：
 
+```typescript
 pluginHost.registerMiddleware('beforeActivate', async (ctx, next) => {
   console.log(`[Auth] 检查插件 ${ctx.pluginId} 的激活权限`);
   await next();  // 继续执行
 });
+```
 
 可用阶段：`beforeActivate`、`afterActivate`、`beforeDeactivate`、`afterDeactivate`、`beforeCommand`、`afterCommand`。
 
-### 8.5 异步后台任务[](#id28 "链接到此标题。")
+### 8.5 异步后台任务
 
+```typescript
 // 注册任务处理器
 await processManager.registerHandler('my_task_type', async (
   processId, payload, state, log, updateState
@@ -1249,30 +1655,37 @@ const processId = await processManager.spawn(
 eventBus.subscribe('process.completed', (event) => {
   console.log('任务完成:', event.payload.processId);
 });
+```
 
-### 8.6 声明式数据库迁移[](#id29 "链接到此标题。")
+### 8.6 声明式数据库迁移
 
 使用 `ctx.db.migrate()` 进行插件数据库版本管理：
 
+```typescript
 // 首次激活时调用（idempotent）
+// ✅ 使用 prepare().run() 同时兼容 Inline 和 Worker 模式
 await ctx.db.migrate(1, async (sqliteDb) => {
-  sqliteDb.exec(`
+  sqliteDb.prepare(`
     CREATE TABLE IF NOT EXISTS my_table (
       id TEXT PRIMARY KEY,
       data TEXT
-    );
-  `);
+    )
+  `).run();
 });
 
 // 后续版本升级
 await ctx.db.migrate(2, async (sqliteDb) => {
-  sqliteDb.exec(`ALTER TABLE my_table ADD COLUMN extra TEXT DEFAULT ''`);
+  sqliteDb.prepare(`ALTER TABLE my_table ADD COLUMN extra TEXT DEFAULT ''`).run();
 });
+```
 
-### 8.7 自定义服务注册（V3.2）[](#v3-2 "链接到此标题。")
+> ⚠️ **Worker 兼容提示**：Worker 模式下 `migrate` 回调接收的是受限数据库代理，仅支持 `prepare().run()` / `prepare().get()` / `prepare().all()`。**不要使用 `sqliteDb.exec()`**（仅 Inline 模式可用）。建议始终使用 `prepare().run()` 编写迁移脚本以确保两种模式兼容。
+
+### 8.7 自定义服务注册（V3.2）
 
 插件可以向 DI 容器注册自定义服务，供其他插件消费：
 
+```typescript
 // 插件 A：注册服务
 await ctx.provide('@my-scope/IQuestionBank', questionBankService);
 
@@ -1280,6 +1693,7 @@ await ctx.provide('@my-scope/IQuestionBank', questionBankService);
 // optional: ['@my-scope:IQuestionBank@>=1.0.0']
 
 // 插件 B：运行时消费
+```
 
 ### 8.5 跨插件服务共享（V3.2）
 
@@ -1300,43 +1714,51 @@ export const QuizEngineToken = new Token<IQuizEngineService>(
   'ext-quiz-engine:IQuizEngineService',
   '1.0.0'
 );
+```
 
 在 `manifest.json` 中声明：
 
+```json
 {
   "provides": ["ext-quiz-engine:IQuizEngineService"]
 }
+```
 
 在 `activate` 中提供实例：
 
+```typescript
 ctx.provide(QuizEngineToken, new QuizEngine());
+```
 
 **消费方插件** 在编译期导入类型，运行时通过 Token 解析：
 
+```typescript
 import type { IQuizEngineService } from 'ext-quiz-engine/contracts';
 import { QuizEngineToken } from 'ext-quiz-engine/contracts';
 
 const engine = await ctx.resolve(QuizEngineToken);
 // engine 类型为 IQuizEngineService，有完整的 IDE 补全
 const score = engine.score(answers);
+```
 
 在 `manifest.json` 中声明依赖：
 
+```json
 {
   "requires": [
     "@openlearn/core:ICommandBusService@^1.0.0",
     "ext-quiz-engine:IQuizEngineService"
   ]
 }
+```
 
 **校验机制**：
-
-* 安装时：检查提供方 `manifest.provides` 是否声明了 token → warn
-* 激活时：检查提供方是否已激活并提供服务 → 阻塞
-* 激活顺序：`ext-quiz-engine:IQuizEngineService` 自动推导为对 `ext-quiz-engine` 的依赖，提供方先激活
+- 安装时：检查提供方 `manifest.provides` 是否声明了 token → warn
+- 激活时：检查提供方是否已激活并提供服务 → 阻塞
+- 激活顺序：`ext-quiz-engine:IQuizEngineService` 自动推导为对 `ext-quiz-engine` 的依赖，提供方先激活
 
 const qb = await ctx.resolve({ name: '@my-scope:IQuestionBank' } as any);
-
+```
 
 ---
 
@@ -1350,27 +1772,35 @@ const qb = await ctx.resolve({ name: '@my-scope:IQuestionBank' } as any);
 ctx.log.info('Handler registered', { commandType: 'poll.create' });
 ctx.log.error('Database connection failed', { error: error.message });
 ctx.log.debug('Request processed', { latency: 23, payload: data });
+```
 
-### 9.2 查看进程状态[](#id30 "链接到此标题。")
+### 9.2 查看进程状态
 
+```bash
 # 查看插件列表
 curl http://localhost:9000/api/plugins
 
 # 查看后台进程
 # 在应用 UI：系统设置 → 进程管理
+```
 
-### 9.3 事件审计[](#id31 "链接到此标题。")
+### 9.3 事件审计
 
 所有事件自动写入 SQLite `events` 表：
 
+```sql
 SELECT * FROM events WHERE type LIKE 'poll.%' ORDER BY timestamp DESC;
+```
 
-### 9.4 插件测试[](#id32 "链接到此标题。")
+### 9.4 插件测试
 
 使用 `@openlearn/plugin-test-kit` 进行单元测试：
 
+```bash
 npm install --save-dev @openlearn/plugin-test-kit vitest
+```
 
+```typescript
 // __tests__/index.test.ts
 import { describe, it, expect } from 'vitest';
 import { createMockContext } from '@openlearn/plugin-test-kit';
@@ -1384,52 +1814,85 @@ describe('my-plugin', () => {
     const handlers = ctx.services.commandBus._getHandlers();
     expect(handlers).toContain('myplugin.hello');
   });
+
+  // v0.3.11 新增：测试插件 RESTful API 路由
+  it('should respond to GET /api/plugins/my-plugin/status', async () => {
+    const ctx = createMockContext({ pluginId: 'my-plugin' });
+    await plugin.activate(ctx);
+
+    const res = await ctx.http.handle({
+      method: 'GET',
+      path: '/status',
+      params: {},
+      query: {},
+      headers: {},
+      body: null,
+      ip: '127.0.0.1',
+      actor: { actorId: 'user:1', role: 'teacher' }
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({ online: true }));
+  });
 });
+```
 
 ---
 
-## 10\. 发布前自检清单[](#id33 "链接到此标题。")
+## 10. 发布前自检清单
 
 在打包插件 ZIP 前，逐项检查以下内容以避免常见问题：
 
-### Manifest 检查[](#id34 "链接到此标题。")
+### Manifest 检查
 
-* \[ \] `id` 格式为 `@scope/name`，全局唯一
-* \[ \] `engines.openlearn` 版本号**不高于**目标系统的实际版本
-* \[ \] `requires` 中所有服务 Token 的版本前缀正确
-* \[ \] `classroomTools` 中每个 `commandType` 都有对应的 `registerHandler`
+- [ ] `id` 格式建议为 `@scope/name` 或 `ext-name`，全局唯一
+- [ ] `engines.openlearn` 建议声明向前兼容区间（推荐 `">=0.2.5"`），避免零主版本互锁
+- [ ] `requires` 中所有服务 Token 的版本前缀正确
+- [ ] `classroomTools` 中每个 `commandType` 都有对应的 `registerHandler`
+- [ ] 若导出 HTTP 端点，在 `api.routes` 中声明了端点路径、鉴权要求（`auth`）与角色权限（`roles`）
 
-### 服务端检查[](#id35 "链接到此标题。")
+### 服务端与构建检查
 
-* \[ \] 每个 Action（`actionRegistry.register`）都有对应的 Command Handler（`commandBus.registerHandler`）
-* \[ \] `ctx.db.ensureTable` 创建的每个表都有注释说明用途
-* \[ \] 数据库操作只使用 `prepare().run()` / `.get()` / `.all()`，避免 `exec()`、`pragma()` 等新版本方法
-* \[ \] 跨插件调用（如 VFS）在 `capabilitiesProposed` 中声明了对应权限
-* \[ \] `activate()` 中所有可能出现异常的操作包裹了 `try/catch`
+- [ ] 构建配置中已将 `@openlearn/plugin-sdk` 标记为 `external`，严禁将 SDK 打入插件 ZIP
+- [ ] 每个 Action（`actionRegistry.register`）都有对应的 Command Handler（`commandBus.registerHandler`）
+- [ ] `ctx.db.ensureTable` 创建的每个表都有注释说明用途
+- [ ] 跨插件调用（如 VFS）在 `capabilitiesProposed` 中声明了对应权限
+- [ ] `activate()` 中所有可能出现异常的操作包裹了 `try/catch`
 
-### 前端检查[](#id36 "链接到此标题。")
+### Worker 兼容性检查 ⚠️（目标运行模式为 Worker 时必查）
 
-* \[ \] `tsconfig.json` 中 `jsx` 为 `"react"`（非 `"react-jsx"`）
-* \[ \] `react` / `react-dom` / `recharts` / `lucide-react` 标记为 `external`（由 HostSharedDeps 提供）
-* \[ \] 不直接 import React hooks 之外的 React 子路径（如 `react/jsx-runtime`）
-* \[ \] 使用的扩展点槽位在目标系统版本中存在（参考 [2.6 版本兼容性速查表](#id10)）
-* \[ \] 前端调用的命令在服务端有对应的 handler
+- [ ] `ctx.resolve(IDatabaseToken)` 返回的实例在 Worker 中调用 `exec()` 返回 Promise，需 `await`（v0.3.9+）
+- [ ] 未在 Worker 中调用同步回调式的 `db.transaction(fn)`
+- [ ] 未直接访问 `ctx.config`——改用 `ctx.manifest.configuration.properties` 读取默认值
+- [ ] `ctx.provide()` 调用包裹了 `typeof (ctx as any).provide === 'function'` 守卫
+- [ ] `eventBus` 使用 `subscribe()/unsubscribe()`，而非 `on()/off()`
+- [ ] Worker 内部 `commandBus.execute()` 的 `type` **手动拼接了 `ctx.manifest.id` 前缀**
+- [ ] Worker 内 HTTP API 响应体大小受 1MB 硬限制，大文件传输已引导至 `IStorageService`
 
-### 构建检查[](#id37 "链接到此标题。")
+### 前端检查
 
-* \[ \] `npx @openlearn/plugin-sdk build` 无报错
-* \[ \] ZIP 产物包含 `manifest.json` \+ `index.js` +（可选）`frontend.js`
-* \[ \] 解压 ZIP 后检查 `index.js` 不包含禁用的裸导入（参考 [11.4 常见打包错误与排查](#id40)）
-* \[ \] 解压 ZIP 后检查 `frontend.js` 不包含 `import ... from "react/jsx-runtime"`
+- [ ] `tsconfig.json` 中 `jsx` 为 `"react"`（非 `"react-jsx"`）
+- [ ] `react` / `react-dom` / `recharts` / `lucide-react` 标记为 `external`（由 HostSharedDeps 提供）
+- [ ] 不直接 import React hooks 之外的 React 子路径（如 `react/jsx-runtime`）
+- [ ] 使用的扩展点槽位在目标系统版本中存在（参考 [2.6 版本兼容性速查表](#version-compat-table)）
+- [ ] 前端调用的命令在服务端有对应的 handler
+
+### 构建检查
+
+- [ ] `npx @openlearn/plugin-sdk build` 无报错
+- [ ] ZIP 产物包含 `manifest.json` + `index.js` +（可选）`frontend.js`
+- [ ] 解压 ZIP 后检查 `index.js` 不包含禁用的裸导入（参考 [11.4 常见打包错误与排查](#114-常见打包错误与排查)）
+- [ ] 解压 ZIP 后检查 `frontend.js` 不包含 `import ... from "react/jsx-runtime"`
 
 ---
 
-## 11\. 发布与分发[](#id38 "链接到此标题。")
+## 11. 发布与分发
 
-### 11.1 使用 CLI 脚手架[](#cli "链接到此标题。")
+### 11.1 使用 CLI 脚手架
 
 OpenLearnV2 提供 `@openlearn/plugin-sdk` CLI 工具快速创建项目：
 
+```bash
 # 脚手架创建
 npx @openlearn/plugin-sdk init --name my-plugin
 
@@ -1440,11 +1903,13 @@ cd my-plugin && npm install
 npx @openlearn/plugin-sdk build
 
 # 产物位于 my-plugin.zip，上传到插件中心即可安装
+```
 
 支持三种模板：`server-only`、`full-stack`、`frontend-only`。
 
-### 11.2 手动打包为 ZIP[](#zip "链接到此标题。")
+### 11.2 手动打包为 ZIP
 
+```bash
 # 插件目录结构
 my-plugin/
   index.js          # 入口（export default { manifest, activate }）
@@ -1453,49 +1918,54 @@ my-plugin/
 
 # 打包
 zip -r my-plugin.zip my-plugin/
+```
 
-### 11.3 安装 ZIP 插件[](#id39 "链接到此标题。")
+### 11.3 安装 ZIP 插件
 
-在「系统设置」→「插件中心」上传 ZIP 文件，系统自动：
-
+在「系统设置」→「插件中心」上传 ZIP 文件，或使用 **一键极速安装（Express Install ⚡）** 按钮启动向导，系统自动：
 1. 解压 ZIP
 2. 提取 index.js 作为入口
 3. 解析 manifest
 4. **使用 esbuild 的 `openlearn-token-enforcer` 插件进行二次扫描**（见 11.4）
 5. 验证依赖（SemVer 兼容性检查）
-6. 存入数据库
-7. 可选：立即激活
+6. 检查权限请求，并通过颜色编码（玫瑰色/高危、琥珀色/中风险、翡翠绿/安全）向用户提示安全风险
+7. 存入数据库
+8. 可选：立即激活
 
-### 11.4 常见打包错误与排查[](#id40 "链接到此标题。")
+### 11.4 常见打包错误与排查
 
-#### 错误：`Import of "<module>" is not allowed`[](#import-of-module-is-not-allowed "链接到此标题。")
+#### 错误：`Import of "<module>" is not allowed`
 
 **错误信息示例：**
-
+```
 Build failed with 1 error:
 <stdin>:6:27: ERROR: [plugin: openlearn-token-enforcer]
 Import of "crypto" is not allowed.
 Plugins may only use relative imports or @openlearn/* Token services.
+```
 
 **原因：** OpenLearn 在接收到上传的 ZIP 后，会使用内置的 esbuild `openlearn-token-enforcer` 插件对入口文件（`index.js`）进行安全扫描。该扫描器**只允许两类导入**：
 
-| 允许                     | 示例                                                     |
-| ---------------------- | ------------------------------------------------------ |
-| 相对路径导入                 | import foo from './utils'                              |
-| @openlearn/\* Token 服务 | import { IDatabaseToken } from '@openlearn/plugin-sdk' |
+| 允许 | 示例 |
+|------|------|
+| 相对路径导入 | `import foo from './utils'` |
+| `@openlearn/*` Token 服务 | `import { IDatabaseToken } from '@openlearn/plugin-sdk'` |
 
 所有其他**裸 specifier 导入**（包括 Node.js 内置模块）都会被拒绝：
 
+```typescript
 // ❌ 禁止 — 会触发 token-enforcer 报错
 import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import path from 'path';
 import _ from 'lodash';
+```
 
 **解决方案：**
 
 **① 替换 `crypto.randomUUID()`（最常见）**
 
+```typescript
 // ❌ 错误写法
 import { randomUUID } from 'crypto';
 const id = randomUUID();
@@ -1504,16 +1974,20 @@ const id = randomUUID();
 const id = globalThis.crypto.randomUUID();
 // 或更简短（全局 crypto 在 Node.js 20+ 中与 globalThis.crypto 等价）
 const id = crypto.randomUUID();
+```
 
 **② 替换时间戳 ID（更简单）**
 
+```typescript
 // 对于不需要密码学安全性的 ID，可以用时间戳 + 随机数组合
 const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+```
 
 **③ 替换 `fs`（文件操作）**
 
 插件不应直接使用 `fs` 模块，应通过 VFS 服务（需在 manifest 中声明 `vfs:read`/`vfs:write` 权限）：
 
+```typescript
 // ❌ 错误写法
 import { readFileSync } from 'fs';
 
@@ -1523,50 +1997,80 @@ const storage = await ctx.resolve(IStorageServiceToken);
 await ctx.services.commandBus.execute(
   ctx.services.commandBus.createCommand('vfs.read_file', { path: '/my/file.txt' }, ctx.pluginId)
 );
+```
 
 **④ 替换 `path`（路径操作）**
 
+```typescript
 // ❌ 错误写法
 import path from 'path';
 
 // ✅ 正确写法 — 使用原生字符串操作
 const filename = filePath.split('/').pop() ?? '';
 const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+```
 
 **⑤ 替换第三方 npm 包**
 
 部分常用包已通过 `ctx.require()` 白名单共享（无需 import）：
 
-| 包名           | 使用方式                                              |
-| ------------ | ------------------------------------------------- |
-| uuid         | const { v4: uuidv4 } \= ctx.require('uuid')       |
-| xlsx         | const XLSX \= ctx.require('xlsx')                 |
-| recharts     | const { LineChart } \= ctx.require('recharts')    |
-| jspdf        | const { jsPDF } \= ctx.require('jspdf')           |
-| lucide-react | const { BookOpen } \= ctx.require('lucide-react') |
+| 包名 | 使用方式 |
+|------|----------|
+| `uuid` | `const { v4: uuidv4 } = ctx.require('uuid')` |
+| `xlsx` | `const XLSX = ctx.require('xlsx')` |
+| `recharts` | `const { LineChart } = ctx.require('recharts')` |
+| `jspdf` | `const { jsPDF } = ctx.require('jspdf')` |
+| `lucide-react` | `const { BookOpen } = ctx.require('lucide-react')` |
 
 对于其他第三方包，需在构建阶段将其完整代码内联到 `index.js` 中（esbuild bundle），避免在产物中残留裸 specifier 导入语句。
 
 **自检方法（上传前验证）：**
 
+```bash
 # 检查产物 index.js 中是否有不在白名单内的裸导入
 grep -E '^import .+ from "[^@\./]' dist/index.js
 # 有输出 = 有问题；无输出 = 通过
+```
 
-### 11.5 版本兼容性[](#id41 "链接到此标题。")
+### 11.5 版本兼容性
 
 插件依赖声明支持 SemVer 范围：
-
-* `^1.0.0` — 兼容 1.x.x
-* `~1.2.0` — 兼容 1.2.x
-* `>=1.0.0 <2.0.0` — 显式范围
+- `^1.0.0` — 兼容 1.x.x
+- `~1.2.0` — 兼容 1.2.x
+- `>=1.0.0 <2.0.0` — 显式范围
 
 安装时 PluginHost 自动检查兼容性，不兼容则拒绝安装。
 
+## 12. Web 课件与 Bridge SDK 集成
+
+OpenLearn V2 支持嵌入交互式 HTML/Web 课件。为了确保平台安全性，课件运行在高度隔离的 iframe 沙箱中（设置了 `sandbox="allow-scripts allow-forms allow-downloads"` 限制，无 `allow-same-origin` 权限）。
+
+### 12.1 Bridge SDK 的 Proxy 代理模式
+
+在缺少 `allow-same-origin` 权限的沙箱中，`window.parent` 表现为跨域的 `WindowProxy`。传统通过 `window.parent.postMessage` 通信容易静默失败。针对此问题，平台提供了 Bridge SDK：
+- SDK 利用 `Object.defineProperty` 与 JavaScript `Proxy`，覆盖劫持并代理沙箱内课件的 `window.parent` 和 `window.top` 对象。
+- 当课件内部调用 `.postMessage()` 时，Proxy 会自动拦截并将 `targetOrigin === 'null'` 标准化修正为 `'*'`。
+- 课件 HTML 资源通过 `/runtime/:uuid/` 端点分发时，服务端将自动注入 `bridge.js` 脚本。
+
+### 12.2 课件上下文与 LMS API
+
+Bridge SDK 在初始化时，会自动将以下上下文对象挂载至全局：
+- `window.__LMS_STUDENT__`: 当前学生上下文数据
+- `window.__LMS_COURSEWARE__`: 当前课件元数据
+
+同时，提供全局对象 `LMS` 以调用平台能力：
+- `LMS.submit(data)`: 提交交互数据或测验答案
+- `LMS.saveProgress(data)`: 保存课件进度
+- `LMS.finish(data)`: 标记课件学习完成
+- `LMS.getStudent()`: 动态获取当前学生信息
+- `LMS.getCourseware()`: 动态获取课件信息
+- `LMS.log(event, data)`: 发送自定义行为日志
+
 ---
 
-## 附录 A：完整插件模板[](#a "链接到此标题。")
+## 附录 A：完整插件模板
 
+```typescript
 // 复制此模板开始开发你的插件
 import type { PluginContext } from '@openlearn/plugin-sdk';
 import {
@@ -1587,7 +2091,7 @@ export default {
     main: 'index.js',
     description: '插件描述',
     author: '作者名',
-    engines: { openlearn: '^0.1.9' },
+    engines: { openlearn: '>=0.2.5' },
     requires: [
       '@openlearn/core:ICommandBusService@^1.0.0',
       '@openlearn/core:IActionRegistryService@^1.0.0',
@@ -1613,18 +2117,20 @@ export default {
     console.log('插件已停用');
   },
 };
+```
 
-## 附录 B：现有内置插件参考[](#b "链接到此标题。")
+## 附录 B：现有内置插件参考
 
-| 插件     | 文件                                  | 命令示例                                             |
-| ------ | ----------------------------------- | ------------------------------------------------ |
-| 课堂核心   | packages/plugins/builtin.ts         | lesson.create, whiteboard.draw, whiteboard.query |
-| 虚拟文件系统 | packages/plugins/vfs.ts             | vfs.write\_file, vfs.read\_file, vfs.list\_dir   |
-| 管理插件   | packages/plugins/management.ts      | class.create, student.enroll, assignment.create  |
-| AI 规划器 | packages/plugins/ai-planner.ts      | ai.start\_generation, ai.apply\_recommendation   |
-| 作业评估   | packages/plugins/assignment-eval.ts | assignment.evaluate, peer\_review.create         |
-| 进程管理   | packages/plugins/process.ts         | process.spawn, process.kill, process.list        |
+| 插件 | 文件 | 命令示例 |
+|------|------|----------|
+| 课堂核心 | `packages/plugins/builtin.ts` | `lesson.create`, `whiteboard.draw`, `whiteboard.query` |
+| 虚拟文件系统 | `packages/plugins/vfs.ts` | `vfs.write_file`, `vfs.read_file`, `vfs.list_dir` |
+| 管理插件 | `packages/plugins/management.ts` | `class.create`, `student.enroll`, `assignment.create` |
+| AI 规划器 | `packages/plugins/ai-planner.ts` | `ai.start_generation`, `ai.apply_recommendation` |
+| 作业评估 | `packages/plugins/assignment-eval.ts` | `assignment.evaluate`, `peer_review.create` |
+| 进程管理 | `packages/plugins/process.ts` | `process.spawn`, `process.kill`, `process.list` |
 
 ---
 
-> 本文档基于 OpenLearnV2 最新代码库（`main` 分支），通过 Codegraph 知识图谱分析生成。 最后更新：2026-07-14
+> 本文档基于 OpenLearnV2 最新代码库（`main` 分支），通过 Codegraph 知识图谱分析生成。
+> 最后更新：2026-07-14
