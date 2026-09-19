@@ -6,6 +6,8 @@ import {
   IDatabaseToken,
 } from '@openlearn/plugin-sdk';
 
+const cleanups: Array<() => void> = [];
+
 export default {
   manifest: {
     id: '{{pluginId}}',           // 全局唯一标识，如 @scope/plugin-name
@@ -13,7 +15,7 @@ export default {
     version: '0.1.0',
     description: '{{description}}',
     author: '{{author}}',
-    engines: { openlearn: '^5.0.0' },
+    engines: { openlearn: '>=0.1.9' },
     requires: [
       '@openlearn/core:ICommandBusService@^1.0.0',
       '@openlearn/core:IActionRegistryService@^1.0.0',
@@ -36,10 +38,6 @@ export default {
     const actionRegistry = ctx.services.actionRegistry;
     const eventBus = ctx.services.eventBus;
     const db = ctx.db;
-
-    // ============================================================
-    // TODO: 在此处注册 AI Action 和 Command Handler
-    // ============================================================
 
     // 必须注册 classroomTools 声明的 commandType 对应的 handler
     await commandBus.registerHandler('{{commandPrefix}}.open_tool', {
@@ -72,7 +70,7 @@ export default {
     //   },
     // });
 
-    // 示例：注册 Command Handler
+    // 示例：注册 Command Handler 与发布事件
     // await commandBus.registerHandler('{{commandPrefix}}.create', {
     //   async execute(command) {
     //     const payload = command.payload as any;
@@ -96,10 +94,18 @@ export default {
     //   },
     // });
 
-    ctx.log.info('Plugin activated');
+    ctx.log.info('{{pluginName}} (full-stack) activated successfully');
   },
 
   async deactivate() {
-    // TODO: 清理资源
+    while (cleanups.length > 0) {
+      const cleanup = cleanups.pop();
+      try {
+        cleanup?.();
+      } catch (err) {
+        console.error('Error during cleanup:', err);
+      }
+    }
   },
 };
+
