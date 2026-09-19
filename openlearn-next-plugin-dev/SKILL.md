@@ -1,5 +1,8 @@
 ---
 name: openlearn-next-plugin-dev
+slug: openlearn-next-plugin-dev
+displayName: OpenLearnV2 插件开发助手
+version: 1.0.1
 description: 为 OpenLearnV2 教学平台开发插件。通过读取 https://openlearn-next-v2.readthedocs.io/zh-cn/latest/ 在线文档获取最新插件开发文档，与开发者讨论需求后指导开发相应插件。内置插件侧/系统侧故障归因流程，可在插件报错时判定责任方，并在确认为系统缺陷时生成可直接提交的 bug 报告。支持三类插件模板（server-only / full-stack / frontend-only）。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，或报告插件报错/不工作/需要判断是插件问题还是平台问题时使用此 skill。
 ---
 

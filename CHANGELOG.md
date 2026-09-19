@@ -19,6 +19,7 @@
 - 扩展槽位补充 `anchor:*`（v0.2.6+，含白板工具栏锚点）与 `nav.user_menu`。
 - Manifest 关键字段补充：`api.routes`、`provides`、`optional`、`pluginDependencies`、`contributes`、`updateSource`、`deploy`、`configuration.showInDashboard`。
 - 探活机制增加构建版本比对（索引页页脚日期可能滞后于实际构建版本，现同时对页面标题中的 `OpenLearnV2 x.y.z` 版本号进行检查）。
+- 补充 skillhub 发布元数据（`slug` / `displayName` / `version`），使 skill 可通过 `skillhub publish` 直接发布与更新。
 
 ### 变更
 
