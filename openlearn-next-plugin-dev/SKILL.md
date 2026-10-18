@@ -1,17 +1,31 @@
 ---
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
-displayName: OpenLearnV2 插件开发助手
-version: 1.0.1
-description: 为 OpenLearnV2 教学平台开发插件。通过读取 https://openlearn-next-v2.readthedocs.io/zh-cn/latest/ 在线文档获取最新插件开发文档，与开发者讨论需求后指导开发相应插件。内置插件侧/系统侧故障归因流程，可在插件报错时判定责任方，并在确认为系统缺陷时生成可直接提交的 bug 报告。支持三类插件模板（server-only / full-stack / frontend-only）。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，或报告插件报错/不工作/需要判断是插件问题还是平台问题时使用此 skill。
+displayName: OpenLearnV2 插件开发与仓库协作助手
+version: 1.1.0
+description: 为 OpenLearnV2 教学平台开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。通过读取 https://openlearn-next-v2.readthedocs.io/zh-cn/latest/ 在线文档获取最新插件开发文档，与开发者讨论需求后指导开发相应插件。内置插件侧/系统侧故障归因流程，可在插件报错时判定责任方，并在确认为系统缺陷时生成可直接提交的 bug 报告；支持三类插件模板（server-only / full-stack / frontend-only）。GitHub 协作支持：接手 issue 前 assign + in-progress 占位、创建独立 worktree 开发、通过 PR 提交、审查/返工/合并 PR。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，报告插件报错/不工作，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
-# OpenLearnV2 插件开发指南与规范
+# OpenLearnV2 插件开发与仓库协作指南
 
 ## 核心原则
 
 **在线文档是权威来源，本地缓存加速读取，规则约束保证代码正确性。** 
-skill 自带三份文档的本地快照（`references/`），每次使用前通过索引页探活。缓存未过期则直接用本地，发现远端更新才重新拉取——将月消耗从 ~100K token 降至 ~22K token。
+skill 自带三份官方文档的本地快照（`references/`），每次使用前通过索引页探活；另有两份自建 SOP（故障归因、GitHub 协作）。缓存未过期则直接用本地，发现远端更新才重新拉取——将月消耗从 ~100K token 降至 ~22K token。
+
+---
+
+## 任务模式判断（先做这一步）
+
+| 用户意图 | 模式 | 入口 |
+|----------|------|------|
+| 处理某个 GitHub issue / PR；给出编号、URL，或说「接手这个 issue」「审查/合并 PR」 | **B：仓库协作** | 下方「模式 B」+ `references/github-collaboration.md` |
+| 开发 / 修改 / 排查 OpenLearn 插件 | **A：插件开发** | 「第一步 ~ 第六步」 |
+| 两者都不明确 | — | 先问清楚，不要猜 |
+
+- 模式 B **不需要**执行第一步的文档探活，也不需要读取插件开发文档；只需读取目标仓库的 `AGENTS.md` / `CLAUDE.md` / `README.md` / `package.json`。
+- 模式 B 遵守「两次主确认 + 不可逆动作单独确认」：接管 issue 前确认占位方案；push/开 PR 前确认 diff、测试与文案；合并、清理、发布 review 等公开或不可逆动作另行确认。
+- 两种模式可在同一会话切换；切换时先说明当前模式。
 
 ---
 
@@ -202,6 +216,124 @@ npx @openlearn/plugin-sdk build
 
 ---
 
+## 模式 B：GitHub Issue / PR 协作工作流
+
+> 详细命令、异常处理与输出模板见 `references/github-collaboration.md`。本节只给流程骨架与不可跳过的门禁。
+
+### B0. 适用范围与仓库定位
+
+- 默认仓库：`aymwoo/OpenLearn-Next-V2`（平台）与 `openlearn-next/*`（插件）。
+- 定位顺序：issue/PR URL → 当前目录 git remote → 已知本地路径 → 询问。
+- 本地路径：平台 `~/Develop/openlearnv2`；插件 `~/Develop/openlearn-plugins/<repo>`。
+- 本地不存在时先问是否 clone；绝不跨到无关仓库。
+- 无 `project` scope：不要尝试更新 Projects 看板，统一用 assignee + `in-progress` 标签表达状态。
+
+### B1. 接管 issue：先占位，再开发
+
+预检（任一不满足就停）：
+
+1. issue 仍为 OPEN；
+2. 未 assign 给其他人；若已 assign 给自己则幂等继续；
+3. 没有引用该 issue 的开放 PR 或他人远程分支；
+4. 正文有可验证的验收标准。
+
+确认后执行「占位三件套」：
+
+```bash
+gh issue edit <n> -R <repo> --add-assignee @me
+gh issue edit <n> -R <repo> --add-label in-progress   # 缺失时先创建
+gh issue comment <n> -R <repo> --body-file <占位评论>
+```
+
+> 标签只按需创建 `in-progress`（色值 `#e36209`）。评论需包含负责人与分支名，方便其他人避让；本地 worktree 路径不必公开。
+
+### B2. 创建 worktree
+
+- 平台：`~/Develop/openlearn-issue-<n>`
+- 插件：`~/Develop/openlearn-plugins/<repo>-issue-<n>`
+- 分支：`<type>/issue-<n>-<slug>`，从 `origin/main` 创建。
+- 路径已存在时：同分支且干净 → 复用；否则停止，绝不覆盖。
+- 不碰主 clone 的工作区。
+
+```bash
+git -C <local> fetch origin --prune
+git -C <local> worktree add -b <branch> <worktree> origin/main
+```
+
+### B3. 开发与本地验证
+
+- 先读仓库 `AGENTS.md` / `CLAUDE.md` / `README.md` / `package.json`，以其约定为准。
+- 平台：worktree 内先 `pnpm install --frozen-lockfile`；改动用例 `pnpm vitest run <path>`；开 PR 前跑 `pnpm lint && pnpm lint:strict`，全量测试交给 CI。
+- 插件：只跑 `package.json` 中实际存在的脚本；`interactive-courseware` 的 `build` 会 bump 版本，非必要不跑。
+- 提交：`<type>(<scope>): <中文摘要>（Issue #<n>）`，1-3 个逻辑提交，不夹带无关改动。
+
+### B4. 提交 PR（确认门 2）
+
+push 前展示 diff stat、提交列表、测试命令与结果、PR 标题/正文，确认后：
+
+```bash
+git -C <worktree> push -u origin <branch>
+gh pr create -R <repo> --base main --head <branch> --title "<title>" --body-file <body>
+```
+
+PR 正文必须包含：`## 变更内容`、`## 关联 Issue`（`Closes #<n>`）、`## 测试计划`（真实命令与结果）、UI 改动的 `## 截图`、`## 风险与回滚`。一个 issue 一个 PR。
+
+### B5. CI
+
+```bash
+timeout 600 gh pr checks <pr> -R <repo> --watch --interval 30
+```
+
+- 本次改动导致的失败 → 自动修 1 轮并重推。
+- 环境/flaky/基线失败 → 停止汇报，不反复重跑。
+- CI 未绿不合并。
+
+### B6. 审查 PR
+
+- 先输出只读状态卡（作者、CI、评审、可合并、改动量、关联 issue、未解决评论），再让用户选动作：审查 / 修评论 / 合并 / 仅解释。
+- 评审意见先在对话里出草稿，确认后才 `gh pr review`。
+- 自己的 PR 不能 approve，只能 comment；有阻塞项不得 approve。
+- 不替别人 resolve 讨论串。
+
+### B7. 返工
+
+- 按 review thread 逐条修复，回复 commit hash；普通 push 优先。
+- `--force-with-lease` 仅限自己的 PR 分支 + 确认；永不 force-push main。
+- 意见要求扩大范围时先汇报，等用户决定。
+
+### B8. 合并
+
+仅在用户明确说「合并」时执行，且满足：CI 全绿、mergeable、无 changes-requested、评论已处理、用户再次确认最终 commit message。
+
+```bash
+HEAD_SHA=$(gh pr view <pr> -R <repo> --json headRefOid --jq .headRefOid)
+gh pr merge <pr> -R <repo> --squash --match-head-commit "$HEAD_SHA" --subject "<title>" --body "<summary + Closes #n>"
+```
+
+> 不使用 `--delete-branch`：分支正被 worktree 占用时，gh 删除本地分支会失败。合并后先校验，再按 B9 显式删除远程/本地分支。
+> `--match-head-commit` 防止确认后 PR 又追加提交；被拒绝说明头指针已变，重新审查后再合并。
+
+合并后校验 PR 状态与 issue 是否自动关闭；不加 `--admin` / `--auto`。
+
+### B9. 清理
+
+- 合并后先删远程分支（若仍存在），再移除 worktree、删除本地分支；每一步都先询问。
+- 有未提交改动时永不删除。
+- PR 关闭未合并：保留 worktree，移除 `in-progress`，留言先确认。
+- 开工前巡检陈旧 worktree，只列出、不自动删。
+
+### 模式 B 红线
+
+1. 绝不直接 push `main`；所有变更走分支 + PR。
+2. 绝不未经明确指令合并 PR。
+3. 绝不 force-push main 或共享分支。
+4. 绝不自动删除 worktree / 分支；清理必须确认。
+5. 绝不覆盖已存在的目录或分支。
+6. 绝不未经确认发布公开内容（assign、评论、review、approve、合并）。
+7. 不确定就停：仓库、权限、归属、验收标准任一不清楚，先问用户。
+
+---
+
 ## 知识库与速查字典 (Reference Dictionaries)
 
 ### 1. 内核 Service Token & 接口方法速查
@@ -321,6 +453,7 @@ npx @openlearn/plugin-sdk build
 | `references/architecture.md` | 架构总览本地快照（CommandBus、生命周期、Worker Thread、DI、安全模型） |
 | `references/scaffold.md` | 脚手架指南本地快照（CLI 命令、模板、构建、测试、常见问题） |
 | `references/troubleshooting.md` | **故障归因 SOP**（证据清单、归因决策树、系统侧证据门槛、最小复现实验、已知系统问题索引、输出规范） |
+| `references/github-collaboration.md` | **GitHub Issue/PR 协作 SOP**（仓库定位、issue 预检与占位、worktree、PR 模板、CI、审查、返工、合并、清理、异常表、输出模板、红线） |
 | `assets/bug-report-template.md` | **系统侧 Bug 报告模板**（环境信息、复现步骤、完整堆栈、最小复现插件、对照实验、已排除项） |
 | `assets/server-only/` | server-only 插件模板（已增加完整清理 SOP 与 Token 注释） |
 | `assets/full-stack/` | full-stack 插件模板（包含 Socket 架构、Portal 防挤压与规范导入） |

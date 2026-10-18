@@ -6,6 +6,34 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [1.1.0] - 2026-10-18
+
+新增 GitHub Issue / PR 协作能力：接手 issue 前先占位，开发在独立 worktree 完成，所有变更通过 PR 提交，并覆盖审查、返工与合并。
+
+### 新增
+
+- **任务模式判断**：`SKILL.md` 顶部新增模式分流——A 插件开发（第一步 ~ 第六步）/ B GitHub 仓库协作；模式 B 跳过文档探活，只读取目标仓库约定。
+- **模式 B 工作流**：`SKILL.md` 新增「GitHub Issue / PR 协作工作流」章节（B0 ~ B9），覆盖仓库定位、issue 预检与占位、worktree、开发验证、PR 提交、CI、审查、返工、合并、清理与红线。
+- **`references/github-collaboration.md`**：完整执行手册，含：
+  - 平台仓库 `aymwoo/OpenLearn-Next-V2` 与 `openlearn-next/*` 插件仓库的本地路径映射；
+  - issue 预检（状态、assignee、重复 PR/分支、验收标准）；
+  - 「assign @me + `in-progress` 标签 + 占位评论」三件套，缺失标签按需创建；
+  - worktree 命名（`~/Develop/openlearn-issue-<n>`、`~/Develop/openlearn-plugins/<repo>-issue-<n>`）与分支命名（`<type>/issue-<n>-<slug>`）；
+  - PR 正文模板（变更内容 / `Closes #n` / 真实测试计划 / 截图 / 风险回滚）；
+  - CI 等待与失败分类、PR 状态卡、审查草稿与发布、review thread 返工、squash 合并、worktree 清理；
+  - 异常处理表、命令速查、四类输出模板与 10 条红线。
+
+### 变更
+
+- frontmatter 版本 `1.0.1 → 1.1.0`，`displayName` 改为「OpenLearnV2 插件开发与仓库协作助手」，description 增加 issue/PR 触发词。
+- `README.md`、`skills.sh.json` 同步更新技能说明。
+
+### 设计约束
+
+- 公开动作分级确认：两次主确认（接管 issue 前确认占位方案；push/开 PR 前确认 diff、测试与文案）+ 合并、清理、发布 review 等不可逆动作单独确认。
+- 平台 `main` 无分支保护，skill 以「CI 全绿 + squash + 删除分支 + 不 `--admin`/`--auto`」作为唯一防线。
+- 无 `project` scope，不使用 Projects 看板，统一用 assignee + `in-progress` 标签表达状态。
+
 ## [1.0.1] - 2026-09-19
 
 新增「插件侧 / 系统侧」故障归因能力，并把内置文档缓存从 0.1.x 时代全面刷新到 OpenLearnV2 v0.3.16。
@@ -51,5 +79,6 @@
 - 插件模板：显式 React 导入、`classroom.tool` 槽位图标按钮规范与 Portal 防挤压指引、轻量订阅者模式状态同步示例。
 - `README.md` 与 skills.sh 仓库页面配置。
 
+[1.1.0]: https://github.com/aymwoo/openlearn-skills/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/aymwoo/openlearn-skills/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/aymwoo/openlearn-skills/releases/tag/v1.0.0
