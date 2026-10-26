@@ -16,7 +16,7 @@ jobs:
     name: 模板 / 文档一致性自检
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: check-templates.sh
         run: bash openlearn-next-plugin-dev/scripts/check-templates.sh
 
@@ -25,8 +25,8 @@ jobs:
     name: 与官方脚手架比对（npm 发布版）
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: 安装官方 SDK（内含 scaffold/templates）
@@ -43,8 +43,8 @@ jobs:
     name: 模板真实构建 + tsc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: 安装 SDK 与类型检查器
@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: 拉取平台仓库
         run: |
           git clone --depth 1 https://github.com/aymwoo/OpenLearn-Next-V2.git /tmp/platform
