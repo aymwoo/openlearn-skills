@@ -1,5 +1,16 @@
 [缓存自 OpenLearnV2 官方文档 v0.3.16 多页汇编，见文末来源列表]
 
+> ⚠️ **这是一份 0.3.16 时代的历史快照，保留用于对比与溯源，不代表当前（v0.7.4）行为。**
+> 与当前行为不一致的关键点：
+> - **构建命令不变**：`npx @openlearn/plugin-sdk build` 仍然有效（CLI 仍只有 `init` / `build` / `sign`）。
+> - **模板已变**：官方模板已改为「沙箱桥接」形态（无 React 组件）+ manifest 必填 `main`；
+>   以 `~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/` 为准。
+> - **Manifest 字段**：新增 `contributes.locales`、`configuration.properties[].scope`、`network.outbound`；
+>   `api.baseRoute` 已成 no-op、`api.routes` 不支持 `ALL`。见 `manifest-0.7.md`。
+> - **前端 externals**：CLI 硬编码的 `['react','react-dom','recharts','lucide-react']` **只对 inline 生效**；
+>   远程（process 沙箱）插件用了 React 会必然激活失败。见 `frontend-bridge-0.7.md`。
+> - **测试套件**：`@openlearn/plugin-test-kit` 的 `createMockContext` 仍可用。
+
 # OpenLearn Plugin 脚手架与开发速查（v0.3.16 汇编版）
 
 > 说明：官方文档自 0.1.x 重构后，旧的 `/scaffold.html` 页面已 404。`sdk/scaffold-cli.html` 现在只保留 init / build 两条命令，本文件由 SDK / Test Kit / 示例 / 数据库 API / Manifest 规范等多页**汇编**而成。
@@ -432,8 +443,12 @@ describe('My Plugin Unit Tests', () => {
 ```typescript
 // 命令：注册后可断言执行结果
 const ctx = createMockContext({ pluginId: 'ext-poll' });
-ctx.services.commandBus.registerHandler('poll.create', async (cmd: any) =>
-  ({ pollId: 'poll-101', title: cmd.payload.title }));
+// 注意：registerHandler 的第二个参数必须是实现了 execute(command) 的对象，不能是裸函数
+ctx.services.commandBus.registerHandler('poll.create', {
+  async execute(cmd: any) {
+    return { pollId: 'poll-101', title: cmd.payload.title };
+  },
+});
 const result = await ctx.services.commandBus.execute({
   type: 'poll.create', payload: { title: '今天理解了吗？' } });
 expect(result).toEqual({ pollId: 'poll-101', title: '今天理解了吗？' });

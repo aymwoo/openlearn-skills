@@ -1,26 +1,62 @@
 {
   "source": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/",
-  "cacheDate": "2026-09-19",
-  "lastUpdated": "2026-09-09",
-  "docSiteVersion": "0.3.16",
-  "note": "探活需同时比对索引页页脚的『最后更新：YYYY-MM-DD』与页面标题中的构建版本『OpenLearnV2 x.y.z 文档』；页脚日期可能滞后于实际构建版本（本次页脚为 v0.3.14，而实际构建为 0.3.16）。两者任一变化即视为有更新。",
+  "cacheDate": "2026-10-27",
+  "lastUpdated": "2026-10-24",
+  "docSiteVersion": "0.7.4",
+  "platformVersion": "0.7.4",
+  "sdkVersion": "3.7.1",
+  "note": "探活需同时比对三个信号：(1) 索引页页脚『最后更新：YYYY-MM-DD』；(2) 页面标题中的构建版本『OpenLearnV2 x.y.z 文档』；(3) 本地平台仓库的 package.json version 与 packages/plugin-sdk/package.json version。页脚日期可能滞后于实际构建版本，三者任一变化即视为有更新。",
+  "localSourceHint": "一手文档源在平台仓库内：~/Develop/openlearnv2/docs/（含 doc-version 标记），优先从本地仓库同步，再以 readthedocs 校验线上版本号。",
   "documents": {
     "tutorial": {
       "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/tutorials/plugin-development-tutorial.html",
+      "localPath": "~/Develop/openlearnv2/docs/tutorials/plugin-development-tutorial.md",
       "dumped": true
     },
     "architecture": {
       "url": "multi-page: architecture/system-overview.html + architecture/platform-kernel.html + architecture/command-event-bus.html + architecture/dependency-injection.html + architecture/security-permissions.html + architecture/service-registry.html + plugin/plugin-architecture.html + plugin/plugin-lifecycle.html + plugin/anchor-slots.html + plugin/extension-registry.html + reference/plugin-host-shared-deps.html + reference/plugin-database-api.html",
+      "localPath": "~/Develop/openlearnv2/docs/architecture/ + docs/plugin/",
       "dumped": true
     },
     "scaffold": {
       "url": "multi-page: sdk/scaffold-cli.html + sdk/plugin-sdk.html + sdk/plugin-test-kit.html + examples/verifiable-examples.html + examples/existing-plugins-guide.html + reference/plugin-database-api.html + getting-started/quickstart.html + plugin/plugin-manifest-spec.html",
+      "localPath": "~/Develop/openlearnv2/docs/sdk/ + packages/plugin-sdk/scaffold/templates/",
       "dumped": true
     },
     "troubleshooting": {
       "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/troubleshooting/troubleshooting-faq.html",
       "dumped": true,
-      "note": "归因决策树/证据门槛/Bug 报告 SOP 为 skill 自建，并综合 plugin-lifecycle、plugin-manifest-spec、security-permissions、capability-matrix 及 Release Notes v0.3.13–v0.3.16"
+      "note": "归因决策树/证据门槛/Bug 报告 SOP 为 skill 自建；已知系统问题索引已补入 v0.4.0–v0.7.4"
+    },
+    "capability-matrix": {
+      "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/reference/plugin-capability-matrix.html",
+      "localPath": "~/Develop/openlearnv2/docs/reference/plugin-capability-matrix.md",
+      "dumped": true,
+      "note": "权限字符串真源；skill 本地快照为 references/capability-matrix-0.7.md"
+    },
+    "frontend-sandbox": {
+      "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin/frontend-sandbox-capability-boundary.html",
+      "localPath": "~/Develop/openlearnv2/docs/plugin/frontend-sandbox-capability-boundary.md",
+      "dumped": true,
+      "note": "远程前端沙箱能力边界；skill 本地快照为 references/frontend-bridge-0.7.md"
+    },
+    "trust-boundary": {
+      "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/reference/plugin-trust-boundary.html",
+      "localPath": "~/Develop/openlearnv2/docs/reference/plugin-trust-boundary.md",
+      "dumped": true,
+      "note": "执行模式与信任边界；skill 本地快照为 references/execution-trust-boundary.md"
+    },
+    "manifest-spec": {
+      "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin/plugin-manifest-spec.html",
+      "localPath": "~/Develop/openlearnv2/docs/plugin/plugin-manifest-spec.md",
+      "dumped": true,
+      "note": "manifest 权威规范；skill 本地快照为 references/manifest-0.7.md"
+    },
+    "ui-extension-slots": {
+      "url": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/reference/plugin-ui-extension-slots.html",
+      "localPath": "~/Develop/openlearnv2/docs/reference/plugin-ui-extension-slots.md",
+      "dumped": true,
+      "note": "槽位清单（115 个）与真实 props 注入模型"
     }
   }
 }

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. 模板与文档一致性（零依赖，最快反馈）────────────────────────────
+  self-check:
+    name: 模板 / 文档一致性自检
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: check-templates.sh
+        run: bash openlearn-next-plugin-dev/scripts/check-templates.sh
+
+  # ── 2. 与官方 CLI 脚手架比对（发布版 SDK 为基线）─────────────────────
+  scaffold-diff:
+    name: 与官方脚手架比对（npm 发布版）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装官方 SDK（内含 scaffold/templates）
+        working-directory: openlearn-next-plugin-dev
+        run: npm i --no-save @openlearn/plugin-sdk@latest
+      - name: diff-official-scaffold.sh
+        run: |
+          bash openlearn-next-plugin-dev/scripts/diff-official-scaffold.sh \
+            "$(pwd)/openlearn-next-plugin-dev" \
+            "$(pwd)/openlearn-next-plugin-dev/node_modules/@openlearn/plugin-sdk/scaffold/templates"
+
+  # ── 3. 三套模板真实构建 + 类型校验 ────────────────────────────────────
+  build-verify:
+    name: 模板真实构建 + tsc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装 SDK 与类型检查器
+        working-directory: openlearn-next-plugin-dev
+        run: npm i --no-save @openlearn/plugin-sdk@latest typescript@~5.8.0
+      - name: verify-templates-build.sh
+        run: bash openlearn-next-plugin-dev/scripts/verify-templates-build.sh
+
+  # ── 4. 平台仓库 HEAD 的前瞻性比对（不阻塞）─────────────────────────────
+  #     平台 main 可能已包含尚未发布的模板变更；这里提前预警，等 SDK 发版后再落到阻塞项。
+  platform-head-diff:
+    name: 与平台仓库 HEAD 比对（预警）
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: 拉取平台仓库
+        run: |
+          git clone --depth 1 https://github.com/aymwoo/OpenLearn-Next-V2.git /tmp/platform
+      - name: diff-official-scaffold.sh（对 HEAD 模板，预警模式）
+        env:
+          DIFF_ADVISORY: '1'
+        run: |
+          bash openlearn-next-plugin-dev/scripts/diff-official-scaffold.sh \
+            "$(pwd)/openlearn-next-plugin-dev" /tmp/platform

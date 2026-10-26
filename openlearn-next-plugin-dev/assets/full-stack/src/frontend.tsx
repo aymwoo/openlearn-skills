@@ -1,113 +1,89 @@
-// frontend.tsx — {{pluginName}} 前端组件
-import React, { useState, useEffect } from 'react';
-import ReactDOM from 'react-dom';
+/**
+ * {{pluginName}} — 前端入口（沙箱桥接）
+ *
+ * ⚠️ 这里没有 React 组件，也不要加。
+ *
+ * 第三方 ZIP 插件的 frontend.js 由宿主 fetch 后经 postMessage 送进
+ * `sandbox="allow-scripts"` 的不透明源 iframe（`/plugin-sandbox/frame`）执行，
+ * 那个 iframe 是 `display: none` 的隐藏执行体：
+ *   - 它不渲染任何用户可见 UI，iframe 内也没有 `window.HostSharedDeps` / React；
+ *   - `component` 是函数，postMessage 无法结构化克隆，传进去直接 DataCloneError。
+ *
+ * 所以本文件的唯一硬契约是：**default export 一个带 activate 函数的对象**。
+ * 宿主加载器逐字检查 `typeof plugin.activate !== 'function'`，不满足就抛
+ * `missing activate function`，插件直接进错误态。
+ *
+ * 可见入口来自 manifest 的声明式贡献（`src/index.ts` 的 classroomTools /
+ * contributes），由宿主自己渲染；本文件负责运行期桥接：读上下文、读写插件
+ * 命名空间存储、调后端命令、注册**数据型**扩展点。
+ * 完整能力边界见 references/frontend-bridge-0.7.md。
+ */
 
-let ctx: any = null;
-
-// ============================================================
-// 1. 独立浮层面板组件（使用 createPortal 挂载到 document.body，防挤压工具栏）
-// ============================================================
-function ToolOverlayPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  if (!isOpen) return null;
-
-  return ReactDOM.createPortal(
-    React.createElement('div', {
-      style: {
-        position: 'fixed',
-        top: 80,
-        right: 20,
-        width: 320,
-        backgroundColor: '#ffffff',
-        boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
-        borderRadius: 8,
-        padding: 16,
-        zIndex: 9999,
-      }
-    },
-      React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-        React.createElement('h3', { style: { margin: 0, fontSize: 16 } }, '{{pluginName}} 控制台'),
-        React.createElement('button', { onClick: onClose, style: { border: 'none', background: 'transparent', cursor: 'pointer' } }, '✕')
-      ),
-      React.createElement('p', { style: { color: '#666', fontSize: 14, marginTop: 8 } }, '插件实时交互与控制面板'),
-    ),
-    document.body
-  );
+/**
+ * 沙箱 iframe 注入的桥接上下文（SDK 未导出此类型，按实际用到的成员声明最小接口）。
+ * 只有这里列出的成员存在，`React` / `document` / `fetch` 都不在 iframe 的可用范围内。
+ */
+interface SandboxFrontendContext {
+  pluginId: string;
+  services: {
+    frontendApi: {
+      get<T = unknown>(path: string): Promise<{ success: boolean; result?: T; error?: string }>;
+      post<T = unknown>(path: string, body?: unknown): Promise<{ success: boolean; result?: T; error?: string }>;
+      del<T = unknown>(path: string): Promise<{ success: boolean; result?: T; error?: string }>;
+    };
+    storageService: {
+      get(key: string): Promise<string | null>;
+      set(key: string, value: unknown): Promise<boolean>;
+      delete(key: string): Promise<boolean>;
+    };
+  };
+  ui: {
+    registerExtensionPoint(slot: string, config: Record<string, unknown>): Promise<boolean>;
+    showToast(message: string): Promise<boolean>;
+  };
+  invokeCommand<T = unknown>(type: string, payload?: unknown): Promise<T>;
+  context: { get(): Promise<{ lessonId: string | null; classId: string | null }> };
 }
 
-// ============================================================
-// 2. 课堂工具栏按钮组件（在白板工具栏仅渲染纯粹的图标按钮）
-// ============================================================
-function ClassroomToolButton() {
-  const [isOpen, setIsOpen] = useState(false);
+let ctx: SandboxFrontendContext | null = null;
 
-  return React.createElement(React.Fragment, null,
-    React.createElement('button', {
-      onClick: () => setIsOpen(!isOpen),
-      style: {
-        width: 40,
-        height: 40,
-        borderRadius: '50%',
-        border: 'none',
-        backgroundColor: isOpen ? '#3b82f6' : '#f3f4f6',
-        color: isOpen ? '#ffffff' : '#374151',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      },
-      title: '{{pluginName}}'
-    }, '🧩'),
-    React.createElement(ToolOverlayPanel, {
-      isOpen: isOpen,
-      onClose: () => setIsOpen(false)
-    })
-  );
-}
-
-// ============================================================
-// 3. 教师后台 Tab 管理页组件
-// ============================================================
-function MainTabPanel(props: { lessonId?: string }) {
-  const [items, setItems] = useState<any[]>([]);
-
-  useEffect(() => {
-    // 示例：调用插件注册的后端 Command
-    if (ctx) {
-      ctx.invokeCommand('{{commandPrefix}}.list').then((res: any) => {
-        if (Array.isArray(res)) setItems(res);
-      }).catch(console.error);
-    }
-  }, [props.lessonId]);
-
-  return React.createElement('div', { style: { padding: 24 } },
-    React.createElement('h2', null, '{{pluginName}} - 管理面板'),
-    React.createElement('p', null, '这是全栈插件的管理标签页，课程 ID: ' + (props.lessonId || '未指定')),
-  );
-}
-
-async function activate(hostCtx: any) {
+async function activate(hostCtx: SandboxFrontendContext): Promise<void> {
   ctx = hostCtx;
 
-  // 注册 1：教师侧边栏标签页
-  hostCtx.ui.registerExtensionPoint('teacher.tab', {
-    id: '{{tabId}}',
-    label: '{{pluginName}}',
-    icon: 'Layout',
-    component: MainTabPanel,
-    position: 10,
+  // ① 课堂上下文：当前课节 / 班级（不在课堂中时为 null）
+  const { lessonId, classId } = await hostCtx.context.get();
+
+  // ② 插件命名空间存储：宿主按 manifest.id 隔离，不同插件不会串键
+  const activations = Number((await hostCtx.services.storageService.get('activations')) ?? 0) + 1;
+  await hostCtx.services.storageService.set('activations', String(activations));
+
+  // ③ 数据型扩展点：命令面板（Ctrl+K）条目。
+  //    宿主渲染这个条目，插件只提供数据 —— 这是第三方插件「无 UI 也能有可见入口」的通道。
+  //    commandType 必须写**全限定名**：运行期注册不经过 manifest 命名空间前缀化。
+  await hostCtx.ui.registerExtensionPoint('command_palette.item', {
+    id: '{{toolId}}-create',
+    label: '{{pluginName}}：新建记录',
+    icon: 'Puzzle',
+    slotProps: {
+      title: '{{pluginName}}：新建记录',
+      description: '写入一条记录到 {{pluginName}} 的插件表',
+      category: 'Plugin',
+      commandType: '{{commandPrefix}}.create',
+      payload: { lessonId: '$lessonId', input: 'created from command palette' },
+    },
   });
 
-  // 注册 2：课堂白板工具栏按钮 (匹配 classroomTools 声明)
-  hostCtx.ui.registerExtensionPoint('classroom.tool', {
-    id: '{{toolId}}',
-    name: '{{toolName}}',
-    component: ClassroomToolButton,
-  });
+  console.info('[{{pluginName}}] frontend activated', { lessonId, classId, activations });
 }
 
-function deactivate() {
+async function deactivate(): Promise<void> {
+  // 宿主停用/卸载时会摘掉本插件运行期注册的扩展点并销毁 iframe，这里无需手工反注册。
   ctx = null;
 }
 
-export default { activate, deactivate };
+/** 宿主 toast 通道：iframe 内没有 DOM，这是插件唯一能弹提示的方式。 */
+export async function notify(message: string): Promise<void> {
+  await ctx?.ui.showToast(message);
+}
 
+export default { activate, deactivate };

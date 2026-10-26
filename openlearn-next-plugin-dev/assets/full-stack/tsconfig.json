@@ -1,16 +1,20 @@
 {
+  // 注意：这里刻意**不配置** "jsx"。
+  // 远程（process 沙箱）插件的前端跑在隐藏 iframe 里，没有 React 运行时，
+  // 写 JSX 会在激活时抛 "Cannot read properties of undefined (reading 'React')"。
+  // 可见 UI 走 manifest 声明式贡献，由宿主渲染。
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "jsx": "react",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "rootDir": "src"
   },
   "include": ["src"]
 }

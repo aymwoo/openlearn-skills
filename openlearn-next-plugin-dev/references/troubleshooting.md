@@ -1,6 +1,9 @@
 # 插件故障归因与 Bug 报告 SOP
 
-[本文件为 skill 自建的诊断方法论，依据 OpenLearnV2 官方文档 v0.3.16（插件宿主 / 生命周期 / 安全权限 / Release Notes）整理；文末列出依据来源]
+[本文件为 skill 自建的诊断方法论，依据 OpenLearnV2 官方文档 **v0.7.4**（插件宿主 / 生命周期 / 安全权限 / 信任边界 / Release Notes）整理；文末列出依据来源]
+
+> **版本基线**：平台 v0.7.4 / SDK 3.7.1。v0.7.0 起第三方插件被策略层强制改写为 `process` 子进程执行模式，
+> 排障时**必须**先确认实际执行模式（见 §D6 与 §D4-W）。
 
 当开发者报告"插件不工作 / 报错了"时，**不要立刻改代码，也不要立刻甩锅给平台**。先按本 SOP 做归因，得出明确结论后再决定动作。归因错误会导致：明明是系统缺陷却在插件里到处打补丁，或明明是插件违规却去给作者提无效 bug。
 
@@ -100,8 +103,11 @@
 | `Failed to resolve module specifier "react/jsx-runtime"` | **看版本** | 0.3.15+/0.3.16+ 已纳入宿主共享依赖白名单；更低版本为系统侧（见已知问题索引的版本口径提示） |
 | `ReferenceError: React is not defined` | **插件侧** | 未显式 `import React` 或未把 react 标记 external |
 | `process is not defined` | **插件侧** | esbuild `platform` 未设为 `browser` |
-| `CAPABILITY_DENIED`，未在 `capabilitiesProposed` 声明 | **插件侧** | 权限声明缺失 |
-| `CAPABILITY_DENIED`，已在 `capabilitiesProposed` 声明且权限名在矩阵中存在 | **系统侧** | CapabilityGuard 误判或权限矩阵与实现不同步 |
+| `COMMAND_NOT_REGISTERED`（HTTP 403） | **插件侧** | 内核 default-deny：该 commandType 没有在 `actionRegistry` 登记 ActionDescriptor。**只 `registerHandler()` 不 `actionRegistry.register()` 就是这个错** |
+| `COMMAND_CAPABILITY_DENIED`，未在 `capabilitiesProposed` 声明 | **插件侧** | 权限声明缺失 |
+| `COMMAND_CAPABILITY_DENIED`，已声明且权限名真实存在，但管理员未批准 | **环境与配置** | v0.7.2 起按**已授予**能力集判定，未审批即不放行 |
+| `COMMAND_CAPABILITY_DENIED`，已声明、已批准且权限名在矩阵中存在 | **系统侧** | CapabilityGuard 误判或权限矩阵与实现不同步 |
+| `empty manifestCapabilities, only 'get' methods allowed` | **插件侧** | process/worker 模式下 `capabilitiesProposed` 为空，RPC 白名单收紧了 |
 | 命令执行 500，堆栈在插件 handler 内 | **插件侧** | 业务逻辑异常 |
 | 命令执行 500，堆栈在 CommandBus 管线（Schema/Guard/审计）内且入参合法 | **系统侧** | 管线缺陷 |
 | 事件 `publish()` 成功但审计表无记录 / 前端无推送 | **系统侧** | EventBus / 审计 / Socket 缺陷 |
@@ -119,18 +125,20 @@
 | API | Inline | Worker | 归因提示 |
 |-----|--------|--------|---------|
 | `ctx.config` / `ctx.provide()` | 可用 | ❌ 不可用 | 插件未做 `typeof` 守卫 → 插件侧 |
-| `ctx.services.eventBus` | `on()` / `off()` | `subscribe()` / `unsubscribe()` | 方法名用错 → 插件侧 |
+| `ctx.services.eventBus` | `subscribe()` / `unsubscribe()` | `subscribe()` / `unsubscribe()`（同名同签名） | — |
 | `ctx.services.commandBus.execute()` | 自动加 `manifest.id` 前缀 | **不自动加前缀** | 未手动拼完整 type → 插件侧 |
-| `ctx.db.migrate(fn)` / `IDatabaseToken` | 同步 `better-sqlite3` | 异步 `prepare().run/get/all` + `exec()`（0.3.9+） | 用同步写法或 `transaction` → 插件侧 |
-| `ctx.db.table()` | 返回 manifest ID 前缀 | 返回 **UUID 前缀** | 切换执行模式导致表名变化是**已文档化行为**，不是 bug |
-| `ctx.http` | 完整 | 完整（RPC 跨线程，5000ms 熔断，0.3.11+） | — |
-| `ctx.pluginId` | manifest ID | UUID | 用它拼持久化键会不一致 → 插件侧 |
+| `ctx.db.migrate(version, fn)` / `IDatabaseToken` | 同步 `better-sqlite3` | 异步 `prepare().run/get/all`（**无** `exec()`、**无** `transaction`） | 用同步写法或 `transaction` → 插件侧 |
+| `ctx.db.table()` | 返回 `plugin_<安装行UUID>_` 前缀 | 同左（**两模式已统一**，切模式不再改变表名） | 切模式后表名变化 → 多半是别的插件/别的实例 |
+| `ctx.http` | 完整 | 完整（RPC 跨进程，5000ms 熔断） | — |
+| `ctx.pluginId` | 安装行 UUID | 同左（`ctx.manifest.id` 才是 manifest ID） | 用它拼持久化键会不一致 → 插件侧 |
+| `child_process` / `worker_threads` / `eval` | 可用 | ❌ 全部禁止（Node permission model 不提供 `--allow-child-process` / `--allow-worker`，并禁止字符串代码生成） | 触碰被禁 API → 插件侧 |
+| 出站网络 | 不受限 | 默认拒绝；仅管理员批准的域名由宿主代发（`plugin_network_grants`） | 直接 `fetch` 外网 → 插件侧 |
 
 ### D5. 停用 / 卸载阶段
 
 | 现象 | 归因 |
 |------|------|
-| 定时器 / EventBus 订阅 / 后台进程未清理（内存或重复监听） | **插件侧**（`deactivate()` 未执行清理 SOP） |
+| 定时器 / EventBus 订阅 / 后台进程未清理（内存或重复监听） | **插件侧**（`deactivate()` 未执行清理 SOP；注意宿主已自动注销 handler / 退订事件，插件只需处理自建资源） |
 | `disposeAll` / `revokeAll` 抛错 | **系统侧** |
 
 ### D6. 归因前置的环境排除项
@@ -143,8 +151,10 @@
 - [ ] **热重载未生效**：开发模式文件监听未触发，需手动停用→激活。
 - [ ] **权限未审批**：高危能力挂在 `pending_commands` 审批表里尚未批准。
 - [ ] **多插件干扰**：停用其他插件后复测。
-- [ ] **执行模式差异**：问题是否只在 worker 出现？若是，先对照 §3-W 排查插件是否违反了文档化的 Worker API 差异（最常见的是 `ctx.config`、`ctx.provide()`、`eventBus.on/off`、`commandBus.execute` 前缀、同步 DB 写法）。
-- [ ] **Worker/Inline 表名变化**：`ctx.db.table()` 在两种模式下前缀规则不同（manifest ID vs UUID），切模式后表名变化属**预期行为**，不是缺陷。
+- [ ] **执行模式差异**：问题是否只在 worker / process 模式出现？v0.7.0 起第三方插件被强制以 `process` 子进程运行，先对照 §D4-W 排查插件是否触碰了被禁 API（`ctx.config`、`ctx.provide()`、`child_process`、`worker_threads`、`eval`、直接出网）。
+- [ ] **默认拒绝的 ActionDescriptor**：命令是否在 `actionRegistry` 登记过描述符？未登记 → `COMMAND_NOT_REGISTERED`，属插件侧。
+- [ ] **远程前端误用 React**：前端插件是否 import 了 React / 用了 DOM？远程插件前端跑在隐藏 iframe 内，用 React **必然激活失败**。
+- [ ] **表名变化**：`ctx.db.table()` 前缀在两种模式下已统一为 `plugin_<安装行UUID>_`，切模式后表名变化**不再是预期行为**，应按真实问题排查。
 
 ---
 
@@ -193,10 +203,23 @@
 | ≤0.3.14 | `react/jsx-runtime` 不被宿主共享依赖支持（现代 `"jsx": "react-jsx"` 产物报错） | HostSharedDeps 白名单不足 | **已修复**（白名单 4 → 6）<br>⚠️ 修复版本口径不一：`tutorial §6.7` 与 `architecture` 记 **0.3.15+**，Release Notes v0.3.16 将扩充白名单列为修复项。归因时以 Release Notes 为准 |
 | ≤0.3.12 | `npx openlearn-next` 报 `EUNSUPPORTEDPROTOCOL workspace:*` | 制品打包协议缺陷 | **0.3.13 已修复** |
 | ≤0.3.13 | `[PluginHost] xlsx not available (optional)` 告警 | 依赖声明缺陷 | **0.3.14 已修复** |
+| ≤0.7.0 | 官方 CLI 构建的远程前端插件一旦用到 React/JSX → 激活失败 `Cannot read properties of undefined (reading 'React')` | SDK CLI 前端 externals 预置硬编码 + 沙箱 realm 隔离 | **文档已在 v0.7.0 勘误**（事项 B 落地）；但 CLI externals 可配置仍待立项（事项 E）—— **写法侧正解是不写 React** |
+| ≤0.7.0 | 远程插件 `registerExtensionPoint` 传 `component` → `DataCloneError` → 激活失败 | postMessage 无法克隆函数 | **不是 bug，是产品边界**；正解是走声明式贡献 |
+| ≤0.6.x | 熔断 / 激活失败时 manifest 声明式贡献「闪现后消失」 | 缺少显式错误态 | **0.7.0 已修复**（事项 A 落地） |
+| ≤0.4.1 | 插件更新后前端不生效：宿主 EsmLoader 对 `data:` URL 热重载无法解析裸导入 | EsmLoader 缺陷 | **需重启服务器**绕过（0.4.0 已知问题） |
+| ≤0.4.1 | 课堂中高频写操作偶发 429 | `writeLimiter` 60 写/分钟/IP 偏紧 | 0.4.0 已知问题，**属环境与配置**，批量写需降频 |
+| ≤0.4.1 | 扩展点渲染连续报错后插件被自动停用 | 熔断器（3 次 / 5 分钟滑窗） | 0.4.2 引入的**设计行为**，不是缺陷 |
+| ≤0.7.1 | `auth: false` 的路由仍返回 401 | `auth:false` 只是**申请**公开，需管理员批准 | 0.7.0 起的**设计行为**，见 Release Notes v0.7.0 §八.2 |
+| ≤0.7.1 | 插件代码相对导入逃出插件目录 | ESM loader 边界 | 0.7.2 已收紧（Issue #218），越界导入被拒属**插件侧** |
+| ≤0.7.1 | 声明了权限但运行期仍被拒 | 能力判定改为按**已授予**集合（Issue #224） | 0.7.2 起的**设计行为**，需管理员审批 |
+| 0.7.3 | `npm i openlearn-next@0.7.3` 报 `EUNSUPPORTEDPROTOCOL workspace:*` | 制品协议缺陷 | **该版本已弃用**，升到 0.7.4 |
 
 > 该表需在每次缓存探活时对照最新 Release Notes 维护。
 
-> ⚠️ **归因引用规范**：引用「文档承诺」时，必须写明来源页及其版本状态（如「tutorial §6.7 记 0.3.15+，Release Notes v0.3.16 记 0.3.16」）。官方文档存在页与页之间版本口径不一致的情况，**Release Notes 是版本事实的单一真理源**。
+> ⚠️ **归因引用规范**：引用「文档承诺」时，必须写明来源页及其版本状态。官方文档存在页与页之间版本口径不一致的情况，
+> **Release Notes 是版本事实的单一真理源，平台源码是最终真理**。
+> 注意区分「**系统缺陷**」与「**产品边界 / 设计行为**」：后者（如 remote 插件无 UI、熔断自动停用、auth:false 需审批）
+> 不该开 bug，而应改成插件写法或告知用户操作路径。
 
 ---
 
@@ -240,5 +263,9 @@
 - Manifest 规范：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin/plugin-manifest-spec.html
 - 安全与权限：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/architecture/security-permissions.html
 - 能力权限矩阵：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/reference/plugin-capability-matrix.html
-- Release Notes v0.3.16 / v0.3.15 / v0.3.14 / v0.3.13（已知系统缺陷来源）
+- 信任边界矩阵：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/reference/plugin-trust-boundary.html
+- 前端沙箱能力边界：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin/frontend-sandbox-capability-boundary.html
+- UI 扩展槽位：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/reference/plugin-ui-extension-slots.html
+- Release Notes v0.7.4 / v0.7.3 / v0.7.2 / v0.7.1 / v0.7.0 / v0.6.x / v0.4.x（已知系统缺陷来源）
 - 版本迁移指南：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/migration/version-migration.html
+- 平台源码（一手真理）：`~/Develop/openlearnv2/packages/core/`、`~/Develop/openlearnv2/packages/plugin-sdk/`

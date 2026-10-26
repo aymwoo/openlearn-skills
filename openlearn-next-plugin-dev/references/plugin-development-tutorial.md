@@ -1,5 +1,12 @@
 [缓存自 https://openlearn-next-v2.readthedocs.io/zh-cn/latest/tutorials/plugin-development-tutorial.html]
 
+> ⚠️ **本文为 0.3.16 时代的历史快照（原文最后更新 2026-07-27），保留用于对比与溯源。**
+> 当前（v0.7.4）行为请优先查：平台仓库 `~/Develop/openlearnv2/docs/`（一手源）、
+> 以及本 skill 的 `capability-matrix-0.7.md` / `frontend-bridge-0.7.md` / `manifest-0.7.md` / `execution-trust-boundary.md`。
+>
+> 已知与当前行为的差异（会直接写错代码的）：§8.1.1 Worker/Inline 差异表（执行模式已变为 process 强制默认）、
+> §6.6/§6.7 HostSharedDeps 与 JSX（远程插件不得用 React）、§6.4 槽位清单（55 → 115）、§5.13 权限字符串。
+
 # OpenLearnV2 插件开发完全指南
 
 > 📅 **最后更新**：2026-07-27

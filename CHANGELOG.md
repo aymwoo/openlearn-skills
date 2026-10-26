@@ -6,6 +6,75 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.0.0] - 2026-10-27
+
+> **破坏性版本**：从 v1.1.0 升到 v2.0.0。本次发布推翻了 v1.x 的插件前端心智模型
+> （“插件前端 = React 组件”），模板产物形态与 API 口径均已改变，旧版模板不再适用。
+
+**破坏性更新**：插件开发域知识从平台 v0.3.16 全面刷新到 **v0.7.4 / SDK 3.7.1**。
+v1.x 的模板与规则建立在一个已被推翻的心智模型上（“插件前端 = React 组件”），会直接产出装不上的插件。
+
+### 破坏性变更
+
+- **模板补 `manifest.main`**：`manifestSchema` 中 `main: z.string().min(1)` 为必填，v1.x 三套模板全缺 → 插件装不上。
+- **模板改为沙箱桥接形态**：`frontend.tsx` 不再是 React 组件。v0.7.0 起远程插件前端跑在 `sandbox="allow-scripts"` 的隐藏 iframe 内，
+  `window.HostSharedDeps` 为 `undefined`，传 `component` 会 `DataCloneError`；官方 CLI 构建的远程前端插件一旦用到 React/JSX **必然激活失败**。
+- **模板补 ActionDescriptor**：内核对命令派发实行 default-deny，只 `registerHandler()` 不 `actionRegistry.register()` 的命令会被拒（`COMMAND_NOT_REGISTERED`）。
+- **模板 `engines.openlearn` 从 `>=0.1.9` 改为 `>=0.2.5`**（与官方脚手架一致；零主版本号会锁死在小版本区间）。
+- **模板 SDK 版本改用 `{{sdkVersion}}` 占位**，不再写死 `^3.2.0`；`package.json` 补 `build` / `dev` 脚本。
+- **frontend-only 模板不再声明 `classroomTools`**（无服务端 handler 时声明了必然 404）。
+- **能力权限字典整表替换**：v1.x 列的 8 条权限中 4 条（`user:read` `system:process` `ai:invoke` `network:fetch`）在源码中**不存在**；现改为平台真实的 20 条。
+- **错误码修正**：`CAPABILITY_DENIED` 不存在，实际为 `COMMAND_NOT_REGISTERED` / `COMMAND_CAPABILITY_DENIED`。
+- **事件订阅 API 修正**：不存在 `Disposable` 与 `subscription.unsubscribe()`；实际为 `subscribe(type, handler): Promise<void>` + `unsubscribe(type, handler)`。
+- **槽位 Props 修正**：不存在 `HostContext`；真实注入为 `{ lessonId, classId, route? }` + `slotProps`。
+- **Worker/Inline 差异表修正**：表前缀已统一为 `plugin_<安装行UUID>_`（与执行模式无关）；`ctx.pluginId` 两模式均为 UUID；`ctx.db.migrate` 签名为 `(targetVersion, fn)`。
+- **执行模式认知更新**：v0.7.0 起第三方插件被强制改写为 `process` 子进程，不再跑 inline / worker Thread。
+
+### 新增
+
+- **CI 工作流 `.github/workflows/ci.yml`**：四个 job —— `self-check`（模板/文档一致性）、
+  `scaffold-diff`（与 npm 发布版 SDK 的官方脚手架比对，阻塞）、
+  `build-verify`（三套模板真实构建 + `tsc --noEmit`，阻塞）、
+  `platform-head-diff`（与平台仓库 HEAD 比对，仅预警，用于提前发现下一次发版的模板变更）。
+- **`scripts/diff-official-scaffold.sh`** + **`scripts/scaffold-fingerprint.py`**：官方脚手架漂移检测。
+  把双方抽成「契约指纹」（manifest 字段、`main`、`engines`、command 配对、前端是否误用 React、占位符）逐项对比，
+  **官方有、我们缺即判失败** —— 这正是 v1.x 漏掉 `manifest.main`、沿用 React 前端范式的根因。
+  支持 `DIFF_ADVISORY=1` 转为仅预警模式。
+- **`scripts/verify-templates-build.sh`** 改为双模式：优先用 npm 安装的 `@openlearn/plugin-sdk`（CI 用），
+  回退到本地平台仓库的 SDK；类型检查器同理（本地 `node_modules/.bin/tsc` → 平台仓库的）。
+- **`references/capability-matrix-0.7.md`**：权限字符串真源（20 条真实权限 + 不存在的权限 + 4 套能力机制辨析 + 错误码 + 高危清单）。
+- **`references/frontend-bridge-0.7.md`**：远程前端沙箱桥接范式（执行环境、能力边界、可见入口决策树、HostSharedDeps 现状、自检清单）。
+- **`references/manifest-0.7.md`**：manifest 权威规范（必填字段、依赖声明、`contributes.locales`、`configuration.scope`、`api.routes`、签名）。
+- **`references/execution-trust-boundary.md`**：执行模式与信任边界（process 强制默认、Node permission model、网络沙箱与域名审批）。
+- **`scripts/check-templates.sh`**：模板自检（`main` / `engines` / ActionDescriptor 配对 / 远程前端无 React / 占位符对齐 / 废弃 API 残留），33 项。
+- **`scripts/verify-templates-build.sh`**：三套模板的真实构建 + `tsc --noEmit` 校验（依赖本地平台仓库的 SDK）。
+- **探活改为三信号**：平台版本 / SDK 版本 / 文档站构建版本，任一变化即刷新；并引入平台仓库 `docs/` 作为一手文档源。
+- **`references/.cache-meta.json`**：新增 `platformVersion` / `sdkVersion` 字段与各文档的本地源路径。
+
+### 变更
+
+- frontmatter 版本 `1.1.0 → 2.0.0`，description 补入沙箱桥接范式与当前基线版本。
+- `SKILL.md` 重写：权限字典、槽位 Props、共享依赖、执行模式差异表、调试 SOP 表全部按 v0.7.4 重写；
+  新增“可见入口方式”决策项与 default-deny guardrail。
+- `references/troubleshooting.md`：错误码修正、Worker/Inline 差异表修正、已知系统问题索引补入 v0.4.0–v0.7.4 条目、
+  新增“系统缺陷 vs 产品边界”的区分（remote 插件无 UI、熔断自动停用、`auth:false` 需审批均属后者）。
+- `references/architecture.md` / `references/scaffold.md` / `references/plugin-development-tutorial.md`：
+  标记为 0.3.16 历史快照并加“已知与当前行为的差异”横幅；修正 `scaffold.md` 中裸函数 `registerHandler` 的错误示例。
+- `assets/bug-report-template.md`：执行模式字段补 `process`，影响面与规避方案提示对齐 v0.7 语义。
+- `README.md`、`skills.sh.json` 同步更新说明。
+
+### 上游不一致记录
+
+实测发现：平台仓库 `origin/main`（平台 0.7.4 / SDK 源码 3.7.0）的 `scaffold/templates/` **仍是旧的 React 模板**，
+而 npm 已发布的 `@openlearn/plugin-sdk@3.7.1` **才是沙箱桥接模板**。
+因此 skill 以 **npm 发布版 SDK** 为对齐基线，CI 的阻塞项比对 npm 发布版，
+同时用 `platform-head-diff` 对平台仓库 HEAD 做非阻塞预警。
+
+### 验证
+
+三套模板均通过：官方 SDK CLI（3.7.1）构建成功、生成的 `manifest.json` 通过平台 `manifestSchema` 校验、
+`tsc --noEmit` 对 SDK 3.7.1 类型零报错、产物 `frontend.js` 无 React 引用、`index.js` 无非法裸导入。
+
 ## [1.1.0] - 2026-10-18
 
 新增 GitHub Issue / PR 协作能力：接手 issue 前先占位，开发在独立 worktree 完成，所有变更通过 PR 提交，并覆盖审查、返工与合并。

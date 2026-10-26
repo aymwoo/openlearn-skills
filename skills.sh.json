@@ -4,7 +4,7 @@
   "groupings": [
     {
       "title": "OpenLearn 教学平台插件与仓库协作",
-      "description": "面向 OpenLearnV2 教学平台的可复用 AI Agent 技能，帮助开发者快速创建和发布教育类插件，并协作处理仓库 issue 与 PR。",
+      "description": "面向 OpenLearnV2 教学平台（平台 v0.7.4 / SDK 3.7.x）的可复用 AI Agent 技能，帮助开发者快速创建和发布教育类插件，覆盖远程前端沙箱桥接范式、manifest 与能力权限规范，并协作处理仓库 issue 与 PR。",
       "skills": ["openlearn-next-plugin-dev"]
     }
   ]

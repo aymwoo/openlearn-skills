@@ -1,5 +1,13 @@
 [缓存自 OpenLearnV2 官方文档 v0.3.16 多页汇编，见文末来源列表]
 
+> ⚠️ **这是一份 0.3.16 时代的历史快照，保留用于对比与溯源，不代表当前（v0.7.4）行为。**
+> 与当前行为不一致、且会直接导致写错代码的地方：
+> - **执行模式**：v0.7.0 起第三方插件被强制改写为 `process` 子进程，不再跑在 inline / worker Thread。见 `execution-trust-boundary.md`。
+> - **前端**：远程插件前端跑在隐藏 sandbox iframe 内，无 React / 无 DOM，只能注册数据型扩展点。见 `frontend-bridge-0.7.md`。
+> - **权限**：本文第 9 节的权限举例已过时（真实权限串见 `capability-matrix-0.7.md`）。
+> - **表前缀**：第 10 节写「`pluginId` = `manifest.id`」已过时 —— 现统一为 `plugin_<安装行UUID>_`，与执行模式无关。
+> - **槽位**：第 8 节的槽位表是早期分类；当前 `ExtensionSlot` 有 120 个成员（以源码 `src/plugin-host/types.ts` 为准）。
+
 # OpenLearnV2 核心架构速查
 
 > 插件开发者提炼版；关键 API 保留精确签名，「文档未明确」= 新文档未覆盖。
@@ -96,7 +104,7 @@ DI 由 `packages/core/di/` 与 `@openlearn/plugin-sdk` 提供。`Token<T>` 带�
 
 SQLite（`better-sqlite3 ^12.11.1`），两条路径。
 
-**路径 A `ctx.db`（`PluginDatabaseAPI`，命名空间隔离，推荐）**，仅 4 方法：`ensureTable(tableName, schema): Promise<void>`（`schema` 为列定义片段，表名自动加前缀）、`table(tableName): string`（**同步**，返回 `plugin_{pluginId}_{tableName}`）、`dropAllTables(): Promise<void>`（删 `plugin_{pluginId}_%` 全部表，卸载时自动调用）、`migrate(targetVersion, upgradeFn: (db: any) => Promise<void> | void): Promise<void>`。SQLite 方言、**无查询构造器**，手写原生 SQL；`pluginId` = `manifest.id`；`query` / `select` / `insert` / `update` / `delete` / `transaction` 等**不在**插件 API 上。
+**路径 A `ctx.db`（`PluginDatabaseAPI`，命名空间隔离，推荐）**，仅 4 方法：`ensureTable(tableName, schema): Promise<void>`（`schema` 为列定义片段，表名自动加前缀）、`table(tableName): string`（**同步**，返回 `plugin_<安装行UUID>_{tableName}`，前缀与执行模式无关）、`dropAllTables(): Promise<void>`（删 `plugin_{pluginId}_%` 全部表，卸载时自动调用）、`migrate(targetVersion, upgradeFn: (db: any) => Promise<void> | void): Promise<void>`。SQLite 方言、**无查询构造器**，手写原生 SQL；前缀用**安装行 UUID**（`ctx.pluginId`），不是 `manifest.id`；`query` / `select` / `insert` / `update` / `delete` / `transaction` 等**不在**插件 API 上。**路径 A 的 `migrate` 签名是 `(targetVersion, upgradeFn)`**。
 
 **路径 B `ctx.resolve(IDatabaseToken)`（平台共享库，无隔离）**：返回 `better-sqlite3.Database`（Inline）或异步 RPC Proxy（Worker），可读写 `vfs_nodes` / `students` / `users` 等平台表，是唯一能执行平台级 DML 的路径，也是**唯一支持事务**的路径（回调式 `db.transaction(fn)`，调用返回函数即执行）。Worker 支持 `exec` 跨线程 RPC（经主侧 `assertDatabaseAccessAllowed` 守卫），**不支持** `db.transaction(fn)`。
 
