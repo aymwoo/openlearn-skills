@@ -19,8 +19,10 @@ export default {
     main: 'index.js',
     description: '{{description}}',
     author: '{{author}}',
-    // 宿主版本范围（不是 SDK 版本）。零主版本号会锁死在小版本区间，推荐 '>=0.2.5'
-    engines: { openlearn: '>=0.2.5' },
+    // 宿主版本范围（不是 SDK 版本）。按**实际用到的 API 的最低宿主版本**填写，
+    // 不要一律抄 >=0.2.5 —— 写低了不会报错，但插件会在旧版本上装着、用到新 API 时才崩。
+    // 本模板用到前端沙箱桥接（0.7.0 起）→ >=0.7.0
+    engines: { openlearn: '>=0.7.0' },
     requires: [], // 纯前端插件不需要后端服务依赖
     capabilitiesProposed: [],
   },

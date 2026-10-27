@@ -12,8 +12,10 @@ export default {
     main: 'index.js',
     description: '{{description}}',
     author: '{{author}}',
-    // 宿主版本范围（不是 SDK 版本）。零主版本号会锁死在小版本区间，推荐 '>=0.2.5'
-    engines: { openlearn: '>=0.2.5' },
+    // 宿主版本范围（不是 SDK 版本）。按**实际用到的 API 的最低宿主版本**填写，
+    // 不要一律抄 >=0.2.5 —— 写低了不会报错，但插件会在旧版本上装着、用到新 API 时才崩。
+    // 本模板用到 classroomTools 声明式贡献 + 前端沙箱桥接（均 0.7.0 起）→ >=0.7.0
+    engines: { openlearn: '>=0.7.0' },
     requires: [
       '@openlearn/core:ICommandBusService@^1.0.0',
       '@openlearn/core:IActionRegistryService@^1.0.0',
@@ -21,6 +23,12 @@ export default {
       '@openlearn/core:IDatabase@^1.0.0',
     ],
     capabilitiesProposed: ['lesson:read', 'lesson:write'],
+    // 跨插件服务共享：本插件对外提供的服务 Token（与 src/contracts/index.ts 里的定义对应）。
+    // 写在这里的每个字符串，都必须与 contracts 中 `new Token(...)` 的 name 完全一致，
+    // 否则 activate() 里 ctx.provide() 会抛错并提示正确写法。
+    // 注意：只有真正调用了 ctx.provide(token, impl) 后，其他插件才能解析到；
+    // 宿主 DI 按 Token **名字字符串**解析，消费方用同名 Token 即可（无需依赖本插件的包）。
+    provides: ['{{pluginId}}:IMyPluginService'],
     // 课堂工具：宿主渲染按钮，点击后派发 commandType。
     // $lessonId / $classId 由宿主在点击瞬间替换成当前课堂上下文。
     classroomTools: [

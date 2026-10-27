@@ -2,7 +2,7 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.0.0
+version: 2.1.0
 description: 为 OpenLearnV2 教学平台（当前平台 v0.7.4 / SDK 3.7.x）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置插件侧/系统侧故障归因流程与可直接提交的 bug 报告；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，报告插件报错/不工作，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
@@ -23,6 +23,12 @@ description: 为 OpenLearnV2 教学平台（当前平台 v0.7.4 / SDK 3.7.x）�
 - **探活**：每次使用前核对平台版本 / SDK 版本 / 文档站构建版本，三者任一变化即刷新。
 
 > ⚠️ **当前基线：平台 v0.7.4 / SDK 3.7.1**。本 skill 的模板、权限字典、前端范式均以此为准。
+>
+> **时效规则**：本文事实截至 **2026-10-27**。若你遇到的平台版本高于此：
+> 1. 先跑第一步探活，比对 `platformVersion` / `sdkVersion` / `docSiteVersion`；
+> 2. 仍不确定时，以**平台源码**为准（`~/Develop/openlearnv2/packages/core/`、`packages/plugin-sdk/`）——
+>    源码是最终真理，文档与官方模板都可能滞后；
+> 3. 发现本文与源码不一致时，**以源码为准**并当场指出差异，不要沿用本文的旧结论。
 
 ---
 
@@ -37,6 +43,13 @@ description: 为 OpenLearnV2 教学平台（当前平台 v0.7.4 / SDK 3.7.x）�
 - 模式 B **不需要**执行第一步的文档探活，只需读取目标仓库的 `AGENTS.md` / `CLAUDE.md` / `README.md` / `package.json`。
 - 模式 B 遵守「两次主确认 + 不可逆动作单独确认」。
 - 两种模式可在同一会话切换；切换时先说明当前模式。
+
+> **本 skill 不覆盖**（遇到先说明边界，不要用本 skill 的模板硬套）：
+> - 平台本体开发（`packages/core`、内核服务、数据库迁移）
+> - 宿主内置插件（`packages/plugins/`，属于平台仓库而非第三方 ZIP 插件）
+> - 白板 / 课件渲染器扩展（宿主 React 侧，非插件 API）
+> - 插件市场审核、运营与发布流程（仅覆盖到「签名」层面）
+> - 第三方前端 UI 的深度定制 —— 当前**没有**可用的自定义 UI 通道（见「实时同步」与「可见 UI 走声明式」）
 
 ---
 
@@ -85,10 +98,11 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 
 1. **插件用途**：面向教师还是学生？解决什么问题？
 2. **核心功能**：1-5 个核心功能点
-3. **插件类型**（三选一）：
-   - `server-only`：纯后端（AI 工具 + 命令 + 事件，无 UI）
-   - `full-stack`：后端逻辑 + 前端桥接（**不是** React 组件，见第四步）
-   - `frontend-only`：纯前端桥接（无可见入口）
+3. **插件类型**（三选一，判据是「要不要后端状态」）：
+   - `server-only`：**不需要**任何后端命令/存储，只要 AI 工具与后端逻辑
+   - `full-stack`：需要后端命令、数据库或 EventBus（**绝大多数课堂插件属于这类**）——
+     后端逻辑 + 前端沙箱桥接（**不是** React 组件，见「Guardrail 5」）
+   - `frontend-only`：确实不需要后端命令，且只需要存储/提示这类轻量前端能力
 4. **可见入口方式**（关键决策）：远程插件**不能**提供 React 组件，可见 UI 走
    - `manifest.classroomTools` —— 课堂工具按钮（点击派发 commandType）
    - `manifest.contributes.<slot>` —— 声明式槽位贡献（宿主渲染）
@@ -97,7 +111,11 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 5. **权限需求 (Capabilities)**：显式核对**平台真实存在**的能力字符串（见「权限全集」一节）
 6. **AI 能力与 Action 关联**：是否需要 AI Agent 调用？（必须注册 Action 且描述清晰）
 7. **数据库需求**：需要哪些表？是否需要版本迁移？
-8. **目标版本**：声明在 `manifest.engines.openlearn` 中的**宿主版本**范围，推荐 `>=0.2.5`（**不是** SDK 版本）
+8. **目标版本**：声明在 `manifest.engines.openlearn` 中的**宿主版本**范围（**不是** SDK 版本）。
+   **按实际用到的 API 的最低宿主版本填写，不要一律抄 `>=0.2.5`** —— 写低了不会报错，
+   但插件会在旧版本上装着、用到新 API 时才崩。速查表见 `references/manifest-0.7.md` §11：
+   只用 `ctx.log`/`ctx.config` → `>=0.2.3`；用 `ctx.http` → `>=0.3.11`；
+   用声明式 `contributes` 或前端沙箱行为 → `>=0.7.0`。
 
 ---
 
@@ -108,7 +126,7 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 | 模板 | 位置 | 生成文件 |
 |------|------|---------|
 | server-only | `assets/server-only/` | `package.json`, `tsconfig.json`, `src/index.ts` |
-| full-stack | `assets/full-stack/` | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx` |
+| full-stack | `assets/full-stack/` | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx`, `src/contracts/index.ts` |
 | frontend-only | `assets/frontend-only/` | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx` |
 
 > 模板与官方 CLI 脚手架（`packages/plugin-sdk/scaffold/templates/`）保持同源。
@@ -135,8 +153,16 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
    - **并且** 在 `actionRegistry.register()` 中登记同 `commandType` 的 ActionDescriptor。
    > 内核对命令派发实行 **default-deny**：没有 ActionDescriptor 的命令会被拒（`COMMAND_NOT_REGISTERED`，HTTP 403）。
    > 只注册 handler 不注册 action，是最常见的「课堂工具点了没反应」根因。
-3. **命令类型命名空间**：`registerHandler` 的 type 会被宿主自动加上 `manifest.id` 前缀；
-   但 `ctx.invokeCommand` 与 manifest 声明里的 `commandType` **必须写全限定名**（`{{pluginId}}.xxx`）。
+3. **命令类型命名空间（三种语义，别混）**：
+
+   | 场景 | 宿主是否自动加 `manifest.id` 前缀 | 写法 |
+   |------|-------------------------------|------|
+   | `registerHandler(type)` | ✅ 自动加 | 短名即可（模板写 `{{commandPrefix}}.xxx` 是对的） |
+   | `manifest.classroomTools[].commandType` / `manifest.contributes` 里的 commandType | ✅ 自动加 | 短名即可 |
+   | 运行期 `ctx.ui.registerExtensionPoint(slot, { slotProps: { commandType } })` | ❌ **不前缀化** | **必须全限定** `{{pluginId}}.xxx` |
+
+   > 同一个 `commandType` 字符串在 manifest 里可以写短名，但**注册 handler 时必须用完全相同的字符串**，
+   > 否则 default-deny 找不到对应描述符 → `COMMAND_NOT_REGISTERED`。
 4. **事件订阅 API**：`eventBus.subscribe(type, handler)` 返回 `Promise<void>`（**没有 Disposable**）；
    退订是 `eventBus.unsubscribe(type, handler)` —— 必须自己保留 handler 引用。
    宿主在停用时会自动退订并注销 handler，插件只需清理**宿主管不到**的资源（自建定时器、子进程、第三方连接）。
@@ -151,10 +177,21 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
    且 `await rawDb.prepare(sql).run(...)` 可同时兼容 inline（同步）与 process 沙箱（Promise）。
 8. **Node 原生模块避坑**：用 `crypto.randomUUID()`（全局），不要 `import { randomUUID } from 'crypto'`；
    文件读写用 VFS API，不要 `fs` / `path`（token-enforcer 会拦截裸导入）。
+9. **跨插件服务共享要三步配套**：`src/contracts/index.ts` 里 `new Token(...)` →
+   本插件 manifest `provides` → 消费方 manifest `requires`。
+   缺 `provides` 声明 → `ctx.provide()` 直接抛错；提供方未 ACTIVE → 消费方激活被拒。
+   详见 `references/manifest-0.7.md` §13。
+10. **远程前端无法自行联网**：沙箱 iframe 的 CSP 是 `connect-src 'none'`，`fetch` 与 socket 全部不可用；
+    宿主也不会把事件推给 iframe。**实时同步只能轮询**（`ctx.invokeCommand` / `frontendApi`）。
+    详见 `references/frontend-bridge-0.7.md` §7。
+11. **数据库迁移**：ZIP 分发场景用 `ctx.db.ensureTable()` + `ctx.db.migrate(version, fn)`；
+    **不要**依赖声明式 `migrations/*.sql` —— 官方 CLI 不打包该目录，装上后迁移会静默失效。
+    详见 `references/manifest-0.7.md` §12。
 
 #### 3. Manifest 关键字段（v0.7.x）
 
-- `engines.openlearn`：**宿主版本**范围，推荐 `>=0.2.5`（零主版本号会锁死在小版本区间）。
+- `engines.openlearn`：**宿主版本**范围，按**实际用到的 API 的最低版本**填（不是一律 `>=0.2.5`）；
+  速查表见 `references/manifest-0.7.md` §11。
 - `main`：**必填**。
 - `capabilitiesProposed`：只能是平台真实存在的能力字符串（见「权限全集」）。
 - 按目标版本可用的新字段：`api.routes`（`ctx.http`，0.3.11+）、`provides`、`optional`、
@@ -175,10 +212,20 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 ```
 
 > **上游不一致提醒**：以 **npm 发布版** `@openlearn/plugin-sdk` 为准（`npx @openlearn/plugin-sdk init` 拿到的才是桥接模板）；
-> 平台仓库 `main` 分支的脚手架模板可能滞后于已发布版本（详见 `references/frontend-bridge-0.7.md` §8）。
+> 平台仓库 `main` 分支的脚手架模板可能滞后于已发布版本（详见 `references/frontend-bridge-0.7.md` §9）。
 
 产物：`dist/index.js`（+ 可选 `dist/frontend.js`）与根目录含 `manifest.json` 的 `.zip`。
 **ZIP 根目录必须是 `manifest.json` + `index.js` +（可选）`frontend.js`**，嵌套一层目录会导致安装失败。
+
+> ⚠️ **ZIP 里只有这三个文件**（官方 CLI 的打包内容），`migrations/` 等目录**不会**进包 —— 详见 `references/manifest-0.7.md` §12。
+
+> **维护本 skill 模板时**（这是维护者的命令，不是给使用者的）：
+> ```bash
+> bash scripts/check-templates.sh          # 模板/文档一致性：main、engines、ActionDescriptor 配对、占位符、废弃写法
+> bash scripts/verify-templates-build.sh   # 三套模板真实构建 + tsc --noEmit + 产物体检
+> bash scripts/diff-official-scaffold.sh   # 与官方 CLI 脚手架比对契约（官方有、我们缺 → 失败）
+> ```
+> 给用户开发插件时**不要**跑这三个脚本（各文件的适用对象见「资源文件说明」）。
 
 #### 构建产物预检清单 (Pre-flight Inspection)
 
@@ -201,6 +248,27 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 3. **工具验证**：若声明了 `classroomTools`，进课堂白板确认按钮出现、点击有事件流回显
 4. **AI 工具测试**：发送自然语言命令，确认 Agent 能识别并触发 Actions
 5. **路由验证**：`api.routes` 声明 `auth: false` 的接口**还需管理员批准**才会匿名放行，否则 401
+
+### 完成定义（全部满足才算做完）
+
+- [ ] 官方 CLI 构建成功，产出 `.zip`
+- [ ] 生成的 `manifest.json` 通过平台 `manifestSchema` 校验（`main` 必填、字段合法）
+- [ ] 每个 `commandType` 都有同名 ActionDescriptor（否则 `COMMAND_NOT_REGISTERED`）
+- [ ] 管理后台能激活，服务日志无 `[Plugin:<id>]` 错误
+- [ ] 可见入口已按第二步选定的通道验证（课堂工具按钮 / 命令面板条目 / toast）
+- [ ] `engines.openlearn` 与实际用到的 API 匹配（见 `references/manifest-0.7.md` §11）
+
+### 交付格式（每次生成插件后按此汇报）
+
+```
+【插件】<pluginId> · <类型> · engines >=<x.y.z>
+文件：<生成的相对路径清单>
+构建：npm install && npx @openlearn/plugin-sdk build
+安装：上传 <dist 中的 zip 文件名>
+已实现：<功能点 1..N>
+已核对：main / ActionDescriptor 配对 / 权限串 / 可见入口
+待办：<需要用户做的事，如"管理员批准出站域名"、"申请某权限">
+```
 
 ---
 
@@ -245,6 +313,17 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 ```
 
 > 生成报告前务必确认已包含：**具体版本号、完整堆栈、最小复现插件**。缺这三项通常会被系统作者以「信息不足」退回。
+
+---
+
+### 模式 A 红线
+
+1. 默认**只生成文件与命令**，不替用户执行 `npm install` / 构建 / 上传 / 激活（用户明确要求时才执行）。
+2. 不覆盖用户项目中已存在的文件；目标目录非空时先说明并确认。
+3. 不修改用户的 git 状态（不 commit / 不打 tag / 不 push），除非用户明确要求。
+4. 权限字符串、宿主版本、槽位名等**不确定时不猜**：先查 `references/`，仍不确定就问用户。
+5. 需求有歧义时先问，不擅自扩大范围（尤其"要不要建表""要不要申请高危权限""要不要占新槽位"）。
+6. 归因未达「系统侧」证据门槛时，**不生成 bug 报告**，只给结论与取证命令。
 
 ---
 
@@ -429,7 +508,7 @@ gh pr merge <pr> -R <repo> --squash --match-head-commit "$HEAD_SHA" --subject "<
 |------|------|
 | 宿主共享（仅 inline / 宿主父 realm 有效） | `react` `react-dom` `react-dom/client` `react/jsx-runtime` `recharts` `lucide-react` |
 | **远程（process 沙箱）插件前端** | `window.HostSharedDeps` 为 `undefined` —— **不得依赖 React**，官方 CLI 构建的远程前端插件用 React/JSX 必然激活失败 |
-| 必须自行打包 | `socket.io-client` `zustand` `motion` `react-konva`/`konva` `react-markdown` `exceljs`（**不是 xlsx**）`jspdf` `jspdf-autotable` `uuid` |
+| 必须自行打包（**仅 inline 内建插件有意义**） | `socket.io-client` `zustand` `motion` `react-konva`/`konva` `react-markdown` `exceljs`（**不是 xlsx**）`jspdf` `jspdf-autotable` `uuid` —— 远程插件前端连 socket 都用不了（见 §5 实时同步） |
 | `ctx.require()` 白名单 | `recharts` `react-markdown` `jspdf` `jspdf-autotable` `exceljs` `lucide-react` `uuid` |
 
 ### 5. 执行模式差异（v0.7.x）
@@ -448,8 +527,24 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `child_process` / `worker_threads` / `eval` | ✅ | ❌ 全部禁止 |
 | 出站网络 | 不受限 | 默认拒绝，仅管理员批准域名由宿主代发 |
 | `ctx.http` | 完整 | 完整（RPC 跨进程，5000ms 熔断） |
+| **前端实时同步** | 可用 socket / DOM | ❌ **只能轮询**：iframe CSP `connect-src 'none'`，且宿主不向 iframe 推事件（见下方说明） |
 
 > 完整信任边界见 `references/execution-trust-boundary.md`。
+
+#### 远程前端为什么只能轮询
+
+沙箱 iframe 的 CSP 是 `default-src 'none'; script-src 'unsafe-inline' blob:; **connect-src 'none'**; style-src 'none'; img-src 'none'`，
+且宿主只向 iframe 发三种消息（`load` / `reply` / `deactivate`），**没有事件推送通道**。
+
+因此远程插件里：
+
+- ❌ `fetch` 被 CSP 禁掉（连宿主自己的 API 都连不上）
+- ❌ 自带 `socket.io-client` 也连不上
+- ✅ **只能轮询**：`ctx.invokeCommand(type, payload)` 或 `ctx.services.frontendApi.get(path)`（均由宿主代发 HTTP）
+- ✅ 用户反馈：`ctx.ui.showToast(...)`（宿主代发，iframe 内唯一可用的弹提示通道）
+- ✅ 可见界面：只能靠 manifest 声明式贡献（宿主渲染）与课堂事件流
+
+详见 `references/frontend-bridge-0.7.md` §7。
 
 ---
 
@@ -469,7 +564,8 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `empty manifestCapabilities, only 'get' methods allowed` | process/worker 模式下 `capabilitiesProposed` 为空 | 声明真实存在的权限串 |
 | `Import of "<module>" is not allowed` | 产物残留裸导入（`crypto`/`fs`/`path`/第三方裸包） | 用 `crypto.randomUUID()`；文件走 VFS；依赖必须打进 bundle |
 | 白板工具栏样式错乱 / 按钮被挤压 | `classroom.tool` 槽位里塞了面板 DOM | 远程插件根本不能渲染 UI；可见入口改走 `classroomTools` 声明 + 后端命令 |
-| 无法收发 Socket.IO 实时消息 | 频道名不统一，或前端未解绑 | 统一 `{{pluginId}}.<action>_done` 命名；组件卸载时 `socket.off(...)` |
+| 远程插件前端无法自行联网 / 收不到推送 | 沙箱 iframe CSP 为 `connect-src 'none'`，宿主也不向 iframe 推事件 | 改为**轮询**：`ctx.invokeCommand(...)` 或 `frontendApi.get(...)`（均由宿主代发）；反馈用 `ctx.ui.showToast` |
+| 声明式迁移未执行（表不存在） | 官方 CLI 不打包 `migrations/`，装上后迁移被静默跳过 | 改用 `ctx.db.ensureTable()` + `ctx.db.migrate(version, fn)`（见 `references/manifest-0.7.md` §12） |
 | 插件能装但点开就报错 / 二次激活失败 | 被强制改写为 process 模式后触碰了被禁 API | 对照「执行模式差异」表排查 `ctx.config` / `ctx.provide()` / 子进程 / `eval` |
 | `api.routes` 返回 401（声明了 `auth:false`） | `auth:false` 只是**申请**公开 | 管理员在插件中心批准公开路由，或改 `auth:true` |
 
@@ -481,8 +577,8 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 |------|------|
 | `references/.cache-meta.json` | 缓存元信息（platformVersion / sdkVersion / docSiteVersion / lastUpdated），用于探活比对 |
 | `references/capability-matrix-0.7.md` | **权限字符串真源**（20 条真实权限 + 不存在的权限 + 4 套能力机制辨析 + 错误码） |
-| `references/frontend-bridge-0.7.md` | **远程前端沙箱桥接范式**（隐藏 iframe、无 React/DOM、声明式贡献点、可见入口决策树） |
-| `references/manifest-0.7.md` | **manifest 权威规范**（必填字段、新字段、api.routes、configuration.scope、签名） |
+| `references/frontend-bridge-0.7.md` | **远程前端沙箱桥接范式**（隐藏 iframe、无 React/DOM、声明式贡献点、可见入口决策树、**§7 实时同步只能轮询**、§9 上游不一致） |
+| `references/manifest-0.7.md` | **manifest 权威规范**（必填字段、新字段、api.routes、configuration.scope、签名、**§11 API→最低宿主版本、§12 声明式迁移陷阱、§13 跨插件服务共享**） |
 | `references/execution-trust-boundary.md` | **执行模式与信任边界**（process 强制默认、Node permission、网络白名单） |
 | `references/plugin-development-tutorial.md` | 插件开发完全指南本地快照（API、Action/Handler/Event、前端、安全） |
 | `references/architecture.md` | 架构总览本地快照（CommandBus、生命周期、Worker Thread、DI、安全模型） |
@@ -496,6 +592,9 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `scripts/check-templates.sh` | **自检脚本**：校验模板的 `main` / `engines` / ActionDescriptor 配对 / 远程前端无 React / 占位符与 SKILL.md 对齐 / 废弃 API 残留。修改模板后必跑 |
 | `scripts/verify-templates-build.sh` | **构建验证**：三套模板用官方 SDK CLI 真实构建 + `tsc --noEmit` + 产物体检（manifest 字段 / 裸导入 / React 残留）。支持 npm 安装的 SDK 或本地平台仓库 |
 | `scripts/diff-official-scaffold.sh` | **脚手架漂移检测**：与官方 CLI 脚手架逐项比对契约（manifest 字段 / `main` / `engines` / command 配对 / 前端是否误用 React / 占位符）。官方有、我们缺 → 判失败。`DIFF_ADVISORY=1` 转为仅预警 |
+
+> **谁该跑 `scripts/*`**：这三个脚本是**维护本 skill** 用的（改模板、改 SKILL.md、升级平台基线时跑），
+> CI 也会自动跑。**给用户开发插件时不要跑它们** —— 用户侧只需要第四步里的构建命令与预检清单。
 
 ### 在线文档地址（线上校验用）
 

@@ -116,24 +116,54 @@ export default { activate, deactivate };   // 宿主逐字检查 typeof plugin.a
 
 ## 6. HostSharedDeps 白名单（仅对 inline / 宿主父 realm 有效）
 
-| 共享对象 | NPM 包 | 状态 |
-|----------|--------|------|
-| `React` | `react` | 宿主提供，**远程插件内为 undefined** |
-| `ReactDOM` | `react-dom` | 同上 |
-| `ReactDOMClient` | `react-dom/client` | 同上 |
-| `jsxRuntime` | `react/jsx-runtime` | 同上 |
-| `Recharts` | `recharts` | 同上 |
-| `LucideReact` | `lucide-react` | 同上 |
+| 场景 | 口径 |
+|------|------|
+| 宿主共享（**仅 inline / 宿主父 realm 有效**） | `react` `react-dom` `react-dom/client` `react/jsx-runtime` `recharts` `lucide-react` |
+| **远程（process 沙箱）插件前端** | `window.HostSharedDeps` 为 `undefined` —— **不得依赖 React**，官方 CLI 构建的远程前端插件用 React/JSX 必然激活失败 |
+| 必须自行打包（**仅 inline 插件有意义**） | `socket.io-client` `zustand` `motion` `react-konva`/`konva` `react-markdown` `exceljs`（**不是 xlsx**）`jspdf` `jspdf-autotable` `uuid` |
+| `ctx.require()` 白名单（v0.7.x） | `recharts` `react-markdown` `jspdf` `jspdf-autotable` `exceljs`（需自行安装到 package.json）`lucide-react` `uuid` |
 
-**必须自行打包（宿主不共享）**：`socket.io-client`、`zustand`、`motion`、`react-konva`/`konva`、
-`react-markdown`、`exceljs`（**不是 xlsx**）、`jspdf`、`jspdf-autotable`、`uuid`。
-
-`ctx.require()` 的共享模块白名单（v0.7.x）：`recharts` / `react-markdown` / `jspdf` / `jspdf-autotable` /
-`exceljs`（需自行安装到 package.json）/ `lucide-react` / `uuid`。
+> ⚠️ 远程插件前端 **连 socket 都用不了**（iframe CSP `connect-src 'none'`），
+> 所以 `socket.io-client` 这一行只对 **inline 内建插件**成立；远程插件的同步方式见 §7。
 
 ---
 
-## 7. 写远程前端插件的自检清单
+## 7. 实时同步的真实通道（重要）
+
+**远程（process 沙箱）插件的 iframe 内没有任何网络能力，且没有事件推送通道。**
+
+| 证据 | 位置 | 事实 |
+|------|------|------|
+| iframe 的 CSP | `server.ts`（`/plugin-sandbox/frame` 路由） | `default-src 'none'; script-src 'unsafe-inline' blob:; **connect-src 'none'**; style-src 'none'; img-src 'none'` |
+| 桥接能力清单 | `server/utils/plugin-sandbox-frame.ts` | 只有 9 个 op：`api.get/post/del`、`storage.get/set/delete`、`ui.register`、`ui.toast`、`command.invoke`、`context.get` |
+| 宿主→iframe 消息 | `src/plugin-host/plugin-host.ts` | 只有 `load` / `reply` / `deactivate` 三种 —— **无事件推送** |
+
+**推论**：
+
+- ❌ iframe 内 `fetch` 被 CSP 直接禁掉（`connect-src 'none'`）—— 连宿主自己的 API 都连不上；
+- ❌ 自带 `socket.io-client` 也连不上（同样被 CSP 拦）；
+- ❌ 宿主**不会**把 EventBus 事件主动推给 iframe；
+- ✅ **唯一可行的同步方式是轮询**：`ctx.invokeCommand(type, payload)` 或 `ctx.services.frontendApi.get(path)`
+  —— 两者都由宿主代发 HTTP，iframe 不发请求。
+
+**因此，远程插件的「实时」是这样实现的**：
+
+| 需求 | 做法 |
+|------|------|
+| 读取最新状态 | 定时 `ctx.invokeCommand(...)` 拉取（间隔与频率自行权衡） |
+| 用户操作 | `ctx.invokeCommand(...)` 提交给后端，后端写库 / 发 EventBus 事件 |
+| 给用户反馈 | `ctx.ui.showToast(...)`（宿主代发，唯一可用的弹提示通道） |
+| 让别人看到 | 后端 `eventBus.publish(...)` —— 宿主侧消费者（其他插件 / 平台自身）能收到，但**推不回 iframe** |
+| 可见界面 | 只能靠 manifest 声明式贡献（宿主渲染）与课堂事件流 |
+
+> 若你的插件确实需要**双向实时**（例如课堂抢答），当前只有两条路：
+> ① 把交互做成**宿主渲染**的声明式贡献 + 后端命令（用户点按钮 → 后端处理 → 宿主侧刷新）；
+> ② 作为**内建插件**（`@openlearn/` 前缀且在 `OPENLEARN_TRUSTED_INLINE_PLUGINS` 白名单）跑在宿主 realm 里，
+>    此时 socket 与 DOM 都可用（但那已不是「第三方插件」了）。
+
+---
+
+## 8. 写远程前端插件的自检清单
 
 - [ ] `frontend.tsx` 里**没有** `import React` / `import ReactDOM` / 任何 JSX
 - [ ] `frontend.tsx` 里**没有** `document.` / `window.` / `fetch(`（用 `ctx.services.frontendApi`）
@@ -144,7 +174,7 @@ export default { activate, deactivate };   // 宿主逐字检查 typeof plugin.a
 
 ---
 
-## 8. 上游不一致提醒（2026-10-27 实测）
+## 9. 上游不一致提醒（2026-10-27 实测）
 
 | 位置 | 脚手架模板 | SDK 版本 |
 |------|-----------|---------|

@@ -155,6 +155,121 @@ npx @openlearn/plugin-sdk sign --key publisher-private.pem --publisher "Alice De
 
 ---
 
+## 11. API → 最低宿主版本速查（写 `engines.openlearn` 的依据）
+
+> **官方规则**：`engines.openlearn` 填「**你实际用到的最新 API 的最低版本**」，
+> **不要一律抄 `>=0.2.5`**。安装时 `semver.satisfies(OPENLEARN_VERSION, engines.openlearn)` 为假会直接拒装；
+> 写低了**不会报错**，但插件会在旧版本上装着、用到新 API 时才崩。
+
+| 用到的能力 | 最低宿主版本 |
+|------------|-------------|
+| `ctx.log` / `ctx.config` / `ctx.provide()` / `ctx.require()` / 前端 `ctx.invokeCommand()` | 0.2.x |
+| `teacher.panel` / `student.fullscreen` / `global.setting` 槽位 | 0.2.x |
+| `anchor:*` 锚点槽位 | 0.2.6 |
+| Worker 模式下 `ctx.resolve(IDatabaseToken)` 的 `exec()` 转发 | 0.3.9 |
+| `ctx.http` RESTful API（`manifest.api.routes`） | 0.3.11 |
+| `ctx.reportProgress()`（Worker 激活期续期） | 0.3.16 |
+| **声明式 `contributes` 槽位 / 前端沙箱桥接行为 / `process` 强制执行模式 / `contributes.locales` / `configuration.properties[].scope`** | **0.7.0** |
+| 能力按「**已授予**集合」判定（Issue #224） | 0.7.2 |
+| `manifest.network.outbound` 出站域名申请 | 0.7.2 |
+
+**本 skill 三套模板的取值与依据**：
+
+| 模板 | `engines.openlearn` | 依据 |
+|------|--------------------|------|
+| `server-only` | `>=0.2.5` | 只用 actionRegistry / commandBus / eventBus / ctx.db（均 0.2.x 起） |
+| `full-stack` | `>=0.7.0` | 额外用到 `classroomTools` 声明式贡献 + 前端沙箱桥接（均 0.7.0 起） |
+| `frontend-only` | `>=0.7.0` | 前端沙箱桥接本身即 0.7.0 起 |
+
+> 若你降级到更低版本，必须自己确认没用上上表里更高版本的 API。
+
+---
+
+## 12. 声明式 SQL 迁移：机制与陷阱
+
+**机制**（v0.7.0，Issue #142）：插件包根目录放 `migrations/NNN_name.sql`（按版本自然序升序），
+宿主在激活前自动执行尚未应用的增量迁移。
+
+- 执行记录表：`plugin_declared_migrations`（含 checksum）
+- 支持 `-- UP` / `-- DOWN` 分段解析
+- 占位符 `{{prefix}}` / `{{table_prefix}}` 自动展开为插件私有表前缀
+- 每条迁移在事务内原子执行，失败自动回滚
+- **降级保护**：数据库中的最高迁移版本 **高于** 包内声明版本时，**拒绝激活**
+
+### ⚠️ 陷阱：官方 CLI 不打包 `migrations/`，ZIP 分发下迁移会**静默失效**
+
+| 环节 | 事实 |
+|------|------|
+| 打包 | 官方 CLI 的 `build` 只把 `index.js` / `manifest.json` /（可选）`frontend.js` 放进 ZIP —— **不含 `migrations/`** |
+| 安装 | 宿主解包 ZIP 时只落盘这三个文件 + `storage/` 前缀的静态资源 —— **没有 `migrations/`** |
+| 激活 | 迁移器读 `<pluginDir>/migrations`，**目录不存在就静默跳过**（`fs.existsSync` 为 false） |
+
+**结果**：按官方文档写 `migrations/001_init.sql`、用官方 CLI 打包 → `.sql` 根本不在 ZIP 里 →
+装上后**一条迁移都不会执行，而且没有任何报错**。
+
+**因此**：
+
+- **ZIP 分发场景**请用 `ctx.db.ensureTable()` + `ctx.db.migrate(targetVersion, upgradeFn)`（官方 CLI 模板的做法）；
+- 若确实要用声明式迁移，需自行把 `migrations/` 塞进 ZIP（CLI 暂未支持），或走源码安装。
+
+---
+
+## 13. 跨插件服务共享（`provides` + `contracts`）
+
+插件 A 提供服务、插件 B 消费，需要**三步配套**，缺一即不生效：
+
+**① 提供方：定义契约**（`src/contracts/index.ts`）
+
+```ts
+import { Token } from '@openlearn/plugin-sdk';
+
+export interface IMyPluginService {
+  doSomething(input: string): Promise<string>;
+}
+
+export const MyPluginServiceToken = new Token<IMyPluginService>(
+  '@scope/plugin-name:IMyPluginService',   // Token 名格式：@scope/domain:IServiceName
+  '1.0.0',
+);
+```
+
+> `Token` 构造时会校验名称格式（含空格、中文或特殊字符会抛 `TokenError`）。
+
+**② 提供方：manifest 声明 `provides`**
+
+```json
+"provides": ["@scope/plugin-name:IMyPluginService"]
+```
+
+> `ctx.provide(token, impl)` 会校验 `token.name` **必须**在 `manifest.provides` 中声明，否则直接抛错并提示正确写法。
+
+**③ 消费方：manifest 声明 `requires`**
+
+```json
+"requires": ["@scope/plugin-name:IMyPluginService@^1.0.0"]
+```
+
+> 消费方激活时，宿主校验该 token 能在提供方的 `provides` 中找到；**提供方必须已处于 ACTIVE**，
+> 否则消费方激活被拒绝（跨插件依赖未满足）。
+
+**宿主 DI 按 Token 名字字符串解析**（`ServiceRegistry` 内部是 `Map<tokenName, instance>`），
+所以消费方**不必依赖提供方的 npm 包**——只要用完全相同的 Token 名自己声明即可：
+
+```ts
+// 消费方插件内（与提供方名字一致即可）
+const Token = new Token<{ doSomething(input: string): Promise<string> }>(
+  '@scope/provider-name:IMyPluginService',
+  '1.0.0',
+);
+const svc = await ctx.resolve(Token);   // 解析到提供方注册的实例
+```
+
+> ⚠️ **官方 CLI 不打包 `contracts/` 目录**（只打包 index.js / manifest.json / frontend.js），
+> 因此 `src/contracts/` 的价值在于**源码分发**时的类型安全；
+> ZIP 分发场景靠上面的「同名 Token」即可跨插件解析。
+
+---
+
 ## 来源
 
 - 官方文档：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin/plugin-manifest-spec.html

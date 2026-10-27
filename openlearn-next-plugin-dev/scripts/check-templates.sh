@@ -32,10 +32,17 @@ for tpl in server-only full-stack frontend-only; do
     bad "$tpl: manifest.main 缺失（manifestSchema 中 main 为必填，缺失会导致插件装不上）"
   fi
 
-  if grep -qE "engines: *\{ *openlearn: *'>=0\.2\.5'" "$idx"; then
-    ok "$tpl: engines.openlearn = '>=0.2.5'"
+  # engines 按「实际用到的 API 的最低宿主版本」填写（不是一律 >=0.2.5）
+  case "$tpl" in
+    server-only)   exp=">=0.2.5" ;;
+    full-stack)    exp=">=0.7.0" ;;
+    frontend-only) exp=">=0.7.0" ;;
+    *)             exp="" ;;
+  esac
+  if [ -n "$exp" ] && grep -qE "engines: *\{ *openlearn: *'${exp}'" "$idx"; then
+    ok "$tpl: engines.openlearn = '$exp'"
   else
-    bad "$tpl: engines.openlearn 不是 '>=0.2.5'（零主版本号会锁死在小版本区间）"
+    bad "$tpl: engines.openlearn 应为 '$exp'（按实际用到的 API 的最低宿主版本填写，详见 SKILL.md 第二步）"
   fi
 
   if grep -qE "sdkVersion" "assets/$tpl/package.json"; then
@@ -92,10 +99,33 @@ for tpl in full-stack frontend-only; do
   else
     bad "$tpl: frontend.tsx 未按契约导出 { activate, deactivate }"
   fi
+
+  # 沙箱 iframe 的 CSP 是 connect-src 'none' —— 前端不得自行联网 / 用 socket
+  if grep -nE "socket\.io-client|socket\.(on|off|emit)|[^a-zA-Z]fetch\(" "$fe" | grep -vE "^[0-9]+: *\*" >/dev/null; then
+    bad "$tpl: frontend.tsx 出现 socket / fetch（沙箱 iframe CSP 为 connect-src 'none'，无法联网）"
+    grep -nE "socket\.io-client|socket\.(on|off|emit)|[^a-zA-Z]fetch\(" "$fe" | head -5 | sed 's/^/      /'
+  else
+    ok "$tpl: frontend.tsx 无 socket / fetch（符合沙箱无网络约束）"
+  fi
 done
 
-# ── 4. 占位符与 SKILL.md 对齐 ─────────────────────────────────────────────
-head_ "4. 占位符与 SKILL.md 对齐"
+# ── 4. 跨插件服务契约（provides / contracts）─────────────────────────────
+head_ "4. 跨插件服务契约（provides ↔ contracts）"
+
+cs="assets/full-stack/src/contracts/index.ts"
+if [ -f "$cs" ]; then
+  ok "full-stack: 存在 src/contracts/index.ts"
+  if grep -q "provides:" "assets/full-stack/src/index.ts"; then
+    ok "full-stack: manifest 声明了 provides"
+  else
+    bad "full-stack: manifest 未声明 provides（contracts 中的 Token 需在 provides 声明，否则 ctx.provide() 抛错）"
+  fi
+else
+  bad "full-stack: 缺少 src/contracts/index.ts（跨插件服务共享的契约目录）"
+fi
+
+# ── 5. 占位符与 SKILL.md 对齐 ─────────────────────────────────────────────
+head_ "5. 占位符与 SKILL.md 对齐"
 
 used=$(grep -rhoE '\{\{[a-zA-Z]+\}\}' assets/ | sort -u)
 for p in $used; do
@@ -107,7 +137,7 @@ for p in $used; do
 done
 
 # ── 5. SKILL.md 引用的本地文件都存在 ─────────────────────────────────────
-head_ "5. SKILL.md 引用的本地文件都存在"
+head_ "6. SKILL.md 引用的本地文件都存在"
 
 missing=""
 for f in $(grep -oE '`?(references|assets)/[A-Za-z0-9._/-]+`?' SKILL.md | tr -d '`' | sort -u); do
@@ -120,7 +150,7 @@ else
 fi
 
 # ── 6. 已废弃 API 残留检查 ────────────────────────────────────────────────
-head_ "6. 已废弃 API / 错误码残留检查（仅查 SKILL.md 与 assets/）"
+head_ "7. 已废弃 API / 错误码残留检查（仅查 SKILL.md 与 assets/）"
 
 # 只查“每次都会被读到”的文件（SKILL.md 与模板）。历史快照（references/architecture.md、
 # references/scaffold.md、references/plugin-development-tutorial.md）保留旧写法用于溯源，
@@ -132,6 +162,8 @@ stale_patterns=(
   '返回 `?Disposable'
   '(^|[^_A-Za-z])CAPABILITY_DENIED'
   "engines: *\{ *openlearn: *'>=0\.1\.9"
+  'socket\.off'
+  '见第四步'
 )
 for pat in "${stale_patterns[@]}"; do
   hits=$(echo "$scan_targets" | xargs grep -rnE "$pat" 2>/dev/null)

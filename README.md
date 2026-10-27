@@ -20,7 +20,7 @@ npx skills add aymwoo/openlearn-skills/openlearn-next-plugin-dev
 
 ```bash
 cd openlearn-next-plugin-dev
-bash scripts/check-templates.sh          # 模板与文档一致性自检（33 项）
+bash scripts/check-templates.sh          # 模板与文档一致性自检（39 项）
 bash scripts/verify-templates-build.sh   # 三套模板真实构建 + tsc 校验（需 SDK 与 typescript）
 bash scripts/diff-official-scaffold.sh   # 与官方 CLI 脚手架比对（需平台仓库或 npm 安装的 SDK）
 ```

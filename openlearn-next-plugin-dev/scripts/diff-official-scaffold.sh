@@ -60,7 +60,7 @@ for tpl in server-only full-stack frontend-only; do
 
   printf '\033[1m%s\033[0m\n' "$tpl"
   python3 - "$off_json" "$our_json" "${DIFF_ADVISORY:-0}" <<'PY'
-import json, os, sys
+import json, os, re, sys
 off = json.loads(sys.argv[1])
 our = json.loads(sys.argv[2])
 advisory = sys.argv[3] == "1"
@@ -86,12 +86,28 @@ else:
     line("ok", "manifest 字段", f"与官方一致（{len(off['manifest_keys'])} 个）")
 
 # 2) 关键字段值
-for k in ("main", "engines.openlearn"):
-    o, u = off["manifest_values"].get(k), our["manifest_values"].get(k)
-    if o != u:
-        line("warn", k, f"官方={o} 我们={u}")
-    else:
-        line("ok", k, str(o))
+#    main 必须完全一致；engines.openlearn 允许**更严格**（官方模板写死 >=0.2.5，
+#    我们按「实际用到的 API 的最低宿主版本」填，更高才是正确做法），但不能更低。
+def minver(v):
+    if not v:
+        return None
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", str(v))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+o_main, u_main = off["manifest_values"].get("main"), our["manifest_values"].get("main")
+if o_main != u_main:
+    line("warn", "main", f"官方={o_main} 我们={u_main}")
+else:
+    line("ok", "main", str(o_main))
+
+o_eng, u_eng = off["manifest_values"].get("engines.openlearn"), our["manifest_values"].get("engines.openlearn")
+ov, uv = minver(o_eng), minver(u_eng)
+if ov and uv and uv > ov:
+    line("info", "engines.openlearn", f"官方={o_eng} 我们={u_eng}（我们更严格：按实际用到的 API 填，不是官方的一律 >=0.2.5）")
+elif o_eng != u_eng:
+    line("warn", "engines.openlearn", f"官方={o_eng} 我们={u_eng}")
+else:
+    line("ok", "engines.openlearn", str(o_eng))
 
 # 3) commandType ↔ ActionDescriptor 配对
 #    注：commandType 的**具体命名**由插件作者自定（官方用 {{pluginId}}.x，我们用 {{commandPrefix}}.x），

@@ -6,6 +6,60 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.1.0] - 2026-10-27
+
+修复 v2.0.0 残留的运行时行为错误，并把模式 A 的文档纪律拉到与模式 B 同等水平。
+
+> **对使用者有影响**：模板生成的插件 `engines.openlearn` 从 `>=0.2.5` 收紧为
+> `full-stack` / `frontend-only` 用 `>=0.7.0`（server-only 仍为 `>=0.2.5`）。
+> 这是官方明文规则（“填你实际用到的最新 API 的最低版本，不要一律抄 `>=0.2.5`”）的正确写法，
+> 但意味着生成的插件不再能装到 0.7.0 以前的宿主。
+
+### 修复（会让开发者写出跑不通的代码）
+
+- **实时同步**：v2.0.0 残留的 Socket.IO 排障指引在沙箱模型下**不可执行**。已补充真实约束：
+  沙箱 iframe 的 CSP 为 `connect-src 'none'`（`server.ts` 的 `/plugin-sandbox/frame` 路由），
+  桥接只有 9 个 op（`server/utils/plugin-sandbox-frame.ts`），宿主只向 iframe 发
+  `load` / `reply` / `deactivate` 三种消息（**无事件推送**）→ **远程插件只能轮询**。
+  新增 `references/frontend-bridge-0.7.md` §7 与 SKILL.md 的对应章节。
+- **`engines.openlearn` 填法**：改从“推荐 `>=0.2.5`”为**按实际用到的 API 填**，并新增
+  「API → 最低宿主版本」速查表（`references/manifest-0.7.md` §11）；
+  模板随之调整（server-only `>=0.2.5`，full-stack / frontend-only `>=0.7.0`）。
+- **声明式 SQL 迁移的静默失效**：官方 CLI 的 `build` 只打包 `index.js` / `manifest.json` /
+  `frontend.js`，**不含 `migrations/`**；宿主解包也只落盘这三个 + `storage/` 前缀的静态资源，
+  而迁移器在目录不存在时**静默跳过** → 按官方文档写 `migrations/*.sql` 的 ZIP 插件
+  **一条迁移都不执行且不报错**。已在 `references/manifest-0.7.md` §12 写清并给出替代方案
+  （`ctx.db.ensureTable()` + `ctx.db.migrate(version, fn)`）。
+- **跨插件服务共享（provides / contracts）**：此前零覆盖。新增 `references/manifest-0.7.md` §13
+  （三步配套 + DI 按 Token 名字字符串解析 + CLI 不打包 `contracts/` 的含义），
+  模板新增 `assets/full-stack/src/contracts/index.ts` 与 manifest 的 `provides` 声明。
+
+### 文档纪律（模式 A 对齐模式 B）
+
+- **模式 A 红线**：新增 6 条（默认只生成文件不代跑构建、不覆盖已有文件、不动用户 git 状态、
+  不确定时不猜、歧义先问、归因未达门槛不生成 bug 报告）。
+- **完成定义 + 交付格式**：新增 6 项完成检查清单与统一的交付汇报模板。
+- **适用范围声明**：明确本 skill **不覆盖**平台本体开发、内置插件、白板/课件渲染器、
+  插件市场运营、第三方前端深度定制。
+- **命令类型命名空间三语义**：区分「`registerHandler` 自动加前缀」「manifest 声明自动加前缀」
+  「运行期 `registerExtensionPoint` 不前缀、必须全限定」，消除与模板写法（短名）的矛盾。
+- **模板选择判据**：由“三个名字”改为“要不要后端状态”的判断规则。
+- **交叉引用修正**：模板对照表的“见第四步”改为“见 Guardrail 5”。
+- **脚本接线**：三个自检脚本从只出现在资源表 → 接入第四步流程，并注明“维护者用，使用者不要跑”。
+
+### 脚本
+
+- `check-templates.sh`：33 → **39 项**（新增 engines 按模板校验、前端禁 socket/fetch、
+  contracts 与 provides 配对、废弃写法 `socket.off` / “见第四步” 残留检测）。
+- `diff-official-scaffold.sh`：`engines.openlearn` 改为**比较最低版本**——我们更严格（按实际 API 填）
+  记为 info，不再误报为漂移；更低才判失败。
+- `verify-templates-build.sh`：manifest 断言改为按模板区分 engines 期望值。
+
+### 新增参考
+
+- `references/manifest-0.7.md` §11 API→最低宿主版本、§12 声明式迁移陷阱、§13 跨插件服务共享
+- `references/frontend-bridge-0.7.md` §7 实时同步的真实通道（并重写 §6 打包口径）
+
 ## [2.0.0] - 2026-10-27
 
 > **破坏性版本**：从 v1.1.0 升到 v2.0.0。本次发布推翻了 v1.x 的插件前端心智模型

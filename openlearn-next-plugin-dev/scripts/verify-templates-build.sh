@@ -88,15 +88,22 @@ for tpl in server-only full-stack frontend-only; do
 
   rm -rf out && unzip -o -q "$ZIP" -d out
 
-  # 2) manifest 关键字段
-  if python3 - <<'PY'
-import json
+  # 2) manifest 关键字段（engines 按模板区分：server-only 用 0.2.x 起的能力，其余用 0.7.0 沙箱语义）
+  case "$tpl" in
+    server-only)   exp_eng=">=0.2.5" ;;
+    full-stack)    exp_eng=">=0.7.0" ;;
+    frontend-only) exp_eng=">=0.7.0" ;;
+    *)             exp_eng="" ;;
+  esac
+  if EXP_ENG="$exp_eng" python3 - <<'PY'
+import json, os
 m = json.load(open('out/manifest.json'))
 assert m.get('main'), 'main missing'
-assert m.get('engines', {}).get('openlearn') == '>=0.2.5', 'engines wrong'
+exp = os.environ.get('EXP_ENG', '')
+assert m.get('engines', {}).get('openlearn') == exp, f"engines != {exp}"
 print('ok')
 PY
-  then ok "manifest.json 含 main / engines.openlearn"; else bad "manifest.json 字段不合规"; fi
+  then ok "manifest.json 含 main / engines.openlearn='$exp_eng'"; else bad "manifest.json 字段不合规（期望 engines.openlearn='$exp_eng'）"; fi
 
   # 3) 产物体检
   if grep -qE '^import .+ from "[^@./]' out/index.js; then
