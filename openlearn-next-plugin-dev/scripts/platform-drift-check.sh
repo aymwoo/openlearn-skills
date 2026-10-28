@@ -43,7 +43,9 @@ else bad "platformVersion 漂移：期望 $EXP_VER，实际 $ACTUAL_VER → 更�
 
 # ── 2. 槽位数量 + view 槽位 ────────────────────────────────────────────────
 head_ "2. 扩展槽位（ExtensionSlot 联合类型）"
-read -r ACTUAL_SLOTS ACTUAL_VIEW < <(python3 - "$PLATFORM" <<'PY'
+# 用命令替换 + 参数展开，不用 read < <(...)：受限环境（容器/沙箱无 /dev/fd）下进程替换静默失败，
+# 会得到空的槽位列表 → 后续每条都误报漂移。
+SLOT_OUT=$(python3 - "$PLATFORM" <<'PY'
 import re, json, sys
 root = sys.argv[1]
 lines = open(f'{root}/src/plugin-host/types.ts', encoding='utf-8').read().splitlines()
@@ -76,6 +78,9 @@ for i, (pos, key) in enumerate(keys):
 print(len(slots), ','.join(view_slots))
 PY
 )
+ACTUAL_SLOTS="${SLOT_OUT%% *}"
+ACTUAL_VIEW="${SLOT_OUT#* }"
+[[ "$ACTUAL_VIEW" == "$SLOT_OUT" ]] && ACTUAL_VIEW=""
 EXP_SLOTS=$(python3 -c "import json;print(json.load(open('$META'))['watchlist']['slotCount'])")
 EXP_VIEW=$(python3 -c "import json;print(','.join(json.load(open('$META'))['watchlist']['viewSlots']))")
 if [[ "$ACTUAL_SLOTS" == "$EXP_SLOTS" ]]; then ok "槽位数量 = $ACTUAL_SLOTS"

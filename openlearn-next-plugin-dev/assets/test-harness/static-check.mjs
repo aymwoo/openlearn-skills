@@ -6,7 +6,8 @@
  * 目标：在 `npm install` / 上传之前，用秒级检查抓住「编译能过、装上也过、一用就崩」的契约违规。
  *
  * 覆盖：manifest 必填项 · engines · 命令/Handler/Action 三件套配对 · 权限串真伪 ·
- *      进程模式禁用 API · 前端沙箱边界 · 裸模块说明符 · DB 表名与分号 · type-only 导入 · 密钥泄露
+ *      隔离模式空能力门禁（Barrier 2）· 进程模式禁用 API · 前端沙箱边界 · 裸模块说明符 ·
+ *      DB 表名与分号 · type-only 导入 · 密钥泄露
  *
  * 退出码：0 = 通过（可能有 warn）；1 = 有 error。
  * 说明：本脚本是启发式（正则/AST-lite），语义问题靠 test-harness 里的 vitest 用例。
@@ -364,8 +365,11 @@ const distIndexText = distRaw ? maskComments(distRaw) : null;
 if (distIndexText) {
   for (const m of distIndexText.matchAll(/^\s*import[^'"]*['"]([^'"]+)['"]/gm)) {
     const spec = m[1];
+    // 平台允许相对路径与 @openlearn/*（Token 服务）：install-utils.ts external: ['@openlearn/*']，
+    // token-enforcer 文案亦为 "relative paths or @openlearn/* Token services"。其余裸 specifier 会被拒。
+    if (spec.startsWith('@openlearn/')) continue;
     if (!spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('node:')) {
-      add('error', 'DIST_BARE_IMPORT', `dist/index.js 含裸导入 '${spec}'：会被 token-enforcer 拒绝（依赖须打进 bundle；能力走 ctx.services）`, join(ROOT, 'dist', 'index.js'));
+      add('error', 'DIST_BARE_IMPORT', `dist/index.js 含裸导入 '${spec}'：token-enforcer 只放行相对路径与 @openlearn/*（其它依赖须打进 bundle；能力走 ctx.services）`, join(ROOT, 'dist', 'index.js'));
     }
   }
 }
@@ -480,10 +484,15 @@ if (mode === 'inline') {
 }
 
 if (whiteboardWidget) {
-  if (mode && mode !== 'inline') add('error', 'WHITEBOARD_WIDGET_NEEDS_INLINE', "whiteboardWidget=true 需要 inline：白板挂件由宿主渲染 component，process 模式没有可渲染组件", contractPath);
-  const dispatchesDraw = /whiteboard\.draw/.test(scanText);
-  if (!dispatchesDraw) add('error', 'WHITEBOARD_DRAW_MISSING', "契约声明白板挂件，但源码没有派发 whiteboard.draw：只 return 内存对象，学生端画布上没有元素", 'src/index.ts');
-  if (!/teacherWidgetId/.test(scanText) || !/studentWidgetId/.test(scanText)) add('error', 'WHITEBOARD_WIDGET_ID_MISSING', "whiteboard.draw 的 data 需同时含 teacherWidgetId 与 studentWidgetId（JSON 字符串），否则一侧永远显示「正在加载」", 'src/index.ts');
+  const hasViewWidget = allSlots.has('teacher.dashboard.widget') && allSlots.has('student.view') && uiChannel === 'sandbox-view';
+  if (mode && mode !== 'inline' && !hasViewWidget) {
+    add('error', 'WHITEBOARD_WIDGET_NEEDS_INLINE', "whiteboardWidget=true 在组件模式下需要 inline：若使用 process 模式，必须采用 sandbox-view 并在 teacher.dashboard.widget 与 student.view 配置 storage/*.html 视图", contractPath);
+  }
+  const dispatchesDraw = /whiteboard\.draw/.test(scanText) || /whiteboard\.draw/.test(JSON.stringify(manifest?.classroomTools ?? []));
+  if (!dispatchesDraw) add('error', 'WHITEBOARD_DRAW_MISSING', "契约声明白板挂件，但源码与 manifest.classroomTools 均没有使用 whiteboard.draw：学生端画布上不会有元素", 'src/index.ts');
+  const hasWidgetIds = (/teacherWidgetId/.test(scanText) && /studentWidgetId/.test(scanText)) ||
+    (/teacherWidgetId/.test(JSON.stringify(manifest?.classroomTools ?? [])) && /studentWidgetId/.test(JSON.stringify(manifest?.classroomTools ?? [])));
+  if (!hasWidgetIds) add('error', 'WHITEBOARD_WIDGET_ID_MISSING', "whiteboard.draw 的 data 需同时含 teacherWidgetId 与 studentWidgetId（JSON 字符串），否则一侧永远显示「正在加载」", 'src/index.ts');
   if (!declaredCaps.includes('whiteboard:write')) add('error', 'WHITEBOARD_CAP_MISSING', "派发 whiteboard.draw 需要 capabilitiesProposed 含 'whiteboard:write'，否则命令 403", manifestPath);
   if (mode === 'inline' && !/(teacher\.dashboard\.widget|student\.view)/.test(feCode)) add('error', 'WHITEBOARD_RENDERER_MISSING', "白板挂件需要注册 teacher.dashboard.widget（教师侧）与 student.view（学生侧）扩展点，id 与 widget id 一致", fePath);
 }
@@ -540,6 +549,19 @@ for (const v of viewPaths) {
   if (/<script[^>]+src=["']https?:/i.test(html)) {
     add('warn', 'VIEW_REMOTE_SCRIPT', `${v} 引用了远程脚本：校内离线/白名单环境可能加载失败，建议随包内置`, file);
   }
+  // 不透明源 + CSP：view iframe 没有 allow-same-origin / allow-modals
+  if (/(^|[^.\w])alert\s*\(|(^|[^.\w])confirm\s*\(|window\.(?:alert|confirm)\s*\(/.test(html)) {
+    add('error', 'VIEW_ALERT_BLOCKED', `${v} 使用了 alert/confirm：view iframe 未授予 allow-modals，弹窗被忽略（部分浏览器直接抛错），改用页面内模态层`, file);
+  }
+  if (/(^|[^.\w])fetch\s*\(/.test(html)) {
+    add('error', 'VIEW_DIRECT_FETCH', `${v} 直接调用了 fetch：view iframe 是不透明源，直连 /api 拿不到 cookie 且被 CSP 拦；改用 bridge.api.get/post`, file);
+  }
+  if (!/ui\.resize\s*\(/.test(html)) {
+    add('warn', 'VIEW_RESIZE_MISSING', `${v} 没有调用 bridge.ui.resize(...)：内联槽位里容器高度可能塌陷或被裁切`, file);
+  }
+  if (/\bapi\.(?:get|post|del)\s*\([\s\S]{0,160}?\.result\b/.test(html)) {
+    add('warn', 'VIEW_API_RESULT_UNWRAP', `${v} 对 api.* 的返回值取了 .result：bridge.api 返回的是网关裸响应体（不拆信封）；只有 invokeCommand 才返回已拆层的 result`, file);
+  }
 }
 if (viewPaths.size > 0) {
   const pkg = (() => { try { return JSON.parse(read(join(ROOT, 'package.json')) ?? '{}'); } catch { return {}; } })();
@@ -569,6 +591,133 @@ if (needsFrontendEntry && !hasFrontendEntry) {
 for (const slot of viewSlotsUsed) {
   if (!VIEW_SLOTS.has(slot)) {
     add('warn', 'VIEW_SLOT_UNSUPPORTED', `槽位 '${slot}' 未在 schema 中显式声明 view：可能透传但不保证长期可用，优先用 ${[...VIEW_SLOTS].join(' / ')}`, manifestPath);
+  }
+}
+
+// ── 7c. api.routes ↔ ctx.http 双向配对 ──────────────────────────────────
+// 网关只按 manifest 声明派发：声明了没注册 → 404；注册了没声明 → 永远调不到。
+// 两侧字符串必须逐字一致（含前导斜杠），路径模式用 :param 单段匹配。
+const declaredRoutes = new Map(); // 'GET /state' -> route 条目
+for (const r of (manifest?.api?.routes ?? [])) {
+  if (!r || typeof r.path !== 'string') continue;
+  const method = String(r.method ?? '').toUpperCase();
+  const path = '/' + String(r.path).replace(/^\/+/, '');
+  declaredRoutes.set(`${method} ${path}`, r);
+}
+const registeredRoutes = new Set();
+for (const m of scanText.matchAll(/ctx\.http\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]+)['"`]/g)) {
+  registeredRoutes.add(`${m[1].toUpperCase()} ${'/' + m[2].replace(/^\/+/, '')}`);
+}
+if (declaredRoutes.size > 0) {
+  if (registeredRoutes.size === 0) {
+    add('error', 'ROUTE_NONE_REGISTERED', `manifest 声明了 ${declaredRoutes.size} 条 api.routes，但代码里没有找到任何 ctx.http.* 注册：全部路由都会 404`, manifestPath);
+  }
+  for (const [key, route] of declaredRoutes) {
+    if (!registeredRoutes.has(key)) {
+      add('error', 'ROUTE_UNREGISTERED', `manifest 声明了 ${key}，但没有同路径的 ctx.http.${key.split(' ')[0].toLowerCase()}('${key.split(' ')[1]}') 注册 → 404（路径必须逐字一致）`, manifestPath);
+    }
+    if (route.auth !== false && (!Array.isArray(route.roles) || route.roles.length === 0)) {
+      add('warn', 'ROUTE_NO_ROLES', `${key} 未声明 roles：登录用户（含学生）都能调用；按业务补 roles 或显式 auth:false`, manifestPath);
+    }
+  }
+  for (const key of registeredRoutes) {
+    if (!declaredRoutes.has(key)) {
+      add('warn', 'ROUTE_UNDECLARED', `代码注册了 ${key}，但 manifest.api.routes 没有声明：网关不会派发，这条路由永远调不到`, 'src/index.ts');
+    }
+  }
+} else if (registeredRoutes.size > 0) {
+  add('error', 'ROUTE_NOT_IN_MANIFEST', `代码注册了 ${[...registeredRoutes].join('、')}，但 manifest 没有 api.routes：ZIP 插件的 ctx.http 路由必须在 manifest 声明才会生效`, manifestPath);
+}
+
+// ── 7d. SQL 守卫预检（sql-guard.ts 是运行期硬拒绝，这里提前抓）────────────
+// 只检查「字面量」表名：模板拼接 ${T().xxx} 静态无法解析，不在本规则覆盖范围内。
+const SQL_LITERAL_RE = /`([^`]{20,})`|'((?:[^'\\\n]|\\.){20,})'|"((?:[^"\\\n]|\\.){20,})"/g;
+const SQL_CORE_TABLES = new Set(['users', 'students', 'teachers', 'classes', 'lessons', 'whiteboard_elements', 'assignments', 'plugin_storage']);
+const sqlProblems = new Set();
+for (const m of scanText.matchAll(SQL_LITERAL_RE)) {
+  const sql = m[1] ?? m[2] ?? m[3] ?? '';
+  if (!/^\s*(SELECT|INSERT|REPLACE|UPDATE|DELETE|WITH|PRAGMA|ATTACH|DETACH|VACUUM|CREATE|ALTER|DROP)\b/i.test(sql)) continue;
+  const looksSql = /\b(FROM|INTO|SET|WHERE|JOIN|VALUES|TABLE|DATABASE)\b/i.test(sql)
+    || /^\s*(PRAGMA|ATTACH|DETACH|VACUUM)\b/i.test(sql)
+    || /^\s*(CREATE|ALTER|DROP)\s+(TABLE|TRIGGER|VIEW|INDEX)\b/i.test(sql);
+  if (!looksSql) continue;
+  const brief = sql.replace(/\s+/g, ' ').slice(0, 70);
+  if (/\b(?:ATTACH|DETACH|PRAGMA|VACUUM)\b/i.test(sql) || /\b(?:CREATE|DROP)\s+(?:TEMP(?:ORARY)?\s+)?(?:TRIGGER|VIEW)\b/i.test(sql)) {
+    sqlProblems.add(`SQL_FORBIDDEN_OP§sql-guard 禁止 ATTACH/DETACH/PRAGMA/VACUUM/TRIGGER/VIEW：${brief}`);
+  }
+  if (/^\s*(?:CREATE|ALTER|DROP)\s+/i.test(sql)) {
+    sqlProblems.add(`SQL_DDL_BYPASS§裸 DDL 会被拦截或绕过迁移版本：改用 ctx.db.ensureTable / ctx.db.migrate：${brief}`);
+  }
+  for (const t of sql.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+([A-Za-z_][A-Za-z0-9_]*)/gi)) {
+    const name = t[1];
+    if (/^plugin_/i.test(name) || /^sqlite_/i.test(name) || name === 'plugin_migrations') continue;
+    if (SQL_CORE_TABLES.has(name.toLowerCase())) {
+      if (name.toLowerCase() === 'whiteboard_elements') {
+        sqlProblems.add(`SQL_CORE_TABLE§SQL 直接引用了核心表 'whiteboard_elements'：sql-guard 严禁子进程直接读写白板表！向白板绘制/投射挂件请改用 whiteboard.draw 命令或 manifest.classroomTools：${brief}`);
+      } else {
+        sqlProblems.add(`SQL_CORE_TABLE§SQL 直接引用了核心表 '${name}'：sql-guard 黑名单会拒绝，插件侧拿不到该数据：${brief}`);
+      }
+    } else {
+      sqlProblems.add(`SQL_TABLE_NOT_PREFIXED§SQL 引用了非插件前缀的表 '${name}'：只允许 plugin_<安装UUID>_*（自建表请用 ctx.db.table()/模板拼接）：${brief}`);
+    }
+  }
+}
+for (const entry of sqlProblems) {
+  const [code, message] = entry.split('§');
+  add('error', code, message, 'src/index.ts');
+}
+
+// ── 7e. 隔离模式能力门禁（ServiceHost Barrier 2）────────────────────────
+// 第三方 ZIP 插件恒被改写为 process；ServiceHost.handleInvoke 在
+// effectiveCapabilities 为空时只放行 get* 方法。`ctx.db.ensureTable` 在 Worker 侧
+// 实际发出的是 prepareAndRun RPC —— 不以 get 开头，于是 activate() 直接被拒，
+// 现象是 toggle 返回 500「no granted capability, only 'get' methods allowed」，
+// 而不是某个按钮失效。唯一合法的空能力插件是「激活期零服务调用」的纯前端插件。
+//
+// 注意：eventBus.subscribe/unsubscribe 走独立消息通道，不受 Barrier 2 影响，故不计入。
+// 声明了能力也只是「申请」—— 第三方插件还需管理员安装时勾选「确认授予」。
+const inlineTrusted = mode === 'inline' && Boolean(contract?.trustedInlineAllowlistEntry);
+const isolatedMode = !inlineTrusted;
+if (isolatedMode && declaredCaps.length === 0) {
+  // 解构 `const { commandBus, actionRegistry } = ctx.services` 后，调用点不再带 ctx 前缀
+  const destructured = new Set();
+  for (const m of scanText.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*ctx\.services\b/g)) {
+    for (const part of m[1].split(',')) {
+      const name = part.split(':').pop().split('=')[0].trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) destructured.add(name);
+    }
+  }
+  const receivers = [
+    String.raw`ctx\.services\.\w+`,
+    String.raw`ctx\.db`,
+    String.raw`ctx\.storage`,
+    ...[...destructured].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+  ];
+  const nonGetRe = new RegExp(
+    `(?:${receivers.join('|')})\\.(?:ensureTable|migrate|dropAllTables|registerHandler|unregisterHandler|createCommand|execute|register|unregister|spawn|kill|registerInterval|restore|generateText|chat|complete|publish|set|delete)\\s*\\(`,
+    'g',
+  );
+  const hits = new Set();
+  for (const m of scanText.matchAll(nonGetRe)) hits.add(m[0].replace(/[\s(]/g, ''));
+  if (hits.size > 0) {
+    add(
+      'error',
+      'CAP_EMPTY_ISOLATED',
+      `未声明任何 capabilitiesProposed，但代码会调用非 get RPC（${[...hits].slice(0, 4).join('、')}）：`
+        + `process/worker 下 ServiceHost Barrier 2 直接拒绝，表现为激活失败「no granted capability, only 'get' methods allowed」。`
+        + `至少声明一条真实能力（如 lesson:read），并让管理员安装时勾选「确认授予」`,
+      manifestPath,
+    );
+  } else if (/ctx\.resolve\(\s*(?:[\w.]*\.)?IDatabaseToken\s*\)/.test(scanText)) {
+    // 裸 DB 的 `get/all` 仍属 get 方法（只读降级合法），但 `run/exec` 会被拒。
+    // 无法可靠区分调用点 → 只提示，不阻断。
+    add(
+      'warn',
+      'CAP_EMPTY_RAWDB',
+      `未声明 capabilitiesProposed 且解析了 IDatabaseToken：只读（get/all）可放行，`
+        + `但 prepare().run()/exec() 等写调用会被 ServiceHost Barrier 2 拒绝；确认只做只读查询，或声明真实能力`,
+      manifestPath,
+    );
   }
 }
 

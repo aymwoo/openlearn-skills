@@ -125,16 +125,19 @@ grep -rn "views/.*\.html" docs/tutorials/plugin-frontend-guide.md
 
 ---
 
-## 5. 白板画布内卡片（`type:'plugin'`）仍然**不认** `view`
+## 5. 白板画布内卡片（`type:'plugin'`）已支持双轨制 `view`（无需必须 inline）
 
-**事实**：`src/features/whiteboard/widgets/PluginCardRenderer.tsx` 只处理 `ext.component`（React）与
-`ext.render`（DOM 函数），没有 `view` 分支；`InteractiveWhiteboard.tsx` 按
-`teacher.dashboard.widget`（教师）/ `student.view`（学生）查扩展点，id 用 `teacherWidgetId` / `studentWidgetId`。
+**事实（源码）**：
+- `src/features/whiteboard/widgets/PluginCardRenderer.tsx` 现已支持 `const viewPath = (ext as any).slotProps?.view || ext.view;` 分支，当检测到 `viewPath` 时，渲染 `<PluginSandboxIframeView variant="panel" />`，并向沙箱透传 `lessonId` 与 `classId`。
+- `InteractiveWhiteboard.tsx` 按 `teacher.dashboard.widget`（教师端）/ `student.view`（学生端）检索扩展点，ID 对应图元数据中的 `teacherWidgetId` 与 `studentWidgetId`。
 
-**判定口径**：白板画布内的自定义卡片 → **必须 inline（白名单）**，`view` 救不了。
-若未来 `PluginCardRenderer` 增加 view 分支，本 skill 的「白板必须 inline」结论才能改。
+**判定口径**：
+- **`process` 模式的第三方插件现在完全可以拥有白板卡片**！
+- 做法：在 `manifest.contributes` 中注册 `teacher.dashboard.widget` 与 `student.view`，将它们分别指向 `view: "storage/teacher.html"` 与 `view: "storage/student.html"`。
+- 白板卡片会被宿主的统一窗口框架（`WidgetFrame`）包裹，获得标题栏、拖拽移动与拉伸尺寸把手，插件视图以沙箱 iframe 方式沉浸渲染。
+- 若需写 React inline 组件，则依然受白名单机制约束；但对绝大多数第三方插件，直接采用 `view` 沙箱视图即可，不再强制要求 inline 白名单。
 
-**验证**：`grep -n "hasView\|ext.view\|component" src/features/whiteboard/widgets/PluginCardRenderer.tsx`
+**验证**：`grep -n "PluginSandboxIframeView\|ext.view" src/features/whiteboard/widgets/PluginCardRenderer.tsx`
 
 ---
 
@@ -250,7 +253,54 @@ SELECT id, version, substr(manifest, 1, 400) FROM plugins WHERE manifest LIKE '%
 git log --oneline -S "view: z.string" -- packages/core/esm-loader/manifest-schema.ts
 ```
 
-## 8. 期望值（`platform-drift-check.sh` 的比对基准）
+## 8. 课堂互动工具（`classroomTools`）下发机制与 SQL-Guard 核心表隔离禁忌
+
+**事实（源码）**：
+- `packages/core/plugin-host/sql-guard.ts`：内置核心表黑名单 `FORBIDDEN_CORE_TABLES`，包含 `whiteboard_elements`、`users`、`students`、`classes`、`lessons` 等。在 `process` 子进程模式下，直接执行针对核心表的 SQL 操作（如 `prepare("INSERT INTO whiteboard_elements...")`）会被平台直接拦截拒绝。
+- `src/components/LiveClassroomView.tsx:handleExecuteTool`：教师点击白板工具栏 🧩「互动工具」下的插件条目时，前端向 `/api/commands` 派发请求。若 `commandType` 是平台标准命令（如 `whiteboard.draw`），它会穿透插件命名空间直接由平台内核处理，并在白板数据库写入图元后广播 `whiteboard.element_drawn`。
+
+**后果（高频大坑）**：
+- 开发者误在 `manifest.classroomTools` 配置自定义命令（如 `stickynotes.open_board`），并在插件后端 handler 中试图通过 SQL 直接写 `whiteboard_elements`。
+- 结果：插件后端被 `sql-guard` 抛错拦截；前端虽然收到 command 执行结果的 200 并显示「✓ 工具下发成功」，但**白板画布上根本没有图元生成**。
+
+**判定口径**：
+- **推荐做法（声明式下发）**：`manifest.classroomTools` 的 `commandType` 直接写 `whiteboard.draw`，载荷指定 `type: "plugin"`，并在 `data` JSON 字符串中配置 `teacherWidgetId`、`studentWidgetId`、`title`、初始宽高坐标。
+- **总线代发做法**：若下发前需执行业务判断，必须在 manifest 声明申请 `whiteboard:write` 权限，在 handler 中调用 `ctx.services.commandBus.execute({ type: 'whiteboard.draw', payload: ... })`，**绝不可直接用 SQL 读写 `whiteboard_elements`**。
+
+**验证**：
+```bash
+grep -n "whiteboard_elements" packages/core/plugin-host/sql-guard.ts
+grep -n "whiteboard.draw" src/components/LiveClassroomView.tsx
+```
+
+---
+
+## 9. 课堂浮层（`student.classroom.overlay`）布局隔离、多浮层防重叠与 `resize` 联动
+
+**事实（源码）**：
+- `src/plugin-host/extension-point-renderer.tsx`：`FLOATING_VIEW_SLOTS = new Set(['student.classroom.overlay'])`。对浮层槽位采用 `variant="floating"`（固定定位）渲染，避免作为普通 Flex Item 插入 `App.tsx` 的 `flex h-screen` 横向容器中。若未做隔离，普通 `w-full h-full` 块级面板会把主工作区（白板）的宽度挤占为 0 像素（表现为「学生端一出现浮层，上课白板就消失了」）。
+- 宿主在渲染同一槽位的多个浮层组件时，按 `index * 316px` 动态向右平移（Dock 布局），防止多个插件（如求助灯与便签）在左下角完全重叠遮挡。
+- 插件沙箱通过 `window.OpenLearnPluginBridge.ui.resize(height)` 通知宿主调整容器高度。
+
+**判定口径**：
+- 为 `student.classroom.overlay` 编写 `view` 页面时，禁止写撑满屏幕的固定尺寸面板。
+- 页面应支持「最小化悬浮球/胶囊条」与「展开弹窗」双态，在状态切换时务必调用 `bridge.ui.resize()`（如最小化 46px，展开 420px），让宿主容器收缩，把屏幕空间还给白板教学。
+
+---
+
+## 10. 课堂上下文缺失时的优雅降级（`classId || 'default'`）与写限流防范
+
+**事实（源码）**：
+- 教师单课备课试讲、直接进入白板调试或尚未排定班级时，宿主传给插件的 `classId` 可能是 `null` 或 `undefined`。
+- 平台服务端对 `/api` 写请求设置了写限流池（开发环境放宽至 600 次/分，旧版生产环境为 60 次/分），高频短轮询或无防抖的状态同步会迅速耗尽限流池，导致后续所有写操作（包括关键的教师全班锁定学生屏幕 `lock_lesson`）被 HTTP 429 拦截。
+
+**判定口径**：
+- **上下文防御性降级**：插件前端与后端处理 `classId` 与 `lessonId` 时，禁止使用硬断言（`if (!classId) throw ...`）；统一采用 `classId || 'default'` 优雅降级，并在前端监听 `bridge.onContextUpdate` 实现班级切换时的自动数据热重载。
+- **避免 429 限流**：插件视图与后端的交互优先采用 `eventBus` 实时通知；若必须轮询，间隔建议 `>= 3000ms`；任何状态回写（如页码、环节同步）必须在前端做「值变更比较」与「500ms 防抖」，严禁无变化重复刷接口。
+
+---
+
+## 11. 期望值（`platform-drift-check.sh` 的比对基准）
 
 | 信号 | 当前期望 | 漂移时更新 |
 |------|---------|-----------|
@@ -261,7 +311,7 @@ git log --oneline -S "view: z.string" -- packages/core/esm-loader/manifest-schem
 | CLI 打包文件 | 3 个（index/manifest/frontend） | §3 与 `sandbox-view` 模板 |
 | README 是否含白名单变量 | `0`（已被 #343 移除） | §1 的「误判来源」 |
 | 白名单通配符支持 | 有（`endsWith('*')`） | §1 |
-| 白板卡片是否支持 view | 否 | §5 与 SKILL 第二步通道表 |
+| 白板卡片是否支持 view | 是 | §5 与 SKILL 第二步通道表 |
 | `has_frontend` 跳过激活 | 是（2 处） | §7.1 与 L0 `FRONTEND_ENTRY_MISSING` |
 | 前端 fetch 在贡献注册之前 | 是 | §7.1 |
 | 安装期 schema 落库、不回填 | 是 | §7.2 |

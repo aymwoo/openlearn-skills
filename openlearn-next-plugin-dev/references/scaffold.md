@@ -386,7 +386,18 @@ grep -E 'react/jsx-runtime' dist/frontend.js
 - **结构化日志**：统一用 `ctx.log.debug/info/warn/error(message, meta?)`，自动注入 `pluginId` 与高精度时间戳，替代 `console.log`。
 - **进程/插件状态**：`curl http://localhost:9000/api/plugins`；后台进程在「系统设置 → 进程管理」查看。
 - **事件审计**：所有事件写入 SQLite `events` 表，如 `SELECT * FROM events WHERE type LIKE 'poll.%' ORDER BY timestamp DESC;`。
-- **热重载**：`NODE_ENV=development` 时 `HotReloadController` 用 chokidar 监听 `plugins/`，变更（debounce 300ms）后自动停用旧版 → 清中间件 → 激活新版，无需重启。
+- **热重载的真实边界**：`NODE_ENV=development` 时 `HotReloadController` 用 chokidar 监听**平台仓库的 `plugins/` 目录**，文件变更（debounce 300ms）后自动停用旧版 → 清中间件 → 激活新版。**它的监听范围仅限该目录**，别把「无需重启」外推到下面这些场景——它们全都不会触发热重载：
+
+  | 改了什么 | 热重载会生效吗 | 必须做什么 |
+  |----------|----------------|------------|
+  | 平台源码（`manifest-schema.ts`、`extension-point-renderer.tsx`、`install.ts`…） | ❌ 监听范围外 | **重启 dev 服务**（`tsx watch` 只重载进程，不重载已解析进内存的 schema / 已挂载的中间件） |
+  | 从管理后台**重新上传 ZIP** | ❌ 走 DB 记录 + 解压路径，不产生 `plugins/` 文件事件 | 上传后**停用 → 重新启用**；`process` 模式子进程持旧代码时，再**重启服务** |
+  | 手工替换 `plugins/{uuid}/` 下的文件 | ✅ 会触发 | 等 300ms 后看日志；未触发则停用 → 启用 |
+  | 插件前端 `storage/*.html` / `frontend.js` | ❌ 浏览器已缓存 iframe 资源 | 停用 → 启用 + **强制刷新**（或无痕窗口） |
+  | 切换 `executionMode` | ❌ | 停用 → 启用（新旧进程不共享状态） |
+
+  > 判断口诀：**热重载只管「平台 `plugins/` 目录里的文件变了」这一件事**。改平台代码、走安装通道、
+  > 改前端资源，一律按上表走。把「改完没重启」当成插件 bug 排查，是最高频的时间浪费。
 - **生命周期中间件**（洋葱模型）：`beforeActivate`、`afterActivate`、`beforeDeactivate`、`afterDeactivate`、`beforeCommand`、`afterCommand`。
 - **生命周期状态机**：`INSTALLED → ACTIVATING → ACTIVE → DEACTIVATING → INACTIVE`，失败进入 `ERROR`（可重试），最终 `UNINSTALLED`。`ACTIVATING` 为瞬态（Inline 10 秒 / Worker 10 秒激活超时）。Worker 激活期新增 `activating` 状态与 5ms fail-fast（v0.3.16）。
 - 用户侧排查：插件安装后不显示 → 确认状态为「已启用」、权限已授予、刷新页面、查服务端日志（dev 模式看终端，PM2 用 `pm2 logs`）。

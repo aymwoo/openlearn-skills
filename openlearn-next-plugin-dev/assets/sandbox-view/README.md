@@ -47,10 +47,17 @@ bridge.onInit(ctx) / invokeCommand(type, payload) / api.get|post|del / storage.*
 ## 4. 开发与验证
 
 ```bash
+# 从本模板一键生成（替换全部占位符）
+bash <skill>/scripts/new-plugin.sh sandbox-view ~/Develop/openlearn-plugins/my-board \
+  --id @openlearn-community/my-board --name "我的看板"
+
+cd ~/Develop/openlearn-plugins/my-board
+cp -r <skill>/assets/test-harness ./test-harness
 npm i
 npm run pack                 # build + 补 storage/**
 node test-harness/static-check.mjs .        # L0：view 路径 / 文件 / 桥接脚本 / 槽位 / 打包提示
-npx vitest run --config test-harness/vitest.config.ts   # L1/L2：命令三件套 + 执行冒烟
+npm i -D jsdom                                   # view-smoke 需要
+npx vitest run --config test-harness/vitest.config.ts   # L1/L2：命令三件套 + view 页面加载 + 执行冒烟
 ```
 
 L3 真实宿主：

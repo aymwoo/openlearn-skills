@@ -48,7 +48,10 @@ substitute() {
 for tpl in server-only full-stack frontend-only inline-react sandbox-view; do
   dir="$TMP/$tpl"
   cp -r "$SKILL_DIR/assets/$tpl" "$dir"
-  while IFS= read -r f; do substitute "$f"; done < <(find "$dir" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.json' \))
+  # 用管道而非进程替换 <(...)：受限环境（容器/沙箱不提供 /dev/fd）下进程替换会静默失败，
+  # 导致占位符没被替换却继续跑校验，得到「假失败」或「假通过」。
+  find "$dir" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.json' \) -print0 \
+    | while IFS= read -r -d '' f; do substitute "$f"; done
   # inline 模板需要在白名单环境里校验；其他模板不受影响
   if out=$(OPENLEARN_TRUSTED_INLINE_PLUGINS='@demo/*' node "$CHECKER" "$dir" 2>&1) && ! grep -q '✖' <<<"$out"; then
     ok "$tpl：L0 通过"
@@ -176,12 +179,138 @@ else
   done
 fi
 
+# ── 3d. 反例：路由未注册 / SQL 守卫 / view 运行时 ───────────────────────────
+head "3d. 反例：路由配对 / SQL 守卫 / view 运行时"
+RUNTIME_BAD="$TMP/runtime-bad"
+mkdir -p "$RUNTIME_BAD/src" "$RUNTIME_BAD/storage"
+cat > "$RUNTIME_BAD/manifest.json" <<'JSON'
+{
+  "id": "@demo/runtime-bad", "name": "RB", "version": "0.1.0", "main": "index.js",
+  "engines": { "openlearn": ">=0.7.6" },
+  "api": { "routes": [{ "method": "GET", "path": "/declared", "roles": ["teacher"] }] },
+  "contributes": { "teacher.tab": [{ "id": "rb", "label": "RB", "view": "storage/page.html" }] }
+}
+JSON
+cat > "$RUNTIME_BAD/src/index.ts" <<'TS'
+ctx.http.post('/declared', h);
+const q1 = `SELECT * FROM users WHERE id = 1`;
+const q2 = `PRAGMA table_info(x)`;
+const q3 = `CREATE TABLE foo (id TEXT)`;
+const q4 = `SELECT * FROM ${t} WHERE a = 1`;
+TS
+cat > "$RUNTIME_BAD/storage/page.html" <<'HTML'
+<script src="/plugin-sandbox/view-bridge.js"></script>
+<script>
+  alert('x');
+  fetch('/api/x');
+  const r = await api.get('state');
+  r.result.a;
+</script>
+HTML
+
+if out=$(node "$CHECKER" "$RUNTIME_BAD" 2>&1); then
+  bad "runtime 反例未被拦截（退出码 0）"
+else
+  ok "runtime 反例被拦截（非零退出）"
+  for code in ROUTE_UNREGISTERED ROUTE_UNDECLARED SQL_CORE_TABLE SQL_FORBIDDEN_OP \
+              SQL_DDL_BYPASS VIEW_ALERT_BLOCKED VIEW_DIRECT_FETCH VIEW_RESIZE_MISSING \
+              VIEW_API_RESULT_UNWRAP; do
+    if grep -q "\[$code\]" <<<"$out"; then ok "命中 $code"; else bad "漏报 $code"; fi
+  done
+  # 动态表名（${t}）不能被误报为「非插件前缀表」
+  if grep -q "SQL_TABLE_NOT_PREFIXED" <<<"$out"; then bad "误报 SQL_TABLE_NOT_PREFIXED（模板拼接表名不应算字面量表名）"; else ok "模板拼接表名未误报"; fi
+fi
+
+# ── 3e. @openlearn/* 是合法外部化，只有其它裸说明符才算裸导入 ────────────────
+head "3e. @openlearn/* 外部化 vs 其它裸导入"
+SDK_OK="$TMP/sdk-ok"; SDK_BAD="$TMP/sdk-bad"
+for d in "$SDK_OK" "$SDK_BAD"; do
+  mkdir -p "$d/src" "$d/dist"
+  cat > "$d/manifest.json" <<'JSON'
+{ "id": "@demo/sdk-import", "name": "SDK", "version": "0.1.0", "main": "index.js", "engines": { "openlearn": ">=0.7.6" }, "capabilitiesProposed": ["lesson:read"] }
+JSON
+  printf 'export function activate(ctx) {}\nexport function deactivate() {}\n' > "$d/src/index.ts"
+done
+printf 'import { IDatabaseToken } from "@openlearn/plugin-sdk";\nexport function activate(ctx) { ctx.resolve(IDatabaseToken); }\nexport function deactivate() {}\n' > "$SDK_OK/dist/index.js"
+printf 'import fs from "fs";\nexport function activate(ctx) {}\nexport function deactivate() {}\n' > "$SDK_BAD/dist/index.js"
+
+out=$(node "$CHECKER" "$SDK_OK" 2>&1 || true)
+if grep -q "\[DIST_BARE_IMPORT\]" <<<"$out"; then bad "@openlearn/* 被误报为裸导入"; else ok "@openlearn/* 未误报为裸导入"; fi
+out=$(node "$CHECKER" "$SDK_BAD" 2>&1 || true)
+if grep -q "\[DIST_BARE_IMPORT\]" <<<"$out"; then ok "其它裸说明符（fs）仍被抓到"; else bad "其它裸说明符漏报"; fi
+
+# ── 3f. 一键脚手架：生成 sandbox-view 后占位符清零、L0 0 error ─────────────
+head "3f. 一键脚手架（new-plugin.sh）"
+GEN="$TMP/gen-sandbox-view"
+if bash "$SKILL_DIR/scripts/new-plugin.sh" sandbox-view "$GEN" \
+    --id @demo/gen-sandbox-view --name "Gen Demo" --prefix gen --description "generator test" --author tester \
+    >/tmp/new-plugin.log 2>&1; then
+  ok "生成 sandbox-view 成功"
+else
+  bad "生成失败："; tail -5 /tmp/new-plugin.log | sed 's/^/      /'
+fi
+if grep -rq '{{' "$GEN" --include='*.ts' --include='*.tsx' --include='*.html' --include='*.json' --include='*.mjs' 2>/dev/null; then
+  bad "生成物仍有未替换占位符"
+else
+  ok "占位符已全部替换"
+fi
+if node "$CHECKER" "$GEN" >/tmp/gen-l0.log 2>&1; then
+  ok "生成物通过 L0（0 error）"
+else
+  bad "生成物 L0 未通过："; tail -8 /tmp/gen-l0.log | sed 's/^/      /'
+fi
+
+# ── 3g. 反例：隔离模式空能力清单 + 非 get RPC（Barrier 2）──────────────────
+head "3g. 反例：空 capabilitiesProposed 但 activate 调用非 get RPC"
+CAP_BAD="$TMP/cap-bad"
+mkdir -p "$CAP_BAD/src"
+cat > "$CAP_BAD/src/index.ts" <<'TS'
+export default {
+  manifest: {
+    id: '@demo/cap-bad', name: 'CB', version: '0.1.0', main: 'index.js',
+    engines: { openlearn: '>=0.7.6' },
+    api: { routes: [{ method: 'GET', path: '/state', roles: ['teacher'] }] },
+  },
+  async activate(ctx: any) {
+    await ctx.db.ensureTable('notes', 'id TEXT PRIMARY KEY, text TEXT');
+    ctx.http.get('/state', () => ({ ok: true }));
+  },
+};
+TS
+if out=$(node "$CHECKER" "$CAP_BAD" 2>&1); then
+  bad "空能力反例未被拦截（退出码 0）"
+else
+  ok "空能力反例被拦截（非零退出）"
+  if grep -q "\[CAP_EMPTY_ISOLATED\]" <<<"$out"; then ok "命中 CAP_EMPTY_ISOLATED"; else bad "漏报 CAP_EMPTY_ISOLATED"; fi
+fi
+sed -i "s/engines: { openlearn: '>=0.7.6' },/engines: { openlearn: '>=0.7.6' }, capabilitiesProposed: ['lesson:read'],/" "$CAP_BAD/src/index.ts"
+out=$(node "$CHECKER" "$CAP_BAD" 2>&1 || true)
+if grep -q "\[CAP_EMPTY_ISOLATED\]" <<<"$out"; then bad "补上能力后仍误报 CAP_EMPTY_ISOLATED"; else ok "补上能力后不再报"; fi
+
+FE_EMPTY="$TMP/fe-empty"
+mkdir -p "$FE_EMPTY/src"
+cat > "$FE_EMPTY/src/index.ts" <<'TS'
+export default {
+  manifest: {
+    id: '@demo/fe-empty', name: 'FE', version: '0.1.0', main: 'index.js',
+    engines: { openlearn: '>=0.7.0' }, capabilitiesProposed: [],
+  },
+  async activate(ctx: any) { ctx.log?.info?.('pure frontend'); },
+};
+TS
+out=$(node "$CHECKER" "$FE_EMPTY" 2>&1 || true)
+if grep -q "\[CAP_EMPTY_ISOLATED\]" <<<"$out"; then bad "纯前端空能力被误报"; else ok "纯前端空能力（零服务调用）不误报"; fi
+
 # ── 4. L1/L2 骨架自检（不联网） ─────────────────────────────────────────────
 head "4. L1/L2 用例文件自检"
-for f in contract.test.ts smoke.test.ts vitest.config.ts README.md; do
+for f in contract.test.ts smoke.test.ts view-smoke.test.ts vitest.config.ts README.md; do
   if [[ -s "$SKILL_DIR/assets/test-harness/$f" ]]; then ok "$f 存在且非空"; else bad "$f 缺失或为空"; fi
 done
+grep -q 'OpenLearnPluginBridge' "$SKILL_DIR/assets/test-harness/view-smoke.test.ts" && ok "view 冒烟含桥接契约断言" || bad "view 冒烟缺桥接契约断言"
+grep -q 'describe.skipIf' "$SKILL_DIR/assets/test-harness/view-smoke.test.ts" && ok "view 冒烟在缺少 jsdom 时可跳过" || bad "view 冒烟缺少 jsdom 缺失兜底"
 grep -q 'REAL_CAPS' "$SKILL_DIR/assets/test-harness/contract.test.ts" && ok "契约测试含权限全集断言" || bad "契约测试缺权限全集断言"
+grep -q 'Barrier 2' "$SKILL_DIR/assets/test-harness/contract.test.ts" && ok "契约测试含 Barrier 2 空能力断言" || bad "契约测试缺 Barrier 2 断言"
+grep -q 'CAP_EMPTY_ISOLATED' "$SKILL_DIR/assets/test-harness/static-check.mjs" && ok "L0 含隔离模式能力门禁规则" || bad "L0 缺 CAP_EMPTY_ISOLATED"
 grep -q 'TypeError|ReferenceError' "$SKILL_DIR/assets/test-harness/smoke.test.ts" && ok "冒烟测试含崩溃分类断言" || bad "冒烟测试缺崩溃分类断言"
 grep -q 'inline' "$SKILL_DIR/assets/test-harness/vitest.config.ts" && ok "vitest 配置含 test-kit inline 兜底" || bad "vitest 配置缺 inline 兜底"
 grep -q 'whiteboardWidget' "$SKILL_DIR/assets/test-harness/smoke.test.ts" && ok "冒烟测试含白板挂件下发断言" || bad "冒烟测试缺白板挂件断言"

@@ -2,8 +2,8 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.6.1
-description: 为 OpenLearnV2 教学平台（当前平台 v0.7.7 / SDK 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
+version: 2.10.0
+description: 为 OpenLearnV2 教学平台（当前平台 v0.7.7 / SDK 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
 > ✅ **版本基线口径（2026-10-28 核对）**：以 **npm 发布版**为准 ——
@@ -15,6 +15,18 @@ description: 为 OpenLearnV2 教学平台（当前平台 v0.7.7 / SDK 3.7.4）�
 >
 > **但判定顺序不变**：两者再次冲突时，仍以 **npm 发布版为准**
 > （`npx @openlearn/plugin-sdk init` 拿到的就是发布版模板），仓库 `main` 可能滞后。
+
+> ⚠️ **「以 npm 为准」只管一件事：生成代码时用的模板与 API 面。** 排查**运行时行为**时口径相反——
+> dev 跑的是**本地仓库源码**，此时以本地 HEAD 为准：
+>
+> | 你在做什么 | 以谁为准 | 为什么 |
+> |------------|----------|--------|
+> | 生成脚手架 / 选 API / 抄模板 | **npm `latest`** | 用户装的就是发布版；仓库 `main` 可能滞后 |
+> | 判断「平台实际会怎么处理」 | **本地仓库 HEAD** | 跑起来的是本地代码；npm 快照不参与运行 |
+> | 判断「本地是否落后于发布版」 | 两个都看，差异即提示 | 升级后才有的行为不能用于本地调试 |
+>
+> 典型案例：`manifest-schema.ts` 对 `view` 的处理是**本地源码**决定的。npm 上的模板再新，
+> 也改变不了本地 dev 进程用旧 schema 把字段 strip 掉的结果。这类问题只能看本地源码 + 跑 `facts-check.sh`。
 
 # OpenLearnV2 插件开发与仓库协作指南
 
@@ -83,6 +95,24 @@ description: 为 OpenLearnV2 教学平台（当前平台 v0.7.7 / SDK 3.7.4）�
 
 ### 第一步：探活 + 版本比对
 
+> **开工前 30 秒：先摸清宿主环境。** 端口、数据库路径、插件目录这三样，缺任何一样都会让后续排查变成猜测
+> （曾经在 3000/5173 上找了半天，而平台实际跑在 **9000**）。
+>
+> ```bash
+> PLATFORM="${PLATFORM_REPO:-$HOME/Develop/openlearnv2}"
+> node -p "require('$PLATFORM/package.json').version"          # 平台版本
+> ss -ltnp 2>/dev/null | grep -E ':(9000|3000|5173)\b'         # 真实端口，不要猜
+> ls -1 "$PLATFORM"/packages/core/db/*.db 2>/dev/null          # educational_os.db（装过插件才有）
+> ls -d "$PLATFORM"/plugins/*/ 2>/dev/null | head              # 安装目录 plugins/{安装行UUID}/
+> df -h /tmp | tail -1                                          # /tmp 容量
+> ```
+>
+> 两条硬前提，不满足就会得到**看起来像 bug 的假象**：
+>
+> - **`/tmp` 是小容量 tmpfs**（如 10MB）时，跑 vitest 会批量报「文件加载失败」，看似几十个用例真挂。
+>   先 `mkdir -p ~/.cache/vitest-tmp`，再 `TMPDIR=~/.cache/vitest-tmp npm test`。
+> - **端口有监听 ≠ 服务就绪**。`/api/plugins` 能返回 JSON 才算可用；否则先 `npm run dev`。
+
 #### 1a. 四个版本信号（每次必做）
 
 | 信号 | 获取方式 | 权威性 |
@@ -115,7 +145,7 @@ bash scripts/platform-drift-check.sh --write  # 槽位变化时重生成 slot-re
 |--------|-------------|-----------|
 | README 环境变量表被删 | 「白名单功能已移除」 | `execution-policy.ts` 仍读 `OPENLEARN_TRUSTED_INLINE_PLUGINS`（README 只是不再公开推荐） |
 | 教程写 `view: "views/index.html"` | 「view 放 views/ 下」 | `install.ts` 只解压 `storage/**` → ZIP 插件必须写 `storage/...` |
-| 新增「双轨制可视沙箱」叙事 | 「以后不需要 inline 了」 | 白板画布卡片（`type:'plugin'`）仍只认 `component`/`render` → 仍需 inline |
+| 新增「双轨制可视沙箱」叙事 | 「以后不需要 inline 了」 | 白板卡片已支持 `view` 沙箱（配置 `view: "storage/*.html"` 无需 inline）；但自定义 React 组件仍需 inline |
 | CHANGELOG 折叠/重排 | 「某能力被回滚」 | 看提交与源码；`platform-drift-check.sh` 的 8 项事实 |
 | 相邻两页文档口径不一致 | 随便选一页信 | 源码 > Release Notes > 教程；`system-configuration.md` 的「非 @openlearn/ 强制子进程」措辞有歧义，以 `execution-policy.ts` 为准 |
 
@@ -136,6 +166,13 @@ ls ~/Develop/openlearnv2/docs/
 # 官方脚手架模板（模板漂移的第一现场）
 ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 ```
+
+> **先跑事实校验，再读文档**：平台仓库在本地时，
+> `bash scripts/facts-check.sh` 逐条比完 `references/integration-facts.json` 里全部集成事实
+> （桥接返回形态、网关响应/超时/角色、SQL 守卫、安装器解压、渲染器隐藏…）的源码锚点。
+> 全绿 = `references/` 与源码一致，可以直接按 skill 写代码；
+> 有 ✖ = 先看该条的 `impact`，再决定是否重读源码。条数以脚本输出为准，**不要照抄本文里的数字**。
+> 这比逐篇通读 `references/` 快一个数量级，也避免「文档说 A、源码是 B」时写错。
 
 > 官方文档站路径（线上校验用）：
 > `https://openlearn-next-v2.readthedocs.io/zh-cn/latest/`
@@ -172,14 +209,14 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
    | 教师按钮 / Tab / 命令面板条目 | `manifest.classroomTools` / `contributes` / 数据型扩展点 | process 即可 |
    | 前端读后端数据、提示 | 桥接 `ctx.invokeCommand` / `frontendApi` 轮询 | process 即可 |
    | **自定义界面（页面级）** | **`contributes.<slot>.view = 'storage/x.html'`（双轨制 UI，宿主沙箱 iframe + `OpenLearnPluginBridge`）** | **process 即可，无需白名单** |
-   | 学生端白板卡片（画布内 `type:'plugin'`） | `registerExtensionPoint({ component })` + 真实 React | **仅 inline（白名单）** |
-   | 学生端浮层页面 | `view` 优先；确需 React 才 inline | process / inline |
+   | 白板卡片（画布内 `type:'plugin'`） | 配置 `view: 'storage/xxx.html'`（process 即可，推荐）或 `registerExtensionPoint({ component })`（React 组件） | **view 走 process；React 仅 inline** |
+   | 学生端浮层页面 | `view` 优先（调 `bridge.ui.resize()` 自适应）；确需 React 才 inline | process / inline |
 
-   ⚠️ 两条常见误判：
-   - 「要自定义 UI 就必须 inline」——**错**。v0.7.6+ 的自定义页面走 `view`，process 就能用；
-     只有**白板画布内卡片**和**必须复用宿主 React 的组件**才需要 inline。
+   ⚠️ 常见误判：
+   - 「白板卡片不能用 HTML 沙箱」——**错**。平台 v0.7.7+ 的 `PluginCardRenderer` 已支持 `ext.view`，成对声明 `teacher.dashboard.widget` 与 `student.view` 映射到 `storage/*.html` 即可在 process 模式下展现白板卡片；只有**自定义 React inline 组件**才需要白名单。
    - 「写 `@openlearn/` 前缀就能拿信任 / 写 `manifest.executionMode` 就能变 inline」——**都错**。
      判定只看内置目录 + `OPENLEARN_TRUSTED_INLINE_PLUGINS`，由服务端计算。
+   - 「课堂工具下发可以在子进程用 SQL 直接插入 `whiteboard_elements`」——**大错**。子进程受 `sql-guard` 零信任保护，直写核心表会被拒绝！必须在 `manifest.classroomTools` 配置 `commandType: "whiteboard.draw"` 由平台代发，或在 handler 调 `commandBus.execute`。
 5. **权限需求 (Capabilities)**：显式核对**平台真实存在**的能力字符串（见「权限全集」一节）
 6. **AI 能力与 Action 关联**：是否需要 AI Agent 调用？（必须注册 Action 且描述清晰）
 7. **数据库需求**：需要哪些表？是否需要版本迁移？
@@ -224,6 +261,10 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 | `{{commandPrefix}}` | 命令前缀（如 `classpolls`） | ❌ 手动替换 |
 | `{{toolId}}` / `{{toolName}}` | classroomTools 的 id / name | ❌ 手动替换 |
 | `{{tabId}}` | 前端 tab ID | ❌ 手动替换 |
+
+> **一条命令生成（推荐）**：`bash scripts/new-plugin.sh <模板> <目标目录> --id @scope/name --name "显示名称"`。
+> 本 skill 的脚本会替换上表**全部**占位符（官方 CLI `init` 只替换 ✅ 项），并拒绝覆盖非空目录；
+> 生成的目录仍要按第四步铺 test-harness、跑 L0。
 
 #### 2. 关键编码规范与防御规则 (Mandatory Guardrails)
 
@@ -270,6 +311,18 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 11. **数据库迁移**：ZIP 分发场景用 `ctx.db.ensureTable()` + `ctx.db.migrate(version, fn)`；
     **不要**依赖声明式 `migrations/*.sql` —— 官方 CLI 不打包该目录，装上后迁移会静默失效。
     详见 `references/manifest-0.7.md` §12。
+12. **隔离模式能力门禁（ServiceHost Barrier 2）**：`process` / `worker`（以及**未进白名单的 inline**）下，
+    只要 `activate()` 期间调用了**任何非 get RPC**（`ctx.db.ensureTable` / `migrate`、`actionRegistry.register`、
+    `commandBus.registerHandler`、`eventBus.publish`、`storage.set/delete`、`ai.generateText`、
+    `processManager.*`、`ctx.resolve(IDatabaseToken)` 上的 `prepare/run`…），
+    插件就必须同时满足两件事：
+    ① `manifest.capabilitiesProposed` **至少声明一条真实能力**（声明了才有候选集）；
+    ② 管理员安装/更新时**勾选「确认授予清单申请的能力」**（第三方插件的声明只是「申请」，不勾 = 没授予）。
+    `effectiveCapabilities` 取二者交集，为空时 `ServiceHost.handleInvoke` 直接抛
+    `Capability denied … no granted capability, only 'get' methods allowed` → 激活/启用 500。
+    > 只有「`activate` 全程只做本地注册（`ctx.http.*`、`ctx.db.table()`）+ 订阅」的纯前端桥接插件可以不声明能力；
+    > `eventBus.subscribe/unsubscribe` 走独立消息类型，不受此门禁影响。
+    L0 会以 `CAP_EMPTY_ISOLATED` 拦截，L1 `contract.test.ts` 会用 Proxy 录制 activate 期间的服务调用复现同一门禁。
 
 #### 3. Manifest 关键字段（v0.7.x）
 
@@ -277,6 +330,8 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
   速查表见 `references/manifest-0.7.md` §11。
 - `main`：**必填**。
 - `capabilitiesProposed`：只能是平台真实存在的能力字符串（见「权限全集」）。
+  对第三方插件这是**申请**而非授予 —— 声明 + 管理员勾选授予两者都齐，非 get RPC 才放行；
+  声明为空但有 `ctx.db.ensureTable` / `actionRegistry.register` 等调用 = 激活必然 500（见 Guardrail 12、`references/manifest-0.7.md` §3）。
 - 按目标版本可用的新字段：`api.routes`（`ctx.http`，0.3.11+）、`provides`、`optional`、
   `pluginDependencies`、`contributes`（含 v0.7.0 的 `contributes.locales` 国际化）、
   `configuration.properties[].scope`（平台/学校/班级三层覆盖）、`network.outbound`（v0.7.2 出站域名申请）、
@@ -318,11 +373,15 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 - [ ] **三件套映射**：`manifest.classroomTools[].commandType` / `contributes` 里引用的每个 commandType，
       都能在 `src/index.ts` 里找到**同名的 `actionRegistry.register` + `registerHandler`**
 - [ ] **裸导入非法引用**：`grep -E '^import .+ from "[^@\./]' dist/index.js` 应无输出
+      —— 注意 `@openlearn/*` 是**合法例外**（Token 值导入 OK，宿主会软链 SDK 解析），别误删
 - [ ] **前端产物存在**（只要有 `contributes` / `view` 就必须有）：`unzip -l dist/*.zip | grep -q frontend.js`
       —— 缺它时 `has_frontend=false`，宿主跳过激活，所有声明式贡献都不注册（日志无 404）
 - [ ] **前端产物无裸说明符**（3.7.2+ CLI 会直接拦）：`grep -nE "(from|require\(|import\() *['\"][^./]" dist/frontend.js` 应无输出
 - [ ] **远程前端无 React**：`grep -nE "from ['\"]react|document\.|window\." dist/frontend.js` 应无输出
 - [ ] **`view` 声明可用**（第三方要给自定义 UI 时）：`view` 必须**以 `storage/` 开头**且文件真在包里
+- [ ] **浮层槽位不挤布局**：`student.classroom.overlay` 上的 `view` 必须走 `variant="floating"`（平台 v0.7.8+）；
+      未修的平台会把 `w-full h-full` 的块级视图插进 `flex h-screen` 根容器，**把白板挤成 0 宽**
+      （现象：插件面板正常、主内容整块消失）。未修则改用 `student.lesson.tool`
       （安装器只解压 `storage/**`；教程里的 `views/index.html` 对 ZIP 插件是错的）；
       跑一次 `manifestSchema.parse()` 断言 `contributes["teacher.tab"][0].view` 仍在（zod 会 strip 未声明键，
       低版本平台会静默吞掉 → 面板空白无报错）。细节见 `references/frontend-bridge-0.7.md` §5.5
@@ -350,8 +409,8 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 
 | 层 | 手段 | 耗时 | 抓什么 |
 |----|------|------|--------|
-| **L0** | `node test-harness/static-check.mjs .` | <1s | manifest 必填项 / 权限串真伪 / 三件套配对 / **UI 通道契约（executionMode·槽位真伪·白名单·白板挂件闭环）** / 裸导入 / 前端越界 / process 禁用 API / DB 契约 / type-only 误用 / 密钥泄漏 |
-| **L1** | `vitest run` 的 `contract.test.ts` | ~0.3s | 声明的入口与实际注册是否一致、handler 是否为 `{execute}` 对象、`capabilityRequired` 是否真实、`inputSchema` 类型名 |
+| **L0** | `node test-harness/static-check.mjs .` | <1s | manifest 必填项 / 权限串真伪 / **隔离模式空能力门禁（`CAP_EMPTY_ISOLATED`）** / 三件套配对 / **UI 通道契约（executionMode·槽位真伪·白名单·白板挂件闭环）** / **api.routes ↔ `ctx.http` 双向配对** / **SQL 守卫预检（表前缀·禁用语句·裸 DDL）** / **view 页面运行时（alert·直连 fetch·resize·`.result` 误读）** / 裸导入 / 前端越界 / process 禁用 API / DB 契约 / type-only 误用 / 密钥泄漏 |
+| **L1** | `vitest run` 的 `contract.test.ts` + `view-smoke.test.ts` | ~0.3s | 声明的入口与实际注册是否一致、handler 是否为 `{execute}` 对象、`capabilityRequired` 是否真实、`inputSchema` 类型名；**空能力时 activate 是否调了非 get RPC（Proxy 录制，复现 ServiceHost Barrier 2）**；**view 页面能否在 jsdom 里加载、init 后是否真的发出命令/接口调用、是否误用 alert/fetch** |
 | **L2** | `vitest run` 的 `smoke.test.ts` | ~0.3s | 重复激活状态泄漏、命令执行期 `TypeError`、REST 路由 5xx、事件 payload 形状、停用未退订 |
 | **L3** | 真实宿主机：上传 → 激活 → 点入口 → 停用 | 3–10 min | Mock 与生产宿主的差异（能力审批、process 沙箱、熔断、全限定 commandType） |
 
@@ -361,6 +420,8 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 # 在插件项目根目录
 cp -r <skill>/assets/test-harness ./test-harness
 npm i -D vitest @openlearn/plugin-test-kit better-sqlite3 uuid zod
+# 有 storage/*.html（sandbox-view）时再加 jsdom，view-smoke 才会执行；缺它自动跳过
+npm i -D jsdom
 npm pkg set scripts.test:contract="node test-harness/static-check.mjs ." \
             scripts.test="vitest run --config test-harness/vitest.config.ts"
 ```
@@ -423,18 +484,40 @@ npm test                # L1 + L2
 在 OpenLearn 管理后台上传 `.zip`：
 
 1. **管理后台** → 系统设置 → 插件中心 → 上传插件
-2. **激活插件**：检查服务日志输出带 `[Plugin:<id>]` 前缀；注意第三方插件会被强制以 `process` 模式运行
-3. **工具验证**：若声明了 `classroomTools`，进课堂白板确认按钮出现、点击有事件流回显
-4. **AI 工具测试**：发送自然语言命令，确认 Agent 能识别并触发 Actions
-5. **路由验证**：`api.routes` 声明 `auth: false` 的接口**还需管理员批准**才会匿名放行，否则 401
+2. **勾选能力授予**：安装向导里若出现「确认授予清单申请的能力」，必须勾选（第三方插件的
+   `capabilitiesProposed` 只是申请，不勾 = 授予集合为空 = 非 get RPC 全被拒）。走快速安装时默认自动批准。
+3. **激活插件**：检查服务日志输出带 `[Plugin:<id>]` 前缀；注意第三方插件会被强制以 `process` 模式运行。
+   若报 `Capability denied … only 'get' methods allowed`，是漏了第 2 步：重装/更新时补勾，或把 `capabilitiesProposed` 补全。
+4. **工具验证**：若声明了 `classroomTools`，进课堂白板确认按钮出现、点击有事件流回显
+5. **AI 工具测试**：发送自然语言命令，确认 Agent 能识别并触发 Actions
+6. **路由验证**：`api.routes` 声明 `auth: false` 的接口**还需管理员批准**才会匿名放行，否则 401
+7. **装完立刻自检（不要靠肉眼等页面）**：上传成功后马上跑
+
+   ```bash
+   # 脚本在本 skill 的 scripts/ 下；在插件项目里运行时用绝对路径，如
+   # bash ~/.workbuddy/skills/openlearn-next-plugin-dev/scripts/post-install-check.sh ...
+   bash scripts/post-install-check.sh <manifest.id> --zip <刚上传的.zip>
+   ```
+
+   一次核对：`frontend.js` 是否在包里并已落盘 · DB 里的 `manifest` 是否保住了每个 `view`（安装期 schema
+   会 strip 未声明字段，**升级不回填**）· 每个 `view` 是否在 `storage/` 下且文件真实存在 · 状态是否 `active`。
+   这三类失败**运行期全部静默**（无异常日志、只有入口不出现），是「装上了但看不见」的第一嫌疑。
+   有 ✖ 先修，修完**重新上传安装**（不是重新激活）；改过平台源码则**先重启 dev**。
 
 ### 完成定义（全部满足才算做完）
 
 - [ ] 官方 CLI 构建成功，产出 `.zip`
 - [ ] 生成的 `manifest.json` 通过平台 `manifestSchema` 校验（`main` 必填、字段合法）
 - [ ] 每个 `commandType` 都有同名 ActionDescriptor（否则 `COMMAND_NOT_REGISTERED`）
+- [ ] `capabilitiesProposed` 覆盖 activate 期所有非 get RPC，且安装时已勾选「确认授予」（否则 500：
+      `only 'get' methods allowed`）
 - [ ] 管理后台能激活，服务日志无 `[Plugin:<id>]` 错误
-- [ ] 可见入口已按第二步选定的通道验证（课堂工具按钮 / 命令面板条目 / toast）
+- [ ] `post-install-check.sh` 0 失败（`frontend.js` 在包内且落盘 · 每个 `view` 未被 strip · `storage/` 文件齐全）
+- [ ] 可见入口已按**槽位类型分别**验证（三类失败模式不同，不能一句话带过）：
+      · **页面级**（`teacher.tab` / `student.view`）：页签或页面出现，`view` 内容渲染、桥接 `api.*` 通
+      · **浮层级**（`student.classroom.overlay`）：浮层出现**且宿主主内容未被挤占**（白板/视频仍在原尺寸，见
+        `references/frontend-bridge-0.7.md` §4.2；`view` 若占满容器必须走平台 `floating` 变体）
+      · **白板挂件**（`teacher.dashboard.widget` / 白板卡片）：元素出现、`type:'plugin'`、师生两侧 id 成对
 - [ ] `engines.openlearn` 与实际用到的 API 匹配（见 `references/manifest-0.7.md` §11）
 - [ ] L0 静态契约检查 0 error（`npm run test:contract`）
 - [ ] L1/L2 契约 + 冒烟测试全绿（`npm test`）
@@ -450,6 +533,7 @@ npm test                # L1 + L2
 已实现：<功能点 1..N>
 测试：L0 <0 error|N error> · L1/L2 <n passed / n failed> · L3 <已跑|未跑（原因）>
 已核对：main / ActionDescriptor 配对 / 权限串 / 可见入口
+自检：post-install-check <n 通过 / n 失败>（frontend.js / view 未 strip / storage 齐全）
 待办：<需要用户做的事，如"管理员批准出站域名"、"申请某权限">
 ```
 
@@ -458,6 +542,11 @@ npm test                # L1 + L2
 ### 第六步：故障归因（插件侧 vs 系统侧）
 
 当开发者报告「插件报错 / 不工作」时，**先归因，再动手**。完整方法见 `references/troubleshooting.md`，此处为速用版。
+
+> **第 0 步（平台仓库在本地时）**：先跑 `bash scripts/facts-check.sh`。
+> 全部集成事实全绿 → 平台行为与 skill 描述一致，问题大概率在插件侧；
+> 出现 ✖ → 先看 `references/integration-facts.json` 里该条的 `impact`，再按 `references/troubleshooting.md` §1b
+> 的「现象 → 源文件」表定位。这一步能把「文档说 A、源码是 B」的误判挡在归因之前。
 
 #### 0. 受理：用户直接粘贴报错时的固定动作
 
@@ -582,6 +671,35 @@ rg -n "<关键词>" ~/Develop/openlearnv2/docs/beta/known-issues.md
 另必须含：**环境信息**（平台精确版本 `GET /health` / `npx openlearn-next@<ver> doctor`、SDK 版本、插件 id+版本、`execution_mode`、`engines.openlearn`、Node/浏览器/OS）、
 **复现步骤 + 稳定性**、**期望 vs 实际**（附文档 URL 承诺）、**完整堆栈（不截断）**、**最小复现插件源码**、**已排除项**、**对照实验记录**、
 以及仓库缺陷表单要求的三项：报告人角色（开发者）、对上课的影响、版本。
+
+#### B2′. 同一 PR 里补回归用例（schema / 渲染器 / 解析器类缺陷必做）
+
+提 Issue 只解决「这次」，回归用例才解决「下次」。**凡缺陷根因落在 schema 定义、渲染分支、路径解析、序列化往返上，
+必须在平台仓库补一条会在修复前失败的用例**，否则同类字段下次换个人再被 strip 一次。
+
+约定位置与写法：
+
+| 缺陷类型 | 用例位置 | 断言什么 |
+|----------|----------|----------|
+| 槽位 schema 丢字段（zod strip） | `packages/core/esm-loader/__tests__/manifest-schema.test.ts` | **遍历全部槽位**逐个断言该字段被保留，而不是只测出问题的那一个 |
+| 渲染分支错误（定位/可见性） | `src/components/__tests__/` | 断言 DOM 类名/定位方式，且**断言返例不成立**（如浮动视图不得含 `w-full`） |
+| 路径/解压解析 | `packages/core/plugin-host/__tests__/` | 往返一致：解析后再序列化，字段不减少 |
+
+```ts
+// 本次实例：manifest-schema 对 view 无 passthrough，被 zod strip
+// 一条 for 循环覆盖全部槽位，避免「修好 teacher.tab、漏掉 teacher.panel」
+it.each([
+  ['teacher.tab', { id: 't1', view: 'storage/a.html' }],
+  ['teacher.panel', { id: 'p1', view: 'storage/a.html' }],
+  ['student.view', { id: 's1', view: 'storage/a.html' }],
+])('%s 保留 view 字段', (slot, entry) => {
+  const parsed = manifestSchema.parse({ ...baseManifest, contributes: { [slot]: [entry] } });
+  expect(parsed.contributes[slot][0].view).toBe(entry.view);  // strip 时为 undefined，用例红
+});
+```
+
+提交 Issue 时在「建议解决方式」里带上用例位置；若你顺手改了平台代码，**用例与修复同 PR**，
+并在 Issue body 写「已附回归用例：<路径>:<行>」。这样即使 Issue 长期未处理，别人改动该 schema 时会先被测试拦住。
 
 #### B3. 执行
 
@@ -886,7 +1004,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `COMMAND_CAPABILITY_DENIED` | 权限未声明或未获批（v0.7.2 起按**已授予**能力集判定） | 在 `capabilitiesProposed` 声明**真实存在**的权限串，并在管理后台批准 |
 | `TOKEN_NOT_FOUND: Service Token 'xxx' is not registered` | `manifest.requires` 漏声明 | 补 `requires`：`@scope/domain:IServiceName@^x.y.z` |
 | `HANDLER_ALREADY_EXISTS` | 同一 commandType 重复注册 | 检查是否重复激活；宿主已在停用时自动注销 handler |
-| `empty manifestCapabilities, only 'get' methods allowed` | process/worker 模式下 `capabilitiesProposed` 为空 | 声明真实存在的权限串 |
+| `WorkerRuntime … Capability denied … no granted capability, only 'get' methods allowed`（激活 / 启用 HTTP 500） | process/worker 下 `capabilitiesProposed` **为空**（或清单声明了但管理员没勾选授予），而 `activate()` 调了非 get RPC（`ctx.db.ensureTable` / `actionRegistry.register` / `publish` / `storage.set`…） | ① 在 `capabilitiesProposed` 声明**真实存在**的权限（如 `lesson:read`）；② 重装/更新时勾选「确认授予清单申请的能力」；③ 先跑 L0：`node assets/test-harness/static-check.mjs .` 应无 `CAP_EMPTY_ISOLATED` |
 | `Import of "<module>" is not allowed` | 产物残留裸导入（`crypto`/`fs`/`path`/第三方裸包） | 用 `crypto.randomUUID()`；文件走 VFS；依赖必须打进 bundle |
 | `✖ frontend 产物里有裸模块说明符`（CLI 构建失败，3.7.2+） | `frontend.js` 里残留 `from 'x'` / `require('x')` / `import('x')` 形式的裸说明符 | 前端不要 import React / 第三方包；能力全走 `ctx.services.*`，依赖交给 bundler 内联（相对路径不受影响） |
 | `PluginRuntimeComposition is undefined` / 值导入宿主内部类得到 `undefined` | 3.7.2 起这 7 个符号是 **type-only** 导出 | 改 `import type`；宿主内部实现从 `packages/core/plugin-host/*.js` 取，插件本不该直接 new 它们 |
@@ -913,7 +1031,8 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `references/platform-change-watchlist.md` | **平台变更观察清单**（白名单仍在/通配符、`view` 必须 `storage/`、CLI 打包三件套、view 槽位集合、白板卡片不支持 view、槽位数量、execution_mode 求值口径 + 复核 SOP） |
 | `references/ui-channel-decision.md` | **UI 通道决策真源**（4 条通道：声明式 / `view` 沙箱页面 / inline React / 内置；执行模式与白名单机制、122 个槽位、白板挂件端到端契约、失败模式对照） |
 | `references/testing-strategy.md` | **开发期测试策略**（L0–L3 阶梯、必测矩阵、Guardrail→用例映射、Mock 与生产宿主 8 处差异、环境坑、L3 冒烟清单、CI 片段） |
-| `assets/test-harness/` | **插件测试护栏（用户侧）**：`static-check.mjs`（零依赖 L0，含 UI 通道/槽位/白板/`view` 检查）+ `slot-registry.json`（122 个真实槽位）+ `contract.test.ts`（L1）+ `smoke.test.ts`（L2，含白板下发断言）+ `vitest.config.ts` + `README.md` |
+| `references/integration-facts.json` | **集成事实表**（条目见文件，勿照抄数字：view 桥接返回形态 / 方法策略差异 / 网关 1MB·5s·roles / 安装只解压 `storage/` / CLI 三件套 / 渲染器隐藏 / SQL 守卫前缀与禁用语句 / 激活顺序 / `@openlearn/*` 外部化与 SDK 软链 / **ServiceHost Barrier 2 空能力门禁**）。每条带**源码锚点**与「写错会怎样」的 `impact` |
+| `assets/test-harness/` | **插件测试护栏（用户侧）**：`static-check.mjs`（零依赖 L0，含 UI 通道/槽位/白板/`view` 检查）+ `slot-registry.json`（122 个真实槽位）+ `contract.test.ts`（L1）+ `view-smoke.test.ts`（L1，jsdom 加载 `storage/*.html` 并接假桥接）+ `smoke.test.ts`（L2，含白板下发断言）+ `vitest.config.ts` + `README.md` |
 | `references/troubleshooting.md` | **故障归因 SOP**（受理报错的五要素、证据清单、归因决策树、系统侧证据门槛、最小复现实验、已知系统问题索引、输出规范、上报 issue 衔接） |
 | `references/github-collaboration.md` | **GitHub Issue/PR 协作 SOP**（仓库定位、**§1A 缺陷 Issue 创建**、issue 预检与占位、worktree、PR 模板、CI、审查、返工、合并、清理、异常表、输出模板、红线） |
 | `assets/bug-report-template.md` | **系统侧 Bug 报告模板**（本地留存版：环境信息、复现步骤、完整堆栈、最小复现插件、对照实验、已排除项） |
@@ -923,14 +1042,19 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `assets/frontend-only/` | frontend-only 插件模板（桥接上下文与提示通道示范） |
 | `assets/sandbox-view/` | **process + 自定义界面模板**：`view` 沙箱 HTML 页面 + `OpenLearnPluginBridge` + `pack.mjs` 补 `storage/**` |
 | `assets/inline-react/` | **inline + React 模板**（需宿主白名单）：白板挂件「下发→学生可见」全链路 + `HostSharedDeps` 写法 |
+| `scripts/new-plugin.sh` | **一键生成插件**（用户侧）：`bash scripts/new-plugin.sh <模板> <目录> --id @scope/name [--name/--prefix/...]`，复制模板并替换全部占位符；拒绝非空目录（`--force` 覆盖）；不执行 `npm i` / build |
 | `scripts/check-templates.sh` | **自检脚本**：校验模板的 `main` / `engines` / ActionDescriptor 配对 / 远程前端无 React / 占位符与 SKILL.md 对齐 / 废弃 API 残留。修改模板后必跑 |
 | `scripts/verify-templates-build.sh` | **构建验证**：三套模板用官方 SDK CLI 真实构建 + `tsc --noEmit` + 产物体检（manifest 字段 / 裸导入 / React 残留）。支持 npm 安装的 SDK 或本地平台仓库 |
+| `scripts/post-install-check.sh` | **安装后自检（交付必跑）**：`bash scripts/post-install-check.sh <manifest.id> --zip <上传的.zip>` 一次核对 `frontend.js` 是否进包落盘、DB 里每个 `view` 是否被 strip、`storage/` 文件是否齐全、状态与执行模式。这三类失败**运行期全部静默**，是「装上了但看不见」的第一嫌疑；与 ZIP 内 `manifest.json` 逐槽位比对可精确定位被 strip 的字段 |
 | `scripts/platform-drift-check.sh` | **平台事实漂移检测**（8 项：版本/槽位/view 槽位/install 解压前缀/CLI 打包/README 白名单曝光/通配符/白板 view 支持；`--write` 重生成 slot-registry.json） |
-| `scripts/verify-test-harness.sh` | **测试护栏自检**：`static-check.mjs` 语法 + 三套模板替换占位符后 L0 必须 0 error + 含缺陷反例必须报出 14 个预期错误码 + L1/L2 文件骨架校验 |
+| `scripts/verify-test-harness.sh` | **测试护栏自检**：`static-check.mjs` 语法 + 模板替换占位符后 L0 必须 0 error + 含缺陷反例必须报出 30+ 个预期错误码（含路由未注册 / SQL 守卫 / view 运行时 / `@openlearn/*` 误报回归）+ `new-plugin.sh` 实测 + L1/L2 文件骨架校验 |
+| `scripts/facts-check.sh` | **集成事实校验**（开发插件前 / 平台升级后必跑）：按 `integration-facts.json` 的锚点逐条检查平台源码；锚点消失即提示复核，`--json` 可机读 |
 | `scripts/diff-official-scaffold.sh` | **脚手架漂移检测**：与官方 CLI 脚手架逐项比对契约（manifest 字段 / `main` / `engines` / command 配对 / 前端是否误用 React / 占位符）。官方有、我们缺 → 判失败。`DIFF_ADVISORY=1` 转为仅预警 |
 
-> **谁该跑 `scripts/*`**：这三个脚本是**维护本 skill** 用的（改模板、改 SKILL.md、升级平台基线时跑），
-> CI 也会自动跑。**给用户开发插件时不要跑它们** —— 用户侧只需要第四步里的构建命令与预检清单。
+> **谁该跑 `scripts/*`**：`platform-drift-check.sh` / `check-templates.sh` / `verify-*.sh` / `diff-official-scaffold.sh`
+> 是**维护本 skill** 用的（改模板、改 SKILL.md、升级平台基线时跑），CI 也会自动跑，**给用户开发插件时不要跑**。
+> 例外是开发侧工具：`new-plugin.sh`（生成插件目录）与 `facts-check.sh`（开工前探活）。
+> 用户侧只需要第四步里的构建命令与预检清单。
 
 ### 在线文档地址（线上校验用）
 

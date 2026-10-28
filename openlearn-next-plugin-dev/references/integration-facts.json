@@ -1,0 +1,323 @@
+{
+  "$comment": "集成事实表：文档看不出来、但一错就整套方案跑偏的平台行为。每条都带源码锚点，用 scripts/facts-check.sh 校验锚点是否还在。改动此文件时必须同时更新 verifiedAt 并在 CHANGELOG 说明。",
+  "platformVersion": "0.7.7",
+  "platformCommit": "b03e216",
+  "verifiedAt": "2026-10-28",
+  "platformRepoHint": "~/Develop/openlearnv2",
+  "usage": "bash scripts/facts-check.sh   # 锚点存在/消失即漂移；PLATFORM_REPO=... 可换仓库路径",
+  "facts": [
+    {
+      "id": "view-api-raw-body",
+      "claim": "view 页面的 bridge.api.get/post/del 返回网关裸响应体，不会被拆成 {success,result} 再取 result",
+      "impact": "页面应直接读 body（如 res.correct）；若写成 res.result.xxx 则恒为 undefined，表现为「提交成功但界面判失败」",
+      "sources": [
+        {
+          "file": "src/components/PluginSandboxIframeView.tsx",
+          "anchor": "reply(true, json);"
+        },
+        {
+          "file": "server/routes/plugin-api-gateway.ts",
+          "anchor": "res.status(status).send(response.body !== undefined ? response.body : '');"
+        }
+      ]
+    },
+    {
+      "id": "view-invoke-command-unwraps-result",
+      "claim": "bridge.invokeCommand 走 /sandbox-command 信封，返回的是 json.result（已被拆一层）",
+      "impact": "与 api.* 形态相反；同一页面混用两种调用时最容易错。身份也丢了（见身份陷阱）",
+      "sources": [
+        {
+          "file": "src/components/PluginSandboxIframeView.tsx",
+          "anchor": "reply(true, json.result);"
+        }
+      ]
+    },
+    {
+      "id": "view-bridge-not-policy-checked",
+      "claim": "view 页面的 api.* 由宿主父页面同源 fetch 代发，不经过 checkMethodPolicy —— 第三方 process 插件无需声明 api:write / api:admin 就能写",
+      "impact": "误以为写操作要申请高危能力，会白走一轮权限审批；反过来若真按「只读」设计，会放弃本可实现的教师端编辑功能",
+      "sources": [
+        {
+          "file": "src/components/PluginSandboxIframeView.tsx",
+          "anchor": "credentials: 'include',"
+        },
+        {
+          "file": "src/components/PluginSandboxIframeView.tsx",
+          "anchor": "checkMethodPolicy",
+          "absent": true
+        }
+      ]
+    },
+    {
+      "id": "hidden-frontend-is-get-only",
+      "claim": "隐藏前端（frontend.tsx）的 frontendApi 写操作要过 checkMethodPolicy：普通写需 api:write，高危/不可逆/实体删除路径需 api:admin",
+      "impact": "隐藏前端做 POST 会直接抛「写操作需要 manifest 声明 api:write」；需要写时把入口放到 view 页面，或显式申请能力",
+      "sources": [
+        {
+          "file": "src/plugin-host/plugin-host.ts",
+          "anchor": "checkMethodPolicy(FRONTEND_API_TOKEN, method, args, ctx.caps)"
+        },
+        {
+          "file": "packages/core/plugin-host/method-policy.ts",
+          "anchor": "export const CAP_API_WRITE = 'api:write';"
+        },
+        {
+          "file": "packages/core/plugin-host/method-policy.ts",
+          "anchor": "export const CAP_API_ADMIN = 'api:admin';"
+        }
+      ]
+    },
+    {
+      "id": "gateway-body-cap-1mb",
+      "claim": "网关请求体上限 1MB，超出直接 413（在进入插件处理器之前）",
+      "impact": "单次上传必须分片；前端一次性 base64 大文件会得到 413 而非业务错误，日志里看不到插件侧异常",
+      "sources": [
+        {
+          "file": "server/routes/plugin-api-gateway.ts",
+          "anchor": "const MAX_PAYLOAD_BYTES = 1024 * 1024;"
+        }
+      ]
+    },
+    {
+      "id": "gateway-dispatch-timeout-5s",
+      "claim": "网关对插件路由派发有 5000ms 超时熔断",
+      "impact": "同步长任务（批量导出、外部抓取）必然超时；应改为分片/轮询或后台任务",
+      "sources": [
+        {
+          "file": "server/routes/plugin-api-gateway.ts",
+          "anchor": "dispatchHttpRequest(pluginId, reqDto, 5000)"
+        }
+      ]
+    },
+    {
+      "id": "gateway-roles-admin-bypass",
+      "claim": "api.routes[].roles 白名单对 administrator 自动放行（isSuperAdmin 优先判定）",
+      "impact": "给教师写的路由，管理员也能进；不要用「管理员不在 roles 里」当权限隔离",
+      "sources": [
+        {
+          "file": "server/routes/plugin-api-gateway.ts",
+          "anchor": "const isSuperAdmin = auth.role === 'administrator';"
+        }
+      ]
+    },
+    {
+      "id": "gateway-route-pattern",
+      "claim": "manifest.api.routes[].path 用 compileRoutePattern 编译：:param 匹配单段（[^/]+），按声明顺序匹配",
+      "impact": "路径写成 '/file/*' 或带查询串不会匹配；动态段与静态段顺序错了会被前一条规则截走",
+      "sources": [
+        {
+          "file": "server/routes/plugin-api-gateway.ts",
+          "anchor": "compileRoutePattern(r.path)"
+        }
+      ]
+    },
+    {
+      "id": "install-extracts-storage-only",
+      "claim": "安装器只把 ZIP 中 storage/** 的条目落盘到插件目录",
+      "impact": "view 写 views/ 或根目录会 404 且无任何安装期报错；静态资源必须放 storage/",
+      "sources": [
+        {
+          "file": "packages/core/plugin-host/install.ts",
+          "anchor": "(name) => name.startsWith('storage/') && !zip.files[name].dir"
+        }
+      ]
+    },
+    {
+      "id": "cli-packs-three-files",
+      "claim": "官方 CLI 只把 index.js / manifest.json / frontend.js 打进 ZIP（签名时另加 signature.json）",
+      "impact": "storage/** 不会进包：view 页面必须自写打包脚本补齐，否则装上去面板空白",
+      "sources": [
+        {
+          "file": "packages/plugin-sdk/cli.mjs",
+          "anchor": "zip.file('frontend.js', readFileSync(join(distDir, 'frontend.js'), 'utf8'));"
+        }
+      ]
+    },
+    {
+      "id": "renderer-hides-empty-view",
+      "claim": "ExtensionPointRenderer 在没有 component、没有 DOM 渲染函数、也没有 view 时直接 return null（不留 wrapper）",
+      "impact": "运行期隐藏条目的安全做法：同 (slot,id) 重注册 slotProps:{} —— 不会残留空壳占位",
+      "sources": [
+        {
+          "file": "src/plugin-host/extension-point-renderer.tsx",
+          "anchor": "if (!isReact && !isDOM && !hasView) return null;"
+        }
+      ]
+    },
+    {
+      "id": "view-iframe-no-same-origin",
+      "claim": "view iframe 的 sandbox 为 allow-scripts allow-forms allow-downloads，没有 allow-same-origin（不透明源）",
+      "impact": "页面内不能直接 fetch / 访问 localStorage / 用 cookie；alert/confirm 因缺 allow-modals 也不生效",
+      "sources": [
+        {
+          "file": "src/components/PluginSandboxIframeView.tsx",
+          "anchor": "sandbox=\"allow-scripts allow-forms allow-downloads\""
+        }
+      ]
+    },
+    {
+      "id": "hidden-iframe-connect-src-none",
+      "claim": "隐藏逻辑 iframe（/plugin-sandbox/frame）的 CSP 为 connect-src 'none'",
+      "impact": "frontend.tsx 内 fetch / socket 全部不可用，实时同步只能轮询 frontendApi；视图页面不受此约束（CSP 允许 connect-src 'self'），但仍受不透明源限制",
+      "sources": [
+        {
+          "file": "server.ts",
+          "anchor": "\"default-src 'none'; script-src 'unsafe-inline' blob:; connect-src 'none'; style-src 'none'; img-src 'none'; frame-ancestors 'self'\""
+        }
+      ]
+    },
+    {
+      "id": "sql-own-prefix-only",
+      "claim": "SQL 守卫只允许访问插件自身前缀（plugin_<安装UUID>_*）的表，外加 plugin_migrations 与授权的研究表",
+      "impact": "跨插件表、平台核心表一律被拒：需要的数据必须写在插件自建表里（这也决定了「插件读 VFS / 读 students 姓名」不可行）",
+      "sources": [
+        {
+          "file": "packages/core/plugin-host/sql-guard.ts",
+          "anchor": "const validPrefixes = [ownPrefixLower, ...allowedPrefixes.map((p) => p.toLowerCase())].filter(Boolean);"
+        }
+      ]
+    },
+    {
+      "id": "sql-forbidden-operations",
+      "claim": "SQL 守卫禁止 ATTACH / DETACH / PRAGMA / VACUUM / CREATE|DROP TRIGGER|VIEW",
+      "impact": "不能用 PRAGMA 查 schema、不能建视图；ALTER/CREATE TABLE 也必须走 ensureTable / migrate 而不是裸 SQL",
+      "sources": [
+        {
+          "file": "packages/core/plugin-host/sql-guard.ts",
+          "anchor": "const FORBIDDEN_OPERATIONS = ["
+        }
+      ]
+    },
+    {
+      "id": "sql-core-table-blacklist",
+      "claim": "SQL 守卫内置核心表黑名单（users / students / classes / lessons / whiteboard_elements 等）",
+      "impact": "即使写了前缀合法的 JOIN，只要触及黑名单表也会被拒；不要设计「插件直接读学生姓名」的功能",
+      "sources": [
+        {
+          "file": "packages/core/plugin-host/sql-guard.ts",
+          "anchor": "const FORBIDDEN_CORE_TABLES_SET"
+        }
+      ]
+    },
+    {
+      "id": "frontend-fetch-before-register",
+      "claim": "激活顺序是 fetch(frontend.js) 在 registerManifestContributions 之前，且 has_frontend 为假的插件会被跳过激活",
+      "impact": "没有 src/frontend.tsx → 无 dist/frontend.js → 所有 contributes（含 view）都不注册，页面空白且日志无 404",
+      "sources": [
+        {
+          "file": "src/plugin-host/plugin-host.ts",
+          "anchor": "Failed to fetch frontend.js"
+        }
+      ]
+    },
+    {
+      "id": "sdk-externals-allowed",
+      "claim": "产物里的裸导入只拒绝非 @openlearn/* 的说明符：SDK 构建把 @openlearn/* 标为 external，token-enforcer 放行相对路径与 @openlearn/*，宿主激活前还会把宿主 SDK 软链到插件 node_modules 供值导入解析",
+      "impact": "dist/index.js 里出现 `import { IDatabaseToken } from '@openlearn/plugin-sdk'` 是合法的（process 模式同样可行），不要误判为「裸导入非法」而去删掉 Token 值导入",
+      "sources": [
+        {
+          "file": "packages/core/esm-loader/install-utils.ts",
+          "anchor": "external: ['@openlearn/*']"
+        },
+        {
+          "file": "packages/core/plugin-host/lifecycle.ts",
+          "anchor": "this.ensureHostSdkResolution();"
+        }
+      ]
+    },
+    {
+      "id": "worker-barrier-2-empty-caps",
+      "claim": "process/worker（及非白名单 inline）下 ServiceHost 的第二道门禁按「已授予能力」判定：effectiveCapabilities = manifestCapabilities ∩ guard 已授予，为空时除 get* 之外的 RPC 全拒；第三方插件的 capabilitiesProposed 只是申请，需管理员安装时勾选 x-approve-capabilities 才授予",
+      "impact": "manifest 漏写 capabilitiesProposed（或写了但不勾授予）时，activate 里的 ctx.db.ensureTable / actionRegistry.register / eventBus.publish 等会被拒 → 激活/启用 HTTP 500「Capability denied … only 'get' methods allowed」。ctx.http.*、ctx.db.table()、eventBus.subscribe/unsubscribe 不受影响",
+      "sources": [
+        {
+          "file": "packages/core/worker-runtime/service-host.ts",
+          "anchor": "no granted capability, only 'get' methods allowed"
+        },
+        {
+          "file": "packages/core/worker-runtime/service-host.ts",
+          "anchor": "private get effectiveCapabilities(): string[]"
+        },
+        {
+          "file": "packages/core/plugin-host/lifecycle.ts",
+          "anchor": "!isCapabilityApproved(this.db, opts?.keys ?? [], cap)"
+        },
+        {
+          "file": "server/routes/plugins.ts",
+          "anchor": "headerFlag(req, 'x-approve-capabilities')"
+        }
+      ]
+    },
+    {
+      "id": "classroom-tool-whiteboard-projection",
+      "claim": "课堂互动工具（classroomTools）向白板投射挂件必须通过内核命令 whiteboard.draw，子进程插件严禁直接 SQL 读写核心表 whiteboard_elements（受 sql-guard 拒绝）",
+      "impact": "在 manifest.classroomTools 中直接声明 commandType: 'whiteboard.draw' 由宿主前端代发；或在后端 handler 经 commandBus.execute 派发。若在子进程直写 SQL 会被拦截拒绝，表现为「工具提示下发成功但白板画布无组件」",
+      "sources": [
+        {
+          "file": "packages/core/plugin-host/sql-guard.ts",
+          "anchor": "const FORBIDDEN_CORE_TABLES_SET = new Set(FORBIDDEN_CORE_TABLES.map"
+        },
+        {
+          "file": "src/components/LiveClassroomView.tsx",
+          "anchor": "!KERNEL_COMMAND_RE.test(tool.commandType) && tool.manifestId"
+        },
+        {
+          "file": "packages/plugins/builtin.ts",
+          "anchor": "const drawWhiteboardCmdType = 'whiteboard.draw';"
+        }
+      ]
+    },
+    {
+      "id": "whiteboard-widget-view-support",
+      "claim": "白板挂件渲染器（PluginCardRenderer）支持通过 ext.view 将 storage/*.html 以 PluginSandboxIframeView variant='panel' 承载在白板卡片内",
+      "impact": "process 模式插件无需 inline 白名单即可拥有白板自定义卡片：在 manifest.contributes 中注册 teacher.dashboard.widget 与 student.view 并配置 view: 'storage/xxx.html' 即可",
+      "sources": [
+        {
+          "file": "src/features/whiteboard/widgets/PluginCardRenderer.tsx",
+          "anchor": "const viewPath = (ext as any).slotProps?.view || ext.view;"
+        }
+      ]
+    },
+    {
+      "id": "overlay-floating-isolation",
+      "claim": "student.classroom.overlay 属于浮层槽位（FLOATING_VIEW_SLOTS），采用固定定位渲染，不作为普通 flex item 挤占主内容区白板",
+      "impact": "为 overlay 槽位开发 view 页面时，不能写撑满视口的块级面板；且页面须调用 bridge.ui.resize() 协议主动同步折叠/展开高度",
+      "sources": [
+        {
+          "file": "src/plugin-host/extension-point-renderer.tsx",
+          "anchor": "const FLOATING_VIEW_SLOTS = new Set<string>(['student.classroom.overlay']);"
+        },
+        {
+          "file": "src/components/PluginSandboxIframeView.tsx",
+          "anchor": "export type PluginViewVariant = 'panel' | 'floating';"
+        }
+      ]
+    },
+    {
+      "id": "install-schema-strips-view",
+      "claim": "manifest 落库前用安装期的 manifestSchema 解析；槽位 schema 未显式声明 view 时该字段被 zod strip，激活只 JSON.parse 库里旧值、不重新解析",
+      "impact": "teacher.tab / teacher.panel 的 view 在 v0.7.7 之前会被丢掉 → DB 里没有 view 字段 → 渲染器直接 return null，页签不出现且日志无报错。升级平台不会回填，必须重新安装（不是重新激活）；改平台 schema 后必须重启 dev 才生效",
+      "sources": [
+        {
+          "file": "packages/core/esm-loader/manifest-schema.ts",
+          "anchor": "view: z.string().min(1).optional()"
+        },
+        {
+          "file": "packages/core/plugin-host/core.ts",
+          "anchor": "return JSON.parse(row.manifest);"
+        }
+      ]
+    },
+    {
+      "id": "view-context-from-teacher-store",
+      "claim": "view 的 lessonId/classId 取自教师侧选择态（selectedLesson / liveClassSelectedClassId），不代表学生当前所在课堂",
+      "impact": "学生被锁进课堂后这两个值常为空 → 按 ctx.lessonId 判「是否在课堂」恒为否，误报「还没进入课堂，稍后再试」。应以服务端 classroom_sessions(ended_at IS NULL) 为准",
+      "sources": [
+        {
+          "file": "src/plugin-host/plugin-host.ts",
+          "anchor": "lessonId: state.selectedLesson, classId: state.liveClassSelectedClassId"
+        }
+      ]
+    }
+  ]
+}

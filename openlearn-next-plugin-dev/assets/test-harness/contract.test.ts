@@ -6,6 +6,7 @@
  *   2. manifest 声明的 commandType ↔ registerHandler ↔ ActionDescriptor 三方配对
  *   3. ActionDescriptor 的 capabilityRequired 是否真实存在、inputSchema 类型名是否大写
  *   4. handler 是否为 { execute } 对象（裸函数在 Worker/Process/Mock 下都炸）
+ *   5. 空 capabilitiesProposed 时 activate 是否调用了非 get RPC（ServiceHost Barrier 2）
  *
  * 跑：npx vitest run --config test-harness/vitest.config.ts
  */
@@ -98,6 +99,56 @@ describe('manifest 契约', () => {
     // 无法自动推导 API→版本映射，这里只做下限兜底，细则见 references/manifest-0.7.md §11
     const min = String(PLUGIN.manifest.engines?.openlearn ?? '');
     expect(min, 'engines 不应低于 0.2.3（ctx.log / ctx.config 的最低版本）').toMatch(/\d+\.\d+\.\d+/);
+  });
+});
+
+describe('隔离模式能力门禁（ServiceHost Barrier 2 模拟）', () => {
+  /**
+   * Mock 不模拟 Barrier 2：生产 ServiceHost 在 effectiveCapabilities 为空时，
+   * 只放行 get* 方法，其余 RPC（ctx.db.ensureTable → prepareAndRun、actionRegistry.register、
+   * commandBus.registerHandler、eventBus.publish…）会让 activate() 直接抛
+   * 「no granted capability, only 'get' methods allowed」，表现为插件 toggle 500。
+   *
+   * 这里在 activate 期间记录所有服务方法调用，按同一口径断言。
+   * eventBus.subscribe/unsubscribe 走独立消息通道，不受该 Barrier 影响。
+   */
+  async function recordActivate(): Promise<string[]> {
+    const ctx = createMockContext({
+      pluginId: PLUGIN.manifest.id,
+      manifest: PLUGIN.manifest,
+      capabilities: (PLUGIN.manifest.capabilitiesProposed as string[]) ?? [],
+    });
+    const calls: string[] = [];
+    const wrap = (label: string, target: any) =>
+      new Proxy(target, {
+        get(obj, prop, receiver) {
+          const value = Reflect.get(obj, prop, receiver);
+          if (typeof value !== 'function') return value;
+          return (...args: any[]) => {
+            calls.push(`${label}.${String(prop)}`);
+            return value.apply(obj, args);
+          };
+        },
+      });
+    for (const [name, svc] of Object.entries(ctx.services ?? {})) {
+      if (svc && typeof svc === 'object') (ctx.services as any)[name] = wrap(name, svc);
+    }
+    if (ctx.db && typeof ctx.db === 'object') (ctx as any).db = wrap('db', ctx.db);
+    await PLUGIN.activate(ctx);
+    return [...new Set(calls)];
+  }
+
+  it('空 capabilitiesProposed 时 activate 不得调用非 get RPC', async () => {
+    const caps = (PLUGIN.manifest.capabilitiesProposed as string[]) ?? [];
+    if (caps.length > 0) return; // 能力门禁已由 manifest 契约用例覆盖
+    const calls = await recordActivate();
+    const exempt = new Set(['eventBus.subscribe', 'eventBus.unsubscribe', 'db.table']);
+    const offending = calls.filter((c) => !exempt.has(c) && !(c.split('.').pop() ?? '').startsWith('get'));
+    expect(
+      offending,
+      `未声明任何能力时，process/worker 下这些 RPC 会被 ServiceHost Barrier 2 拒绝（激活 500）：`
+        + `${offending.join('、')}。至少声明一条真实能力（如 lesson:read），并让管理员安装时勾选「确认授予」`,
+    ).toEqual([]);
   });
 });
 

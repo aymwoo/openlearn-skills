@@ -6,6 +6,175 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.9.0] - 2026-10-29
+
+补上「插件装得上、一启用就 500」的最大一类：process 隔离模式下的**空能力门禁**（ServiceHost Barrier 2）。
+
+### 背景
+
+第三方 ZIP 插件被强制以 `process` 运行；`capabilitiesProposed` 声明为空（或管理员未勾选授予）时，
+`effectiveCapabilities` 为空集，`ServiceHost.handleInvoke` 拒绝**一切非 get RPC**。
+`activate()` 里只要有一句 `ctx.db.ensureTable` / `actionRegistry.register` / `eventBus.publish`，
+启用插件就是 HTTP 500：`[WorkerRuntime] Capability denied … no granted capability, only 'get' methods allowed`。
+此前 skill 只在错误码表里提了旧版错误串，L0 只校验「权限串是否真实」、不校验「是否为空」，
+Mock 也不模拟这道门禁 —— 于是声明缺失在生产才炸。
+
+### 新增
+
+- **L0 `CAP_EMPTY_ISOLATED`**（`static-check.mjs` 7e）：隔离模式（process / worker / 非白名单 inline）
+  且 `capabilitiesProposed` 为空时，扫描 `activate` 期非 get RPC 调用
+  （`ensureTable` / `migrate` / `registerHandler` / `register` / `publish` / `set` / `delete` /
+  `generateText` / `spawn` / `ctx.resolve(IDatabaseToken)`…）并报 error；
+  纯前端桥接（只 `ctx.http.*` + `ctx.db.table()` + subscribe）不误报。
+- **L1 Barrier 2 模拟**（`contract.test.ts`）：空能力时用 Proxy 录制 `activate` 期间对
+  `ctx.services.*` / `ctx.db` 的调用，非 get 且不在豁免名单（`eventBus.subscribe/unsubscribe`、`db.table`）即失败。
+- **集成事实** `worker-barrier-2-empty-caps`（事实表 18 → 19）：`effectiveCapabilities = 声明 ∩ 授予`、
+  管理员勾选 `x-approve-capabilities` 才授予、豁免清单，全部带 `service-host.ts` / `lifecycle.ts` / `plugins.ts` 锚点。
+- `verify-test-harness.sh` 新增空能力反例（拦截 + 补能力后放行 + 纯前端不误报），自检 66 → 72。
+
+### 变更
+
+- SKILL.md：新增 Guardrail 12（隔离模式能力门禁）；`capabilitiesProposed` 字段说明改为「申请而非授予」；
+  第五步安装流程加入「勾选确认授予」；完成定义、L0/L1 能力描述、错误码表同步。
+- `references/manifest-0.7.md` §3.1：Barrier 2 语义、豁免方法、最小声明规则、开发期拦截手段。
+- `references/testing-strategy.md`：必测矩阵新增隔离模式行；Guardrail 映射补 9–12 条；
+  Mock 差异表标注「Mock 不模拟 Barrier 2」。
+- `references/troubleshooting.md` D3：激活期 `Capability denied … only 'get' methods allowed` 的
+  插件侧 / 环境配置 / 系统侧三档归因。
+
+## [2.10.0] - 2026-10-29
+
+把「装上了 ≠ 贡献点注册了」变成可执行自检，并纠正两处会**主动误导**的判断。
+
+起因是一次真实交付：教师页签不出现、学生浮层挤掉白板、已进课堂却提示未进入，连续三轮才定位。
+事后复盘发现 `integration-facts.json` 全绿也拦不住这三件事——因为它们只写成了散文，没写成断言。
+
+### 新增
+
+- **`scripts/post-install-check.sh`**：安装后 60 秒自检。一次核对
+  ① `frontend.js` 是否在 ZIP 内并落盘（缺失 → 宿主 `fetch` 抛错、`registerManifestContributions` 根本不执行）
+  ② DB 里 `manifest` 是否保住每个 `view`（与 ZIP 内 `manifest.json` 逐槽位比对，直接检出被 strip 的字段）
+  ③ `view` 是否在 `storage/` 下且文件真实存在 ④ 状态/执行模式。
+  有 ✖ 时给出「重新上传安装（不是重新激活）+ 改过平台源码先重启」的修复指引。已在真实环境跑通正例与反例。
+- `references/integration-facts.json` 新增 2 条可断言事实：
+  `install-schema-strips-view`（落库按安装期 schema 解析、激活不重解析）、
+  `view-context-from-teacher-store`（`lessonId`/`classId` 来自教师侧 `selectedLesson`）。
+- SKILL.md 第五步新增「7. 装完立刻自检」，完成定义与交付格式同步增加自检项。
+- SKILL.md 第六步 B2′：schema / 渲染器 / 解析器类缺陷**必须在平台仓库补回归用例**，含 `it.each` 覆盖全部槽位的骨架
+  （本次给平台补 7 例，才真正防住 `view` 再次被 strip）。
+- 第一步开头「开工前 30 秒」环境前提：真实端口（**9000**，不要猜 3000/5173）、DB 路径
+  `packages/core/db/educational_os.db`、安装目录 `plugins/{安装行UUID}`、`/tmp` 小容量导致 vitest 批量假失败的
+  `TMPDIR` 处理。
+
+### 变更
+
+- `references/scaffold.md`：「热重载…**无需重启**」是本次最大的误导源，替换为**生效矩阵**——改平台源码 / 重装 ZIP /
+  改前端资源 / 换 executionMode 分别需要重启、重新安装、停用激活、强刷中的哪几项。
+- `references/troubleshooting.md` §D4-UI：表格前增加**收敛顺序**（先跑自检脚本 → 再看 404 → 才轮到通道/渲染器），
+  并给出判别口诀：全部入口同时消失且日志静默 ≈ `frontend.js` 缺失；只有单槽位不显示 ≈ `view` 被 strip。
+- SKILL.md 版本口径拆成两句：**模板/API 面以 npm 为准，运行时行为以本地 HEAD 为准**。原口径对「本地 dev 用旧 schema」
+  这类问题完全失效。
+- 完成定义中「可见入口已验证」按**页面级 / 浮层级 / 白板挂件**拆成三条；浮层单独加「宿主主内容不得被挤占」。
+- 移除正文里硬编码的事实条目数（原为 19/18 两处互相矛盾），改为以脚本输出为准，避免与 json 再次漂移。
+
+### 修复
+
+- **`verify-test-harness.sh` 与 `platform-drift-check.sh` 的进程替换 `< <(...)` 在受限环境静默失效**
+  （容器 / 沙箱不提供 `/dev/fd`）。前者使模板占位符根本没被替换 → `inline-react` 假报 L0 失败（71 通过 1 失败）；
+  后者使槽位列表为空 → 漂移检测逐条误报。改用管道 `find -print0 | while read -d ''` 与
+  命令替换 + 参数展开，自检恢复 **72 通过 0 失败**，漂移检测正常输出（槽位 122 / view 槽位 5 个）。
+  这类「护栏自己坏了却假装在工作」的问题与本次主题同源，一并修掉。
+
+## [2.8.0] - 2026-10-28
+
+新增「生成即正确」的脚手架与 L1 视图冒烟，把 sandbox-view 的两个高频手工错误挡在本地。
+
+### 新增
+
+- **`scripts/new-plugin.sh`**：`bash scripts/new-plugin.sh <模板> <目录> --id @scope/name [...]`
+  复制五套模板并替换**全部**占位符（官方 CLI `init` 只替换一部分）；校验 pluginId / 命令前缀，
+  拒绝覆盖非空目录（`--force`），不执行 `npm i` / build。
+- **`assets/test-harness/view-smoke.test.ts`**（L1）：jsdom 加载 `storage/**/*.html`，注入与平台
+  `server/utils/plugin-view-bridge.ts` 同形的假桥接，断言 `onInit` 已注册、init 后真的发出
+  `invokeCommand` / `api.*`、误用 `alert/confirm/fetch` 会失败、高度自适应真的调用 `bridge.ui.resize`。
+  未安装 jsdom 时整组跳过，不影响其它用例。
+- `check-templates.sh` 增加「生成器覆盖全部占位符 / view 冒烟存在」；
+  `verify-test-harness.sh` 增加生成器实测与 view 冒烟骨架，自检 60 → 66。
+
+### 变更
+
+- SKILL.md 第三步给出「一条命令生成」入口；L1 描述、test-harness 安装命令（`jsdom` 可选）、
+  资源清单与 `scripts/*` 适用对象同步。
+- `assets/sandbox-view/README.md` 的开发流程并入生成器；`references/testing-strategy.md`
+  的 L1 与必测矩阵加入 view-smoke。
+
+## [2.7.2] - 2026-10-28
+
+补一条「上下文不可信」：学生端拿不到 `lessonId`/`classId`。
+
+### 新增
+
+- `references/frontend-bridge-0.7.md` 桥接 API 面之后新增：`lessonId`/`classId` 源自**教师侧选择态**
+  （`selectedLesson` / `liveClassSelectedClassId`），学生被锁进课堂后为空 → 插件页误报「还没进入课堂」。
+  给出以 `classroom_sessions(ended_at IS NULL)` 为准的服务端解析 SQL，以及学生身份
+  `req.actor.userId → session.studentId → students.id` 的来源链条（`server/middleware/auth.ts:61`）。
+
+## [2.7.1] - 2026-10-28
+
+补充「槽位布局契约」：第三方 `view` 放进 `student.classroom.overlay` 会挤掉宿主主内容。
+
+### 新增
+
+- `references/frontend-bridge-0.7.md` §4.2：槽位分「页面级 / 浮层级」两类；记录平台 ≤ 0.7.7 的
+  `flex h-screen` 根容器 + `w-full h-full` 块级视图导致**课堂白板整块消失**的完整成因链、
+  平台侧 `variant="floating"` 修复方式，以及「插件侧无法自救」（`ui.resize` 只传 height）。
+- SKILL.md 构建预检清单新增一条：浮层槽位的 `view` 必须确认平台支持 `floating` 变体，
+  否则改用 `student.lesson.tool`。
+
+### 关联平台改动
+
+- `openlearnv2`：`PluginSandboxIframeView` 新增 `variant: 'panel' | 'floating'`；
+  `extension-point-renderer` 按 `FLOATING_VIEW_SLOTS` 判定（当前仅 `student.classroom.overlay`）。
+
+## [2.7.0] - 2026-10-28
+
+把「每次开发都要重读源码才能确认」的集成事实沉淀成可校验的事实表，并把三类只在运行期爆炸的契约缺口补进 L0。
+
+### 新增
+
+- **`references/integration-facts.json`**：18 条集成事实，每条绑定平台源码锚点与「写错会怎样」的 `impact`。
+  覆盖 view 桥接返回形态、方法策略差异（view `api.*` 不过 `checkMethodPolicy`，隐藏前端才过）、
+  网关 1MB / 5s / administrator 放行 / `:param` 模式、安装器只解压 `storage/`、CLI 三件套、
+  渲染器空 view 隐藏、SQL 守卫前缀与禁用语句、`fetch(frontend.js)` 早于贡献注册、
+  `@openlearn/*` 外部化 + 宿主 SDK 软链（Token 值导入合法）。
+- **`scripts/facts-check.sh`**：开发前 / 平台升级后跑一次，锚点消失即提示复核（`--json` 可机读）。
+  与 `platform-drift-check.sh` 分工：后者维护 skill（槽位/打包/白名单），前者服务开发（桥接/网关/DB）。
+- **L0 新规则**
+  - 路由配对：`ROUTE_UNREGISTERED`（声明未注册）、`ROUTE_UNDECLARED`（注册未声明）、
+    `ROUTE_NOT_IN_MANIFEST`、`ROUTE_NONE_REGISTERED`、`ROUTE_NO_ROLES`（warn）。
+  - SQL 守卫预检：`SQL_CORE_TABLE`、`SQL_TABLE_NOT_PREFIXED`、`SQL_FORBIDDEN_OP`、`SQL_DDL_BYPASS`（warn）。
+    只检查字面量表名，模板拼接（`${T().x}`）不误报。
+  - view 页面运行时：`VIEW_ALERT_BLOCKED`（无 `allow-modals`）、`VIEW_DIRECT_FETCH`（不透明源）、
+    `VIEW_RESIZE_MISSING`、`VIEW_API_RESULT_UNWRAP`（`api.*` 返回裸响应体）。
+- **`references/troubleshooting.md` §1b**：12 行「现象 / 错误码 → 唯一该读的平台源文件」路由表。
+
+### 修复
+
+- **`references/frontend-bridge-0.7.md` 补齐两处不对称**（此前全文未出现 `checkMethodPolicy`）：
+  - 返回形态：`api.*` → 网关裸响应体；`invokeCommand` → 已拆层的 `result`。
+  - 方法策略：view 的 `api.*` 不做策略检查（第三方无需 `api:write`/`api:admin` 即可写）；
+    隐藏前端会检查（普通写需 `api:write`，高危路径需 `api:admin`）。
+- `scripts/verify-test-harness.sh` 增加 runtime 反例（路由/SQL/view），自检项 47 → 60。
+- **`DIST_BARE_IMPORT` 误报 `@openlearn/*`**：SDK 构建把 `@openlearn/*` 标为 external、token-enforcer
+  也只拒绝其它裸说明符，宿主还会把 SDK 软链进插件 `node_modules`；原规则把 `import { IDatabaseToken }
+  from '@openlearn/plugin-sdk'` 判成错误。现改为放行 `@openlearn/*`，仅报其它裸 specifier，并新增
+  `sdk-externals-allowed` 事实锚定该行为。
+
+### 变更
+
+- `SKILL.md` 第一步与第六步接入 `facts-check.sh`；L0 描述、资源清单、`scripts/*` 适用对象同步更新。
+- `references/testing-strategy.md` 必测矩阵补三行（路由配对 / 裸 SQL / view 页面运行时）。
+
 ## [2.6.1] - 2026-10-28
 
 补丁：修复 `sandbox-view` 模板的致命缺件，并把「前端入口 / 安装期 schema」两条隐蔽根因写进文档与检查。

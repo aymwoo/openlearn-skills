@@ -28,14 +28,14 @@
 | 层 | 手段 | 耗时 | 跑的频率 | 失败意味着 |
 |----|------|------|---------|-----------|
 | **L0** | `node test-harness/static-check.mjs .` | < 1s | 每次保存 / pre-commit | manifest 或代码结构违反平台契约 |
-| **L1** | `vitest run` 的 `contract.test.ts` | ~0.3s | 每次改 manifest / 注册逻辑 | 声明的入口与实际注册不一致，或权限串是假的 |
+| **L1** | `vitest run` 的 `contract.test.ts` + `view-smoke.test.ts` | ~0.3s | 每次改 manifest / 注册逻辑 / `storage/*.html` | 声明的入口与实际注册不一致、权限串是假的，或 view 页面加载即报错 / 不发命令 |
 | **L2** | `vitest run` 的 `smoke.test.ts` | ~0.3s | 每次改业务逻辑 | 执行期崩溃 / 生命周期重入泄漏 / 路由 5xx |
 | **L3** | 真实宿主：上传 ZIP → 激活 → 点入口 → 停用 | 3–10 min | 每次交付前 | Mock 与生产宿主的差异（能力审批、process 沙箱、熔断） |
 
 **门禁**：L0 必须 0 error 且 L1 全绿才允许进入「构建 → 上传」；L3 只在交付前做一次。
 不要为了让它绿而放宽断言——断言是契约，不是实现细节。
 
-铺开方式见 `assets/test-harness/README.md`（复制目录 + 4 个依赖 + 2 条 npm script）。
+铺开方式见 `assets/test-harness/README.md`（复制目录 + 依赖 + 2 条 npm script；有 `storage/*.html` 时再加 `jsdom`）。
 
 ---
 
@@ -45,6 +45,7 @@
 |---------|---------|----|---------|
 | 任何插件 | `manifest.main` / `id` / `version` / `engines.openlearn` 存在 | L0+L1 | 装不上 |
 | 任何插件 | `capabilitiesProposed` ⊆ 平台真实 20 条 | L0+L1 | 声明了不生效 |
+| `process` / 非白名单 `inline` | `capabilitiesProposed` 为空但 `activate` 调了非 get RPC → `CAP_EMPTY_ISOLATED`；L1 用 Proxy 录制 activate 期调用 | L0+L1 | 激活 500：`only 'get' methods allowed`（ServiceHost Barrier 2） |
 | 有 `classroomTools` / `contributes` | 每个 commandType 都有 handler **且** 有 ActionDescriptor | L0+L1 | `COMMAND_NOT_REGISTERED` 403 |
 | 注册 handler | handler 是 `{ execute }` 对象，不是裸函数 | L1 | `handler.execute is not a function` |
 | 注册 Action | `capabilityRequired` 真实存在、`description` 具体、`inputSchema` 类型大写 | L0+L1 | 授权被拒 / AI 选不准 |
@@ -54,6 +55,9 @@
 | `ctx.db.migrate` | 首启可执行、重复执行幂等 | L2 | 迁移未生效 / 重复建表 |
 | EventBus 订阅 | 停用后订阅数量不翻倍（保留 handler 引用并 `unsubscribe`） | L2 | 事件重复投递 |
 | `manifest.api.routes` | 每条路由不返回 5xx；`auth:false` 已知需审批 | L2+L3 | 白屏 / 401 |
+| `manifest.api.routes` ↔ `ctx.http` | 方法 + 路径**双向逐字**一致（声明未注册=404；注册未声明=永远调不到） | L0 | `ROUTE_UNREGISTERED` / `ROUTE_UNDECLARED` |
+| 裸 SQL（`IDatabaseToken`） | 字面量表名属于 `plugin_*`；无 ATTACH/PRAGMA/VACUUM/TRIGGER/VIEW；DDL 走 `ensureTable/migrate` | L0 | sql-guard 运行期拒绝 |
+| `view` 页面（`storage/*.html`） | 无 `alert/confirm`、无直连 `fetch`、调 `bridge.ui.resize`、`api.*` 返回值不取 `.result`（L0）；jsdom 中能加载、`onInit` 后真的发出命令 / 接口、无未捕获脚本错误（L1） | L0+L1 | 弹窗失效 / 请求失败 / 判定恒错 / 页面空白 |
 | 远程前端 | 无 React / DOM / `fetch` / 裸模块说明符 / `component` | L0 | 激活失败 |
 | 远程前端 | 前端只做轮询与数据型扩展点 | L2（人工）+ L3 | 收不到推送 |
 | AI Action | 每个 Action 对应 `capabilityRequired` 与实际命令语义一致 | L1（人工核对） | 越权或功能缺失 |
@@ -62,7 +66,7 @@
 
 ## 4. Guardrail → 测试用例映射
 
-`SKILL.md` 第三步的 8 条编码规范，每条都有对应的自动化断言，避免「doc 上写了但没人执行」：
+`SKILL.md` 第三步的 12 条编码规范，每条都有对应的自动化断言，避免「doc 上写了但没人执行」：
 
 | Guardrail | 断言位置 | 规则 |
 |-----------|---------|------|
@@ -74,6 +78,10 @@
 | 6. 可见 UI 走声明式 | L0 `FRONTEND_COMPONENT` · L1 只读 slotProps | 传函数即 error |
 | 7. DB 契约（await / 表名 / 分号） | L0 `DB_*` · L2 迁移冒烟 | 违规即 error |
 | 8. 清理 SOP | L2 `deactivate` 重复调用 + 订阅释放 | 抛错或翻倍即失败 |
+| 9. 跨插件服务三步配套 | L0 provides/requires 检查 · L3 激活顺序 | 缺 `provides` 即抛错 |
+| 10. 远程前端只能轮询 | L0 `FRONTEND_DOM` / `VIEW_DIRECT_FETCH` · L3 实测 | 收不到推送 |
+| 11. 迁移用 `ensureTable`/`migrate` | L0 `DB_NO_PREPARE` · L2 迁移冒烟 | 声明式迁移静默失效 |
+| 12. 隔离模式能力门禁 | L0 `CAP_EMPTY_ISOLATED` · L1 Barrier 2 用例 | 激活 500：`only 'get' methods allowed` |
 
 ---
 
@@ -88,6 +96,7 @@
 | `pointsDimension` / `pointsLedger` | 恒 `null` | inline 有值；worker/process 也是 `null` | 代码必须判空（L1 可断言不崩） |
 | `commandBus.registerHandler` | 不补前缀 | 自动补 `manifest.id.` | 断言用短名；联调用全限定 |
 | 能力校验 / 默认拒绝 | 不校验 | 校验 `capabilityRequired` + ActionDescriptor + 管理员授权 | L1 集合断言 |
+| ServiceHost Barrier 2（空能力禁非 get RPC） | **不模拟**：Mock 里 `ctx.db.ensureTable` 等照常成功 | 已授予能力为空时，任何非 get RPC 抛 `Capability denied … only 'get' methods allowed` | L0 `CAP_EMPTY_ISOLATED`；L1 用 Proxy 录制 activate 期调用自行复现；L3 验真实激活 |
 | EventBus 通配 | 只认 `'*'`，不认 `prefix.*` | 支持模式匹配 | 断言「订阅已注册」，投递交给 L3 |
 
 ---

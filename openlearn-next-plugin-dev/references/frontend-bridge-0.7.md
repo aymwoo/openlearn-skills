@@ -116,6 +116,29 @@ export default { async activate() {}, async deactivate() {} };
 
 打包自检：`unzip -l dist/*.zip | grep -q frontend.js`。
 
+### 4.2 槽位布局契约（`student.classroom.overlay` 会挤掉白板）
+
+槽位分两类，第三方 `view` 用错类会**破坏宿主布局**，而不只是样式难看：
+
+| 类别 | 槽位 | 容器语义 |
+|------|------|----------|
+| 页面级 | `teacher.tab` / `teacher.panel` / `student.view` | 铺满父容器（`w-full h-full`），是页面主体 |
+| 浮层级 | `student.classroom.overlay` | **必须固定定位**，不参与父级 flex 布局 |
+
+**踩坑实录（平台 ≤ 0.7.7）**：`App.tsx` 根容器是 `flex h-screen`（横向 flex），
+`<ClassroomOverlays />` 与主内容区（`flex-1` 的白板）是**同级 flex item**。
+`PluginSandboxIframeView` 只提供页面级容器（`relative w-full h-full`），于是浮层视图成为
+flex item 并占满整行宽 → `flex-1` 的主内容被压成 0 宽。
+
+现象：**给 `student.classroom.overlay` 加 `view` 后，课堂白板整块消失**（插件面板正常显示，
+所以很容易误判成「白板插件坏了」）。改前不存在此问题，因为此前没有第三方用过这个槽位的 `view`。
+
+- 平台侧修复（v0.7.8+）：`PluginSandboxIframeView` 新增 `variant: 'panel' | 'floating'`，
+  渲染器按 `FLOATING_VIEW_SLOTS` 判定；`floating` 用 `fixed bottom-6 left-6 z-40 w-[300px]`。
+- 插件侧无法自救：`bridge.ui.resize()` 只传 `height`，宿主也只写 `minHeight`，改不了宽度与定位。
+  若目标平台未修，改用 `student.lesson.tool`（课堂工具按钮）而非浮层槽位。
+- 自查信号：白板/主内容区突然消失，而插件自己的面板显示正常 → 先怀疑槽位布局，不要查白板。
+
 ---
 
 ## 5. 可见 UI 该怎么给（决策树）
@@ -180,11 +203,37 @@ bridge.api.get/post  →  宿主父页面同源 fetch  →  /api/plugins/{id}/* 
 
 | 成员 | 说明 |
 |---|---|
-| `onInit(cb)` / `onContextUpdate(cb)` / `getContext()` | 上下文 `{ pluginId, slot, lessonId, classId, lang, theme }`，**没有 studentId** |
+| `onInit(cb)` / `onContextUpdate(cb)` / `getContext()` | 上下文 `{ pluginId, slot, lessonId, classId, lang, theme }`，**没有 studentId**
 | `api.get(path)` / `api.post(path, body)` / `api.del(path)` | 由宿主父页面代发，带 session cookie；相对路径拼成 `/api/plugins/{pluginId}/{path}` |
 | `invokeCommand(type, payload)` | 走宿主的 `/sandbox-command`（见下方身份陷阱） |
 | `ui.toast(msg, type)` / `ui.resize(height)` | iframe 自撑高度必须调 `resize`，否则被裁切 |
 | `storage.get/set/delete` | 宿主 localStorage 命名空间化（`ol_pv_{pluginId}_*`）；iframe 自身无 `allow-same-origin`，直接访问 localStorage 会抛错 |
+
+> ⚠️ **上下文不可信：`lessonId` / `classId` 在学生端常为空**
+> 这两个值取自宿主 store 的 `selectedLesson` 与 `liveClassSelectedClassId` —— 都是**教师侧选择态**。
+> 学生被锁进课堂后，它们通常为空，于是页面只能显示「还没进入课堂，稍后再试」，
+> 而平台其实清楚当前是哪节课。
+> 正确做法：**课堂由服务端解析**，前端传参只当提示。平台用 `classroom_sessions` 记录进行中的课堂：
+> `SELECT lesson_id, class_id FROM classroom_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1`
+> （学生可再加 `AND class_id IN (SELECT class_id FROM class_students WHERE student_id = ?)` 收窄）。
+> 学生身份用 `req.actor.userId`：`server/middleware/auth.ts:61` 会把它兜底成 `session.studentId`（即 `students.id`），
+> 与 `class_students.student_id`、名册里的 `studentId` 同源。
+
+> ⚠️ **返回形态不对称（最容易写错的一处）**
+> - `api.get/post/del` → **网关裸响应体**。网关是 `res.status(status).send(response.body)`，
+>   桥接层 `reply(true, json)` 原样交回，不拆 `{success, result}`。
+>   所以 `const r = await api.get('state'); r.status` 是对的，`r.result.xxx` **恒为 undefined**。
+> - `invokeCommand` → `/sandbox-command` 信封里的 `json.result`，**已拆一层**。
+>   同一个页面混用两种调用时，一定按各自形态取值。
+> - L0 `VIEW_API_RESULT_UNWRAP` 会抓 `api.*` 后接 `.result` 的写法。
+
+> ⚠️ **方法策略不对称（决定要不要申请能力）**
+> - view 页面的 `api.*` 由宿主**父页面**同源 fetch 代发，**不经过** `checkMethodPolicy`：
+>   第三方 process 插件无需 `api:write` / `api:admin` 就能写（教师端编辑页可以放心做）。
+> - 隐藏前端（`frontend.tsx` 的 `ctx.services.frontendApi`）**会**过 `checkMethodPolicy`：
+>   普通写需 `api:write`；高危路径 / 不可逆 / 实体删除需 `api:admin`。需要写数据时，
+>   把入口放到 view 页面，而不是塞进隐藏前端。
+> - 两者都受同一套 `manifest.api.routes`（方法 + roles + 限流）约束。
 
 CSP 对 `.html` 是宽松的（`script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:`），
 单文件内联 `<style>` / `<script>` 与 `Blob` 下载均可用。

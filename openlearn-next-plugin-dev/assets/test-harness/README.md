@@ -16,6 +16,9 @@ cp -r <skill>/assets/test-harness ./test-harness
 
 # test-kit 以 TS 源码发布，且当前 sdk 声明缺两个运行期依赖，必须一起装
 npm i -D vitest @openlearn/plugin-test-kit better-sqlite3 uuid zod
+
+# 有 storage/*.html（sandbox-view）时再加：view-smoke 用它加载页面；未安装则整组跳过
+npm i -D jsdom
 ```
 
 `package.json` 建议补两条脚本：
@@ -41,13 +44,14 @@ npm test                # L1+L2：契约测试 + 冒烟测试
 
 ---
 
-## 2. 三层各自抓什么
+## 2. 各文件各自抓什么
 
 | 文件 | 层 | 抓的问题 | 典型报错 |
 |------|----|---------|---------|
-| `static-check.mjs` | L0 静态 | manifest 必填项 / 权限串捏造 / 三件套缺失 / **UI 通道（executionMode·槽位真伪·白名单·白板挂件闭环·`view` 页面）** / 裸导入 / 前端越界 / process 禁用 API / DB 契约 / 密钥泄漏 | `UI_MODE_MISMATCH` `SLOT_UNKNOWN` `WHITEBOARD_WIDGET_NEEDS_INLINE` `VIEW_BRIDGE_MISSING` `DB_SCHEMA_SEMICOLON` |
+| `static-check.mjs` | L0 静态 | manifest 必填项 / 权限串捏造 / **隔离模式空能力门禁** / 三件套缺失 / **UI 通道（executionMode·槽位真伪·白名单·白板挂件闭环·`view` 页面）** / **路由配对 / SQL 守卫 / view 运行时** / 裸导入 / 前端越界 / process 禁用 API / DB 契约 / 密钥泄漏 | `UI_MODE_MISMATCH` `SLOT_UNKNOWN` `CAP_EMPTY_ISOLATED` `WHITEBOARD_WIDGET_NEEDS_INLINE` `VIEW_BRIDGE_MISSING` `ROUTE_UNREGISTERED` `SQL_CORE_TABLE` |
 | `slot-registry.json` | 平台真源 | v0.7.7 的 122 个真实扩展槽位 + 5 个 `view` 槽位（由 `src/plugin-host/types.ts` 生成） | `SLOT_UNKNOWN` |
-| `contract.test.ts` | L1 契约 | manifest 声明的 commandType 是否真有 handler + ActionDescriptor；handler 是否为 `{execute}` 对象；`capabilityRequired` 是否真实；`inputSchema` 类型名大写 | `COMMAND_NOT_REGISTERED` / `handler.execute is not a function` / `DataCloneError` |
+| `contract.test.ts` | L1 契约 | manifest 声明的 commandType 是否真有 handler + ActionDescriptor；handler 是否为 `{execute}` 对象；`capabilityRequired` 是否真实；`inputSchema` 类型名大写；**`capabilitiesProposed` 为空时 activate 是否调了非 get RPC（Proxy 录制，复现 ServiceHost Barrier 2）** | `COMMAND_NOT_REGISTERED` / `handler.execute is not a function` / `DataCloneError` / `only 'get' methods allowed` |
+| `view-smoke.test.ts` | L1 视图 | `storage/**/*.html` 能否在 jsdom 里加载并拿到 `OpenLearnPluginBridge`；`onInit` 是否注册、init 后是否真的发出 `invokeCommand` / `api.*` 调用；是否误用 `alert/confirm/fetch`；是否真的回传 `ui.resize` | `页面使用了沙箱里不可用的 API` / `init 后没有发出任何命令` / `没有真正调用 bridge.ui.resize` |
 | `smoke.test.ts` | L2 冒烟 | 重复激活的状态泄漏；命令执行期 `TypeError`；REST 路由 5xx；事件 payload 形状；停用未退订；**契约驱动：白板挂件必须真的派发 `whiteboard.draw`** | `Cannot read properties of undefined` / 订阅翻倍 / `没有派发 whiteboard.draw` |
 
 L0 是**启发式**（正则 + 注释遮蔽），用于秒级反馈；L1/L2 才是语义保证。两者一起跑，不要只留一个。
@@ -85,6 +89,7 @@ L0 是**启发式**（正则 + 注释遮蔽），用于秒级反馈；L1/L2 才�
 | Mock 的命令总线**不补插件前缀** | 单测里 `poll.create`，生产日志是 `ext-poll.poll.create` | 断言短名；与平台联调时用 `${manifest.id}.${短名}` |
 | Mock 的能力校验 / default-deny **不生效** | 权限写错也能过单测 | 这是 `contract.test.ts` 存在的理由：直接对 `capabilitiesProposed` 与 `capabilityRequired` 做集合断言 |
 | Mock 的 EventBus 只支持 `'*'` 精确通配，**不匹配 `prefix.*` 模式** | 插件订阅 `demo.*` 收不到 mock 里 publish 的 `demo.greeted` | 断言「已注册订阅者」而非投递次数；投递行为交给 L3 真实宿主验证 |
+| jsdom 不执行 `type="module"` 脚本、也没有真实的 `ResizeObserver` / `scrollTo` | `view-smoke` 里模块页被跳过；RO 由测试桩触发一次 | 页面用经典 `<script>`；高度自适应用 `ResizeObserver` 或显式调 `bridge.ui.resize` |
 
 完整差异表见平台文档 `docs/sdk/plugin-test-kit.md` §2，以及 `references/testing-strategy.md` 第 6 节。
 

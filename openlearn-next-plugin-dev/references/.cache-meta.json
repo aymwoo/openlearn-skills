@@ -82,7 +82,7 @@
     ],
     "readmeMentionsTrustedInline": 0,
     "allowlistWildcard": true,
-    "whiteboardCardSupportsView": false,
+    "whiteboardCardSupportsView": true,
     "frontendGateSkips": 2,
     "frontendFetchBeforeRegister": true
   }

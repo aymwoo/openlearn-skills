@@ -32,6 +32,34 @@
 
 ---
 
+## 1b. 现象 → 先读哪个平台源文件
+
+归因不靠猜：下表把常见现象直接映射到**唯一该看的源码位置**。读完再下结论，比通读 `references/` 快得多。
+路径均相对平台仓库根 `~/Develop/openlearnv2/`；对应的行为约定见 `references/integration-facts.json`（可用 `bash scripts/facts-check.sh` 校验锚点是否仍成立）。
+
+| 现象 / 错误码 | 先读 | 找什么 |
+|---|---|---|
+| `COMMAND_NOT_REGISTERED`（403） | `src/plugin-host/plugin-host.ts` 命令派发 + `actionRegistry` | manifest 声明的 commandType 是否有同名 handler **且** ActionDescriptor |
+| 面板空白 / 永远"加载中" / 入口消失 | `src/components/PluginTabPanel.tsx` → `src/plugin-host/extension-point-renderer.tsx` | `ext.view` 是否保留、`isReact/isDOM/hasView` 三分支、`return null` 条件 |
+| `OpenLearnPluginBridge is undefined` | `server/utils/plugin-view-bridge.ts` + `server.ts` 静态路由 | `/plugin-sandbox/view-bridge.js` 是否 200、页面 script 标签顺序 |
+| view 页面 404 / 装不上后文件不在 | `packages/core/plugin-host/install.ts` | 只解压 `storage/**`；`view` 路径是否相对且无 `..` |
+| 路由 401 / 403 / 404 | `server/routes/plugin-api-gateway.ts` | `api.routes` 方法+路径逐字匹配、`compileRoutePattern`、roles 与 administrator 放行 |
+| 路由 413 | 同上（`MAX_PAYLOAD_BYTES`） | 1MB 上限；大文件必须分片 |
+| 路由请求"卡住"后 5xx | 同上（`dispatchHttpRequest(..., 5000)`） | 5 秒熔断；同步长任务必死 |
+| 命令里拿不到 `userId` / `role` | `src/components/PluginSandboxIframeView.tsx`（`command.invoke`）+ `pluginActorIdFor` | `invokeCommand` 的 actor 是插件自身；身份敏感操作走 `api.*` |
+| 隐藏前端 POST 报"需要 api:write" | `src/plugin-host/plugin-host.ts` + `packages/core/plugin-host/method-policy.ts` | `frontendApi` 写操作过策略；view 页面的 `api.*` 不过 |
+| SQL 报"not permitted to perform DDL / table not allowed" | `packages/core/plugin-host/sql-guard.ts` | 表必须 `plugin_<uuid>_*`；禁 ATTACH/PRAGMA/VACUUM/TRIGGER/VIEW；核心表黑名单 |
+| `ctx.db` 返回 Promise / `undefined` | `packages/core/plugin-host/*` 的数据库代理 | process 模式是异步代理：统一 `await` |
+| 改了 manifest 但行为没变 | `packages/core/esm-loader/manifest-schema.ts` | zod 默认 strip 未声明字段；旧版本安装过的插件需重装 |
+| 提示「工具下发成功」但白板无组件 | `src/components/LiveClassroomView.tsx`（`handleExecuteTool`）+ `packages/core/plugin-host/sql-guard.ts` | `classroomTools` 的 commandType 是否为 `whiteboard.draw`；handler 是否非法直写 `whiteboard_elements` 被安全拦截 |
+| 学生端浮层出现后主白板消失 | `src/plugin-host/extension-point-renderer.tsx`（`FLOATING_VIEW_SLOTS`） | 浮层视图是否写了 `w-full h-full` 挤占了横向 Flex 主容器；是否缺少 `bridge.ui.resize()` |
+| 提示「当前暂无活跃班级上下文」 | 插件前端 `storage/*.html` + 命令 handler | 未选班级时 `classId` 为 undefined，代码缺少 `classId || 'default'` 兜底降级 |
+| 教师锁屏失效 / 接口报 HTTP 429 | `server.ts` 写限流配置 + Network 面板 | 是否有无防抖的 `view-state` 回写或高频短轮询（<3s）打满了宿主写限流池 |
+
+> 表里没有的现象，再用报错文案/符号名在 `packages/core/`、`src/plugin-host/` 搜一次，别从文档反推。
+
+---
+
 ## 2. 证据采集清单（先收集，后判断）
 
 在给结论前，尽量收齐以下信息。缺哪项就在"待定"结论里点名要哪项。
@@ -91,6 +119,9 @@
 | `TOKEN_NOT_FOUND`，且 `requires` 漏声明 | **插件侧** | manifest 依赖声明缺失 |
 | `TOKEN_NOT_FOUND`，`requires` 已声明，但该服务由另一插件经 `manifest.provides` 提供而对方未 ACTIVE | **插件侧 / 插件间依赖** | 跨插件服务依赖未满足（`checkCrossPluginServices`） |
 | `TOKEN_NOT_FOUND`，`requires` 已正确声明且提供方已 ACTIVE | **系统侧** | 系统侧 DI 注册缺陷或 Token 名变更 |
+| 激活 / 启用插件返回 500，日志 `[WorkerRuntime] Capability denied … no granted capability, only 'get' methods allowed` | **插件侧** | `capabilitiesProposed` 为空（或全部是捏造串），而 `activate()` 调了非 get RPC（`ctx.db.ensureTable` / `actionRegistry.register` / `publish`…）。`effectiveCapabilities` = 声明 ∩ 授予 = 空 ⇒ ServiceHost Barrier 2 拒一切非 get。先跑 L0 看 `CAP_EMPTY_ISOLATED` |
+| 同上，但清单已声明**真实**能力 | **环境与配置** | 安装向导里没勾「确认授予清单申请的能力」⇒ 授予集合为空。重装/更新时补勾（无单独审批端点）；仅升级平台重启不会回填 |
+| 同上，清单已声明、已确认勾选、且 `activate` 只有 get 调用与订阅 | **系统侧** | 需附 `plugin_capability_grants` 行、`GET /api/plugins` 的 `executionMode`、完整日志后走最小复现 |
 | `HANDLER_ALREADY_EXISTS` | **插件侧** | 重复 `registerHandler` 或上次 `deactivate` 未注销 |
 | `WorkerCapabilityError`，`requires` 已正确声明 | **系统侧** | 历史缺陷：Worker 下 `ctx.db.migrate` 访问 `plugin_migrations` 被误拦，0.3.16 已修 |
 | `WorkerTimeoutError` / `WorkerTransportError` / `WorkerNotSupportedError`，插件为最小实现 | **系统侧** | Worker RPC / 传输层缺陷；`WorkerNotSupportedError` 若文档未标注限制，则为文档缺陷 |
@@ -110,7 +141,7 @@
 | `COMMAND_CAPABILITY_DENIED`，未在 `capabilitiesProposed` 声明 | **插件侧** | 权限声明缺失 |
 | `COMMAND_CAPABILITY_DENIED`，已声明且权限名真实存在，但管理员未批准 | **环境与配置** | v0.7.2 起按**已授予**能力集判定，未审批即不放行 |
 | `COMMAND_CAPABILITY_DENIED`，已声明、已批准且权限名在矩阵中存在 | **系统侧** | CapabilityGuard 误判或权限矩阵与实现不同步 |
-| `empty manifestCapabilities, only 'get' methods allowed` | **插件侧** | process/worker 模式下 `capabilitiesProposed` 为空，RPC 白名单收紧了 |
+| `empty manifestCapabilities, only 'get' methods allowed`（旧版错误串） | **插件侧** | 同 D3「Capability denied … no granted capability」：声明为空 + activate 调非 get RPC；新版本错误串已改，归因不变 |
 | 命令执行 500，堆栈在插件 handler 内 | **插件侧** | 业务逻辑异常 |
 | 命令执行 500，堆栈在 CommandBus 管线（Schema/Guard/审计）内且入参合法 | **系统侧** | 管线缺陷 |
 | 事件 `publish()` 成功但审计表无记录 / 前端无推送 | **系统侧** | EventBus / 审计 / Socket 缺陷 |
@@ -139,20 +170,42 @@
 
 #### D4-UI. 教师端点了有反应，学生端看不到 / 自定义界面不出现
 
-按「渲染链路」从数据到容器逐层排查，**每层都能单独导致空白，且宿主不会报错**：
+按「渲染链路」从数据到容器逐层排查，**每层都能单独导致空白，且宿主不会报错**。
+
+**先按这个顺序收敛，别按表格从上往下一路读**（表格是「有哪些层」，不是「先查哪层」）：
+
+```bash
+# 第 1 步：一条命令同时查「入口门槛 / DB 落库 / 静态文件」
+# 脚本在 skill 的 scripts/ 下；在插件项目里运行时用绝对路径
+bash <skill>/scripts/post-install-check.sh <manifest.id> --zip <刚上传的.zip>
+```
+
+| 顺序 | 查什么 | 一条命令命中 | 为什么排这个位置 |
+|------|--------|--------------|------------------|
+| **① ** | `frontend.js` 是否在包里、`view` 是否被 strip、静态文件是否落盘 | `post-install-check.sh` | 这三件事**运行期全部静默**：无 500、无异常日志、只有「入口不出现」。先排除它们，能一次省掉后面所有层 |
+| ② | 宿主日志有无 `404 /plugins/{id}/frontend.js` | `curl -I localhost:9000/plugins/{id}/frontend.js` | 与①同源，用于确认「装了但没激活成功」 |
+| ③ | 通道与执行模式是否匹配（process 只能声明式或 `view`） | 对照 §下表第 5 层 / `static-check.mjs` | 结构对了还不显示，多半是通道选错 |
+| ④ | 权限、审批、渲染器求值 | §下表第 7–8 层 | 到这一步才需要读平台源码 |
+
+> **判别口诀**：若「**所有**声明式入口（页签 + 浮层 + 挂件）**同时**消失，且日志无报错」→ 几乎一定是
+> ①的 `frontend.js` 缺失（宿主 `fetch` 抛错，`registerManifestContributions` 根本没执行）。
+> 若只有**某一个槽位**不显示、其它正常 → 才轮到 `view` 被 strip（④⑤层）或该槽位的渲染分支。
 
 | 检查点 | 典型现象 | 归因 | 证据/动作 |
 |--------|---------|------|----------|
-| 1. handler 是否真的写了共享状态 | 命令返回 `{opened:true}` 但白板无元素 | **插件侧** | 看 handler 是否派发 `whiteboard.draw` / 写 DB / 发事件；L2 契约用例可直接抓 |
-| 2. 写入命令用对没有 | 元素存在但类型不对 | **插件侧** | 白板挂件必须 `whiteboard.draw` + `type:'plugin'` + `data` 为 JSON 字符串 |
+| 1. handler 是否真的写了共享状态 | 命令返回 `{opened:true}` 但白板无元素 | **插件侧** | 看 handler 是否派发 `whiteboard.draw` / 写 DB / 发事件；L2 契约用例可直接抓。<br>⚠️ **高危禁忌**：子进程严禁直写 SQL 操作 `whiteboard_elements`（`sql-guard` 拦截）；必须调 `commandBus.execute` 或在 `manifest.classroomTools` 直配 `whiteboard.draw` |
+| 2. 写入命令用对没有 | 元素存在但类型不对 | **插件侧** | 白板挂件必须 `whiteboard.draw` + `type:'plugin'` + `data` 为 JSON 字符串（含 teacherWidgetId/studentWidgetId） |
 | 3. widget id 是否成对且一致 | 「组件 [x] 正在加载或未启用…」 | **插件侧** | `data.teacherWidgetId` / `data.studentWidgetId` 与扩展点 `id` 逐字符比对 |
 | 4. 是否声明了学生侧容器 | 学生端完全没有位置 | **插件侧** | 白板挂件要 `teacher.dashboard.widget` + `student.view`；页面级 UI 要 `view` |
 | 4b. 有没有 `dist/frontend.js` | **所有入口都不出现，且日志无 404** | **插件侧（打包）** | 宿主按 `has_frontend` 跳过激活，贡献注册在 fetch 之后；补空 `src/frontend.tsx`。L0 `FRONTEND_ENTRY_MISSING` |
 | 4c. DB 里声明的 `view` 是否被 strip | `teacher.tab` 丢 view、overlay 保留 | **环境（安装时 schema 旧）** | 安装时平台 < v0.7.7；升级后需**重新安装**，重启不回填 |
-| 5. 通道与执行模式是否匹配 | 注册了 component 却永不渲染 | **插件侧** | process 只能声明式或 `view`；React 组件必须 inline（白名单，且 id 前缀不算信任） |
+| 5. 通道与执行模式是否匹配 | 注册了 component 却永不渲染 | **插件侧** | process 只能声明式或 `view`（白板卡片配置 `view` 在 v0.7.7+ 亦可直接渲染）；React 组件必须 inline（白名单） |
 | 6. `view` 页面是否可达 | 面板空白 / 「非法的插件视图路径」 | **插件侧（打包/路径）** | `storage/**` 是否进 ZIP；`view` 是否相对路径且无 `..`；是否引 `/plugin-sandbox/view-bridge.js` |
 | 7. 权限是否授予 | 命令 403 / 元素写不进 | **环境与配置** | `whiteboard:write` 等是否声明 + 管理员批准（v0.7.2 起按已授予集合） |
-| 8. 以上都对仍不渲染 | 宿主渲染器/白名单求值异常 | **待定 → 系统侧** | 取 `GET /api/plugins` 的 `executionMode`、`x-request-id`、完整 console，做最小复现 |
+| 8. 浮层是否挤占了主白板 Flex 流 | 学生端浮层一出，上课白板变 0 宽消失 | **插件侧 / 宿主** | `student.classroom.overlay` 必须使用 `floating` 定位，不得写撑满整屏的块级面板；展开/折叠务必调 `bridge.ui.resize()` |
+| 9. 课堂上下文是否防御性降级 | 提示「暂无活跃班级上下文」 | **插件侧** | 单课未排班时 `classId` 为 undefined，代码缺少 `classId || 'default'` 兜底 |
+| 10. 是否存在高频写请求触发 429 | 控制台 429 / 教师全班锁屏失效 | **插件侧 / 环境** | 轮询过密（<3s）或无防抖写接口耗尽写限流池；必须加去重与防抖 |
+| 11. 以上都对仍不渲染 | 宿主渲染器/白名单求值异常 | **待定 → 系统侧** | 取 `GET /api/plugins` 的 `executionMode`、`x-request-id`、完整 console，做最小复现 |
 
 > 快速自查脚本：`node test-harness/static-check.mjs .`（槽位/模式/白板/`view` 全查）、
 > `OPENLEARN_TRUSTED_INLINE_PLUGINS='@scope/*' node test-harness/static-check.mjs .`（白名单校验）。

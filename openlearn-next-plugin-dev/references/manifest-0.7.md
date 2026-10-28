@@ -38,6 +38,37 @@
 `capabilitiesProposed: string[]` —— 字段名未变，但取值必须是平台真实存在的能力字符串，
 完整清单与「不存在的权限」见 [`capability-matrix-0.7.md`](./capability-matrix-0.7.md)。
 
+### 3.1 隔离模式能力门禁（ServiceHost Barrier 2，v0.7.x）
+
+第三方插件被强制以 `process` 运行，服务调用全部走 `packages/core/worker-runtime/service-host.ts`
+的 RPC。`handleInvoke` 在 token 白名单（Barrier 1）之后还有一道**空能力门禁**：
+
+```ts
+// service-host.ts，handleInvoke 内（约 725 行）
+if (this.effectiveCapabilities.length === 0 && !msg.method.startsWith('get')) {
+  throw new WorkerCapabilityError('Capability denied for actor ...: no granted capability, only 'get' methods allowed');
+}
+```
+
+- `effectiveCapabilities` = **`manifest.capabilitiesProposed` ∩ 该 actor 已授予的能力**。
+  第三方插件的声明只是**申请**：管理员安装/更新时勾选「确认授予清单申请的能力」
+  （前端 `X-Approve-Capabilities: true` → `approvePluginCapabilities` → `plugin_capability_grants`），
+  下次激活才生效；不勾 = 授予集合为空 = 交集为空。
+- 交集为空时，**任何非 get RPC** 都被拒：`ctx.db.ensureTable` / `migrate`（映射为 `prepareAndRun`）、
+  `actionRegistry.register`、`commandBus.registerHandler`、`eventBus.publish`、`storage.set/delete`、
+  `ai.generateText`、`processManager.*`、`ctx.resolve(IDatabaseToken)` 上的 `prepare/run`……
+  表现为**激活/启用 HTTP 500**，日志 `[WorkerRuntime] Capability denied ...`。
+- **不受此门禁影响**：`ctx.http.get/post/...`（本地路由注册，不走 RPC）、`ctx.db.table()`（本地计算表名）、
+  `eventBus.subscribe/unsubscribe`（Worker 侧独立消息类型）、`ctx.log`。
+- `@openlearn/core:IDatabase` 在 `BASE_WORKER_SERVICE_TOKENS` 里，无需 `requires`；但**能连上服务 ≠ 能调非 get 方法**。
+
+**最小声明规则**：先列出 `activate()` 期间真正调用的非 get RPC，再为每一类落一条真实能力
+（建表/写数据 → `lesson:write` 或 `vfs:write`；订阅后发布事件 → 对应写权限；纯读 → `lesson:read`）。
+「activate 只做 `ctx.http.*` 注册 + `ctx.db.table()` + subscribe」的纯桥接插件才可以不声明能力。
+
+**开发期拦截**：L0 `static-check.mjs` → `CAP_EMPTY_ISOLATED`；L1 `contract.test.ts` →
+用 Proxy 录制 activate 期服务调用，复现同一门禁（Mock 本身**不**模拟 Barrier 2）。
+
 ---
 
 ## 4. 声明式贡献点 `contributes`

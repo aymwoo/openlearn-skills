@@ -168,6 +168,32 @@ for p in $used; do
   fi
 done
 
+# ── 5b. 一键脚手架覆盖全部占位符 / view 冒烟存在 ──────────────────────────
+head_ "5b. 一键脚手架（new-plugin.sh）与 view 冒烟"
+
+if [ -x scripts/new-plugin.sh ]; then
+  ok "new-plugin.sh 存在且可执行"
+else
+  bad "new-plugin.sh 缺失或不可执行"
+fi
+
+missing_keys=""
+for p in $used; do
+  key="${p#\{\{}"; key="${key%\}\}}"
+  grep -qE "\"$key\"|'$key'" scripts/new-plugin.sh 2>/dev/null || missing_keys="$missing_keys $key"
+done
+if [ -z "$missing_keys" ]; then
+  ok "new-plugin.sh 替换全部占位符"
+else
+  bad "new-plugin.sh 未覆盖占位符 →$missing_keys"
+fi
+
+if grep -q "OpenLearnPluginBridge" assets/test-harness/view-smoke.test.ts 2>/dev/null; then
+  ok "view-smoke.test.ts 使用真实的 OpenLearnPluginBridge 契约"
+else
+  bad "view-smoke.test.ts 缺失或未引用 OpenLearnPluginBridge"
+fi
+
 # ── 5. SKILL.md 引用的本地文件都存在 ─────────────────────────────────────
 head_ "6. SKILL.md 引用的本地文件都存在"
 

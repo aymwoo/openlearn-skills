@@ -56,20 +56,60 @@ else → process + coerced=true（静默降档）
 | `registerExtensionPoint({ component })` | ❌ 函数无法跨 `postMessage`（`DataCloneError` / 静默丢） | ✅ |
 | `import React` 或 `window.HostSharedDeps` | ❌ 沙箱内不存在 | ⚠️ 仅 `HostSharedDeps`，且**不能写 `import`**（见 §4） |
 | **沙箱 HTML 视图（`view`）** | ✅（自定义 HTML/CSS/JS，iframe 内） | ✅ |
-| 白板自定义挂件（`type:'plugin'` 卡片） | ❌ 没有 component 可渲染 | ✅ |
+| 白板自定义挂件（`type:'plugin'` 卡片） | ✅（配置 view 经 PluginSandboxIframeView 渲染） | ✅（component 或 view 均可） |
 
 ---
 
 ## 2. 「学生端能看到」的 6 条完整链路（缺一条就什么都看不到）
 
-| # | 环节 | 常见漏项 |
-|---|------|---------|
-| 1 | **manifest 声明容器槽位** | 只声明了 `teacher.tab`，学生侧根本没有任何渲染位 |
-| 2 | **服务端把数据写进共享存储** | handler 只 `return { opened: true }`，没写白板元素/DB/事件 → 学生端无数据可渲染 |
-| 3 | **写入用对命令** | 白板挂件必须 `whiteboard.draw` + `type:'plugin'` + `data` 为 **JSON 字符串** |
-| 4 | **选的通道与模式匹配** | 自定义 React 必须 inline；process 只能声明式或 **`view` 沙箱页面**；写了 component 也不会被渲染 |
+| # | 环节 | 常见漏项与高频大坑 |
+|---|------|------------------|
+| 1 | **manifest 声明容器槽位** | 只声明了 `teacher.tab`，学生侧根本没有任何渲染位；白板挂件需成对配置 `teacher.dashboard.widget` 与 `student.view` |
+| 2 | **服务端把数据写进共享存储** | handler 只 `return { opened: true }`，没写白板元素/DB/事件 → 学生端无数据可渲染。<br>⚠️ **禁忌**：子进程严禁直写 SQL 读写 `whiteboard_elements`（会被 `sql-guard` 拦截）；必须通过 `whiteboard.draw` 命令落库 |
+| 3 | **写入用对命令** | 白板挂件必须 `whiteboard.draw` + `type:'plugin'` + `data` 为 **JSON 字符串**（携带 `teacherWidgetId`、`studentWidgetId`、`title`、宽高与坐标） |
+| 4 | **选的通道与模式匹配** | 自定义 React 必须 inline；process 模式支持声明式槽位与 **`view` 沙箱页面**（`storage/xxx.html`） |
 | 5 | **前端组件按 id 对齐** | 白板挂件按 `teacherWidgetId` / `studentWidgetId` 精确匹配扩展点 `id`，差一个字符就是「正在加载…」 |
 | 6 | **权限已授予** | `whiteboard:write` 未在 `capabilitiesProposed` 声明或管理员未批准 → 命令被拒（403） |
+
+### 2.1 课堂互动工具（`manifest.classroomTools`）的标准投射模式
+
+当教师在白板工具栏点击 🧩「互动工具」下的条目时，宿主前端会将配置的 payload 发送至 `/api/commands`：
+
+- **模式 A：声明式白板投射（强烈推荐，零权限风险）**
+  直接在 manifest 中将 `commandType` 声明为 `whiteboard.draw`。宿主前端代发该内核命令，由平台内核（`builtin.ts`）直接写入白板元素并广播 `whiteboard.element_drawn`：
+  ```json
+  "classroomTools": [
+    {
+      "id": "tool_sticky_notes",
+      "name": "课堂便签",
+      "icon": "StickyNote",
+      "commandType": "whiteboard.draw",
+      "payload": {
+        "lessonId": "$lessonId",
+        "type": "plugin",
+        "data": "{\"pluginId\":\"@openlearn-ext/my-tool\",\"teacherWidgetId\":\"my_tool_widget\",\"studentWidgetId\":\"my_tool_widget\",\"title\":\"课堂工具\",\"width\":640,\"height\":480,\"x\":120,\"y\":80,\"page\":0}"
+      }
+    }
+  ]
+  ```
+- **模式 B：插件后端级联派发**
+  若下发前必须由插件后端执行校验或前置准备，在 manifest 申请并获批 `whiteboard:write` 能力，在 handler 中调用：
+  ```ts
+  await ctx.services.commandBus.execute({
+    id: crypto.randomUUID(),
+    type: 'whiteboard.draw',
+    payload: { lessonId, type: 'plugin', data: JSON.stringify({...}) }
+  });
+  ```
+  ❌ **严禁**：在插件 handler 内执行 `rawDb.prepare("INSERT INTO whiteboard_elements ...")`，此举会被 `sql-guard` 零信任门禁拦截，导致前端提示「执行成功」但画布空无一物。
+
+### 2.2 课堂浮层（`student.classroom.overlay`）规范
+
+- **避免挤占主白板**：宿主对该槽位采用 `floating` 模式渲染（fixed 定位）。若插件采用 `view`，页面不得写撑满整屏的块级面板（否则在旧版宿主中会作为横向 Flex item 把白板挤没）。
+- **高度联动**：浮层页面必须在展开/折叠时主动调用 `window.OpenLearnPluginBridge.ui.resize(height)`，让容器随内容伸缩，避免遮挡白板交互。
+- **上下文与限流防范**：
+  - 页面加载时统一做防御性降级：`const classId = ctx.classId || 'default';`，避免单课调试未排班时崩溃；
+  - 状态同步务必加防抖（≥500ms）与去重，轮询建议 ≥3000ms，避免耗尽写限流池触发 HTTP 429 导致全班锁屏指令失败。
 
 ### 学生端可用的容器槽位（常用）
 

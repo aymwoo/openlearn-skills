@@ -24,6 +24,10 @@ export default {
     // 本模板用到前端沙箱桥接（0.7.0 起）→ >=0.7.0
     engines: { openlearn: '>=0.7.0' },
     requires: [], // 纯前端插件不需要后端服务依赖
+    // 本模板 activate 只调 ctx.log（无 RPC），所以可以留空。
+    // 一旦在这里加 ctx.db.* / storage / actionRegistry / publish 等非 get 调用，
+    // 必须先声明真实能力，否则 process 模式下 ServiceHost 会拒绝：
+    // 「Capability denied … only 'get' methods allowed」（L0 报 CAP_EMPTY_ISOLATED）。
     capabilitiesProposed: [],
   },
 
