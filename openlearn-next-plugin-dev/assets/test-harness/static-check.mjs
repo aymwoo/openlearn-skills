@@ -1,0 +1,388 @@
+#!/usr/bin/env node
+/**
+ * OpenLearnV2 插件契约静态检查（L0）
+ *
+ * 零依赖，直接 `node test-harness/static-check.mjs [pluginDir]`。
+ * 目标：在 `npm install` / 上传之前，用秒级检查抓住「编译能过、装上也过、一用就崩」的契约违规。
+ *
+ * 覆盖：manifest 必填项 · engines · 命令/Handler/Action 三件套配对 · 权限串真伪 ·
+ *      进程模式禁用 API · 前端沙箱边界 · 裸模块说明符 · DB 表名与分号 · type-only 导入 · 密钥泄露
+ *
+ * 退出码：0 = 通过（可能有 warn）；1 = 有 error。
+ * 说明：本脚本是启发式（正则/AST-lite），语义问题靠 test-harness 里的 vitest 用例。
+ */
+
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+
+const ROOT = process.argv.find((a) => !a.startsWith('-') && a !== process.argv[0] && a !== process.argv[1]) ?? process.cwd();
+const JSON_OUT = process.argv.includes('--json');
+
+// ── 平台真源：20 条 RBAC 权限 + 3 条仅可声明项 ────────────────────────────
+const REAL_CAPS = new Set([
+  'management:write', 'lesson:write', 'whiteboard:write', 'management:read',
+  'plugin:write', 'lesson:read', 'vfs:write', 'process:write',
+  'assignment:manage', 'whiteboard:read', 'vfs:read', 'process:read',
+  'assignment:read', 'lesson:delete', 'plugin:read', 'student:write',
+  'assignment:write', 'assignment:submit', 'assignment:review',
+  // 仅出现在 capabilitiesProposed、从未作为 capabilityRequired（声明无害）
+  'class:read', 'class:write', 'student:read',
+]);
+
+// 3.7.2 起仅 type-only 导出的宿主内部类
+const TYPE_ONLY = [
+  'PluginRuntimeComposition', 'PluginCapabilityGateway', 'PluginContextAdapter',
+  'PluginDistributionManager', 'PluginLifecycleManager', 'PluginRuntimeAdapter',
+  'UnifiedExtensionRegistry',
+];
+
+const results = [];
+const add = (level, code, message, file) => results.push({ level, code, message, file });
+
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'test-harness', 'tests', 'test', '__tests__', 'coverage', '.cache']);
+const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
+
+/** 从 idx 处的引号开始读取一个字符串/模板字面量 */
+function readStringAt(text, idx) {
+  while (idx < text.length && /\s/.test(text[idx])) idx++;
+  const q = text[idx];
+  if (q !== "'" && q !== '"' && q !== '`') return null;
+  let value = '', i = idx + 1;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '\\') { value += text[i + 1] ?? ''; i += 2; continue; }
+    if (c === q) return { value, end: i + 1 };
+    value += c; i++;
+  }
+  return null;
+}
+
+/** 解析 fn( 后的前若干个字符串字面量实参（跳过括号层级） */
+function readStringArgs(text, openIdx) {
+  const out = [];
+  let i = openIdx + 1, depth = 0;
+  while (i < text.length && out.length < 2) {
+    const c = text[i];
+    if (c === '(' || c === '[' || c === '{') { depth++; i++; continue; }
+    if (c === ')' && depth === 0) break;
+    if (c === ')' || c === ']' || c === '}') { depth--; i++; continue; }
+    if (depth === 0 && (c === "'" || c === '"' || c === '`')) {
+      const s = readStringAt(text, i);
+      if (!s) break;
+      out.push({ value: s.value, end: s.end });
+      i = s.end; continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+/** 把注释替换成空格（保留字符串字面量与换行），避免注释里的示例代码造成误报 */
+function maskComments(text) {
+  let out = '', i = 0, state = 'code';
+  const blank = (c) => (c === '\n' ? '\n' : ' ');
+  while (i < text.length) {
+    const c = text[i], n = text[i + 1];
+    if (state === 'code') {
+      if (c === '/' && n === '/') { state = 'line'; out += '  '; i += 2; continue; }
+      if (c === '/' && n === '*') { state = 'block'; out += '  '; i += 2; continue; }
+      if (c === "'" ) { state = 'sq'; out += c; i++; continue; }
+      if (c === '"' ) { state = 'dq'; out += c; i++; continue; }
+      if (c === '`' ) { state = 'tpl'; out += c; i++; continue; }
+      out += c; i++; continue;
+    }
+    if (state === 'line') { if (c === '\n') { state = 'code'; out += c; } else out += ' '; i++; continue; }
+    if (state === 'block') {
+      if (c === '*' && n === '/') { state = 'code'; out += '  '; i += 2; continue; }
+      out += blank(c); i++; continue;
+    }
+    if (c === '\\') { out += c + (n ?? ''); i += 2; continue; }
+    if ((state === 'sq' && c === "'") || (state === 'dq' && c === '"') || (state === 'tpl' && c === '`')) {
+      state = 'code'; out += c; i++; continue;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+
+function walk(dir, out = [], skip = SKIP_DIRS) {
+  if (!existsSync(dir)) return out;
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    const st = statSync(p);
+    if (st.isDirectory()) { if (!skip.has(name)) walk(p, out, skip); }
+    else if (/\.(ts|tsx|js|mjs|cjs|json)$/.test(name)) out.push(p);
+  }
+  return out;
+}
+
+// ── 1. manifest ─────────────────────────────────────────────────────────
+const distManifestPath = join(ROOT, 'dist', 'manifest.json');
+const rootManifestPath = join(ROOT, 'manifest.json');
+const manifestPath = existsSync(distManifestPath) ? distManifestPath : rootManifestPath;
+let manifest = null;
+if (existsSync(manifestPath)) {
+  try { manifest = JSON.parse(read(manifestPath)); add('ok', 'MANIFEST_FOUND', `manifest: ${relative(ROOT, manifestPath)}`, manifestPath); }
+  catch (e) { add('error', 'MANIFEST_INVALID_JSON', `manifest.json 不是合法 JSON：${e.message}`, manifestPath); }
+}
+
+// manifest.json 不存在时，从 src 的 `manifest: { ... }` 推导（构建前也能跑）
+function parseSourceManifest(text) {
+  const at = text.search(/\bmanifest\s*:\s*\{/);
+  if (at < 0) return null;
+  const open = text.indexOf('{', at);
+  let depth = 0, end = -1;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end < 0) return null;
+  const b = text.slice(open, end + 1);
+  const str = (k) => b.match(new RegExp(`${k}\\s*:\\s*['"\`]([^'"\`]+)['"\`]`))?.[1];
+  const arr = (k) => {
+    const m = b.match(new RegExp(`${k}\\s*:\\s*\\[([\\s\\S]*?)\\]`));
+    return m ? [...m[1].matchAll(/['"\`]([^'"\`]+)['"\`]/g)].map((x) => x[1]) : [];
+  };
+  const enginesBlock = b.match(/engines\s*:\s*\{([\s\S]*?)\}/)?.[1];
+  return {
+    id: str('id'), name: str('name'), version: str('version'), main: str('main'),
+    engines: enginesBlock ? { openlearn: enginesBlock.match(/openlearn\s*:\s*['"\`]([^'"\`]+)['"\`]/)?.[1] } : undefined,
+    capabilitiesProposed: arr('capabilitiesProposed'),
+    __declaredTypes: [...b.matchAll(/commandType\s*:\s*['"\`]([^'"\`]+)['"\`]/g)].map((m) => m[1]),
+  };
+}
+
+if (!manifest) {
+  const idx = [join(ROOT, 'src', 'index.ts'), join(ROOT, 'src', 'index.js'), join(ROOT, 'index.ts')].find((p) => existsSync(p));
+  const inferred = idx ? parseSourceManifest(read(idx) ?? '') : null;
+  if (inferred) {
+    manifest = inferred;
+    add('warn', 'MANIFEST_SOURCE_ONLY', '未找到 manifest.json：按 src 源码推导 manifest（构建后再跑一次可获产物级校验）', idx);
+  }
+}
+
+const srcDir = join(ROOT, 'src');
+const srcFiles = walk(srcDir);
+if (srcFiles.length === 0) add('warn', 'NO_SRC', '未找到 src/，按纯 JS 插件继续（源码级规则将跳过）');
+const srcText = srcFiles.map((f) => `\n//# ${f}\n${maskComments(read(f) ?? '')}`).join('\n');
+
+if (manifest) {
+  if (!manifest.main) add('error', 'MANIFEST_MAIN', 'manifest.main 缺失（manifestSchema 为 min(1)，插件会装不上）', manifestPath);
+  if (!manifest.id) add('error', 'MANIFEST_ID', 'manifest.id 缺失', manifestPath);
+  else if (String(manifest.id).includes(':')) add('error', 'MANIFEST_ID_COLON', `manifest.id 不得含 ':'：${manifest.id}`, manifestPath);
+  if (!manifest.version) add('error', 'MANIFEST_VERSION', 'manifest.version 缺失', manifestPath);
+  if (!manifest.engines?.openlearn) add('error', 'ENGINES_MISSING', 'manifest.engines.openlearn 缺失（需声明宿主版本范围，不是 SDK 版本）', manifestPath);
+  else if (!/^[\^~><= ]*v?\d+\.\d+\.\d+/.test(String(manifest.engines.openlearn))) add('warn', 'ENGINES_FORMAT', `engines.openlearn 不像合法 semver range：${manifest.engines.openlearn}`, manifestPath);
+
+  // capabilities
+  const caps = Array.isArray(manifest.capabilitiesProposed) ? manifest.capabilitiesProposed : [];
+  for (const cap of caps) if (!REAL_CAPS.has(cap)) add('error', 'CAP_UNKNOWN', `权限串不存在于平台真实集合：${cap}（声明了也不生效）`, manifestPath);
+
+  // api.routes
+  for (const [i, r] of (manifest.api?.routes ?? []).entries()) {
+    if (!/^(GET|POST|PUT|DELETE|PATCH)$/.test(r.method ?? '')) add('error', 'ROUTE_METHOD', `api.routes[${i}].method 非法：${r.method}（不支持 ALL / 小写）`, manifestPath);
+    if (!String(r.path ?? '').startsWith('/')) add('error', 'ROUTE_PATH', `api.routes[${i}].path 必须以 / 开头：${r.path}`, manifestPath);
+    if (r.auth === false) add('warn', 'ROUTE_AUTH_FALSE', `api.routes[${i}] 声明 auth:false，仅"申请"公开，仍需管理员批准否则 401（不是 bug）`, manifestPath);
+  }
+
+  // zip / 产物三件套
+  const distIndex = join(ROOT, 'dist', 'index.js');
+  if (existsSync(join(ROOT, 'dist')) && !existsSync(distIndex)) add('error', 'DIST_ENTRY_MISSING', 'dist/index.js 不存在（构建未完成或产物被移动）', join(ROOT, 'dist'));
+  if (manifest.main && existsSync(join(ROOT, 'dist')) && !existsSync(join(ROOT, 'dist', manifest.main))) add('error', 'DIST_MAIN_MISMATCH', `dist/ 下找不到 manifest.main 指向的 ${manifest.main}`, join(ROOT, 'dist'));
+}
+
+// ── 2. 命令三件套配对 ───────────────────────────────────────────────────
+const norm = (s) => String(s).replace(/^['"`]|['"`]$/g, '').trim();
+const handlers = new Set();
+
+const distRaw = read(join(ROOT, 'dist', 'index.js'));
+const scanText = distRaw ? maskComments(distRaw) : srcText;
+
+for (const m of scanText.matchAll(/registerHandler\(\s*['"`]([^'"`]+)['"`]/g)) handlers.add(norm(m[1]));
+
+// ActionDescriptor：同一 commandType 可能在 frontend 的 slotProps 里被引用（无 capabilityRequired / inputSchema），
+// 因此只在「窗口内出现 capabilityRequired 或 inputSchema」时才算描述符，并合并多次出现。
+const actions = new Map();          // commandType -> { cap, hasDesc, hasSchema, schemaCaseOk }
+const actionIds = new Map();        // id -> commandType（查重）
+for (const m of scanText.matchAll(/commandType\s*:\s*['"`]([^'"`]+)['"`]/g)) {
+  const type = norm(m[1]);
+  const win = scanText.slice(m.index, m.index + 600);
+  const cap = win.match(/capabilityRequired\s*:\s*['"`]([^'"`]+)['"`]/)?.[1] ?? null;
+  const hasSchema = /inputSchema\s*:/.test(win);
+  // 是否真的是「注册描述符」：向前回看 actionRegistry.register(...)，而不是 slotProps / manifest 里的引用
+  const back = scanText.slice(Math.max(0, m.index - 260), m.index);
+  const isDescriptor = /(?:actionRegistry|IActionRegistryService)\s*\.\s*register\s*\(/.test(back)
+    || (!/registerExtensionPoint/.test(back) && (!!cap || hasSchema));
+  if (!isDescriptor) continue;
+
+  const prev = actions.get(type) ?? { cap: null, hasDesc: false, hasSchema: false, schemaCaseOk: false };
+  const desc = /description\s*:\s*['"`]([^'"`]{4,})['"`]/.test(win);
+  const upper = /type\s*:\s*['"`](OBJECT|STRING|NUMBER|INTEGER|BOOLEAN|ARRAY)['"`]/.test(win);
+  actions.set(type, {
+    cap: prev.cap ?? (cap ? norm(cap) : null),
+    hasDesc: prev.hasDesc || desc,
+    hasSchema: prev.hasSchema || hasSchema,
+    schemaCaseOk: prev.schemaCaseOk || upper,
+  });
+
+  // ActionDescriptor.id：向前 240 字符回看（同一对象内）；重复 id 会在宿主注册表互相覆盖
+  const idm = [...back.matchAll(/\bid\s*:\s*['"`]([^'"`]+)['"`]/g)].pop();
+  if (!idm) add('warn', 'ACTION_ID_MISSING', `commandType '${type}' 的描述符前找不到 id 字段（ActionDescriptor.id 必填且需唯一）`, 'src/index.ts');
+  else {
+    const actionId = norm(idm[1]);
+    if (actionIds.has(actionId)) add('error', 'ACTION_ID_DUP', `ActionDescriptor id '${actionId}' 重复（${actionIds.get(actionId)} 与 ${type}）→ 注册时互相覆盖`, 'src/index.ts');
+    else actionIds.set(actionId, type);
+  }
+}
+
+// manifest 里声明的 commandType（短名口径）
+const declared = new Map(); // type -> where
+const pid = manifest?.id;
+const addDeclared = (t, where) => {
+  if (!t) return;
+  let v = norm(t);
+  if (pid && v.startsWith(`${pid}.`)) v = v.slice(pid.length + 1); // 全限定 → 短名
+  declared.set(v, where);
+};
+for (const t of manifest?.classroomTools ?? []) addDeclared(t.commandType, 'classroomTools');
+for (const t of manifest?.__declaredTypes ?? []) addDeclared(t, 'manifest');
+const walkContrib = (v, path) => {
+  if (!v || typeof v !== 'object') return;
+  if (Array.isArray(v)) return v.forEach((x, i) => walkContrib(x, `${path}[${i}]`));
+  for (const [k, val] of Object.entries(v)) {
+    if (k === 'commandType' && typeof val === 'string') addDeclared(val, path);
+    else walkContrib(val, `${path}.${k}`);
+  }
+};
+walkContrib(manifest?.contributes, 'contributes');
+
+for (const [type, where] of declared) {
+  if (!handlers.has(type)) add('error', 'PAIR_HANDLER_MISSING', `manifest ${where} 用了 commandType '${type}'，但没有同名 registerHandler → 点击必失败`, 'src/index.ts');
+  if (!actions.has(type)) add('error', 'PAIR_ACTION_MISSING', `commandType '${type}' 没有 ActionDescriptor → COMMAND_NOT_REGISTERED (HTTP 403)`, 'src/index.ts');
+}
+for (const type of handlers) {
+  if (!actions.has(type)) add('error', 'PAIR_ACTION_MISSING', `registerHandler('${type}') 没有同名 ActionDescriptor → default-deny 拒绝`, 'src/index.ts');
+}
+for (const type of actions.keys()) {
+  if (!handlers.has(type)) add('warn', 'PAIR_HANDLER_ORPHAN', `ActionDescriptor '${type}' 没有对应 handler（AI 能选中但执行无响应）`, 'src/index.ts');
+}
+
+// ActionDescriptor 必填 / 权限真伪
+for (const [type, info] of actions) {
+  if (!info.hasDesc) add('warn', 'ACTION_DESC_WEAK', `ActionDescriptor '${type}' 缺少有意义的 description（AI 选不准）`, 'src/index.ts');
+  if (!info.hasSchema) add('warn', 'ACTION_SCHEMA_MISSING', `ActionDescriptor '${type}' 未声明 inputSchema`, 'src/index.ts');
+  else if (!info.schemaCaseOk) add('warn', 'ACTION_SCHEMA_CASE', `inputSchema 的类型名应为大写 GenAI 枚举（OBJECT / STRING …）`, 'src/index.ts');
+  if (!info.cap) add('error', 'ACTION_CAP_MISSING', `ActionDescriptor '${type}' 缺 capabilityRequired（宿主按它做授权）`, 'src/index.ts');
+  else if (!REAL_CAPS.has(info.cap)) add('error', 'ACTION_CAP_UNKNOWN', `ActionDescriptor '${type}' 的 capabilityRequired '${info.cap}' 不存在于平台真实集合`, 'src/index.ts');
+}
+
+// 运行期扩展点必须全限定（只匹配真实调用：第一个参数是字符串字面量，排除类型声明）
+for (const m of scanText.matchAll(/registerExtensionPoint\(\s*['"`](?:command_palette\.item|[\w.]+)['"`]\s*,\s*\{[\s\S]{0,600}?\}\s*\)/g)) {
+  const call = m[0];
+  const ct = call.match(/commandType\s*:\s*['"`]([^'"`]+)['"`]/)?.[1];
+  if (!ct) continue;
+  const v = norm(ct);
+  if (pid && !v.startsWith(`${pid}.`)) add('error', 'EXT_POINT_PREFIX', `运行期 registerExtensionPoint 的 commandType 不会自动加前缀，必须写全限定 '${pid}.xxx'，当前为 '${v}'`, 'src/index.ts');
+}
+
+// ── 3. 执行模式 / 沙箱边界 ───────────────────────────────────────────────
+const bannedApis = [
+  [/from\s+['"]child_process['"]/, 'child_process', '子进程在 process / worker 模式被禁'],
+  [/from\s+['"]worker_threads['"]/, 'worker_threads', '自建 worker 在 process 模式被禁'],
+  [/\beval\s*\(/, 'eval()', 'process 沙箱禁用动态求值'],
+  [/\bnew\s+Function\s*\(/, 'new Function()', 'process 沙箱禁用动态求值'],
+  [/ctx\.provide\s*\(/, 'ctx.provide()', '非 inline 模式不可用（宿主不执行 DI provide）'],
+  [/ctx\.config\./, 'ctx.config', '非 inline 模式不可用，改用 ctx.config.get 之外的宿主配置通道或 ensureTable 自存'],
+];
+for (const f of srcFiles) {
+  const t = maskComments(read(f) ?? '');
+  for (const [re, name, why] of bannedApis) {
+    if (re.test(t)) add('error', 'PROCESS_FORBIDDEN_API', `${relative(ROOT, f)} 使用 ${name}：${why}（第三方插件被强制 process 模式）`, f);
+  }
+  for (const sym of TYPE_ONLY) {
+    if (new RegExp(`import\\s*\\{[^}]*\\b${sym}\\b[^}]*\\}\\s*from`).test(t) && !/import\s+type\s*\{/.test(t)) {
+      add('error', 'TYPE_ONLY_VALUE_IMPORT', `${relative(ROOT, f)} 以值导入 ${sym}（3.7.2 起仅 type-only，运行期为 undefined）`, f);
+    }
+  }
+}
+
+// ── 4. 前端产物边界 ─────────────────────────────────────────────────────
+const frontendCandidates = [join(ROOT, 'dist', 'frontend.js'), join(ROOT, 'src', 'frontend.tsx'), join(ROOT, 'src', 'frontend.ts')];
+const fe = frontendCandidates.find((p) => existsSync(p));
+if (fe) {
+  const t = maskComments(read(fe) ?? '');
+  const rel = relative(ROOT, fe);
+  if (/^\s*import\s+React\b|\bfrom\s+['"]react['"]|from\s+['"]react-dom/.test(t)) add('error', 'FRONTEND_REACT', `${rel} 引用了 React：远程前端跑在沙箱 iframe，HostSharedDeps 为 undefined，激活必失败`, fe);
+  if (/\bdocument\.|\bwindow\.|\bfetch\s*\(/.test(t)) add('error', 'FRONTEND_DOM', `${rel} 使用 document/window/fetch：沙箱 CSP connect-src 'none'，且 iframe 内无宿主 DOM`, fe);
+  if (/\bcomponent\s*:/.test(t)) add('error', 'FRONTEND_COMPONENT', `${rel} 传 component：postMessage 无法克隆函数 → DataCloneError（远程插件没有自定义 UI 通道）`, fe);
+  for (const m of t.matchAll(/(?:from|require\(|import\()\s*['"]([^'"]+)['"]/g)) {
+    const spec = m[1];
+    if (!spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('node:')) {
+      add('error', 'FRONTEND_BARE_SPECIFIER', `${rel} 含裸模块说明符 '${spec}'：沙箱用 Blob + 动态 import()，裸说明符无从解析（3.7.2+ 构建直接失败）`, fe);
+    }
+  }
+  const TS_PRIMS = new Set(['string', 'number', 'boolean', 'void', 'null', 'undefined', 'unknown', 'any', 'never', 'object', 'bigint', 'symbol']);
+  const tags = [...t.matchAll(/<\/?([A-Za-z][\w.]*)([^>]*)>/g)];
+  const looksJsx = tags.some(([full, name, attrs]) =>
+    !TS_PRIMS.has(String(name).toLowerCase()) && String(name).length > 1 &&
+    (full.startsWith('</') || full.endsWith('/>') || /\w+\s*=/.test(attrs)));
+  if (looksJsx) add('warn', 'FRONTEND_JSX', `${rel} 疑似含 JSX：远程前端不渲染 UI，可见入口请走 manifest.classroomTools / contributes`, fe);
+}
+
+// dist/index.js 裸导入
+const distIndexText = distRaw ? maskComments(distRaw) : null;
+if (distIndexText) {
+  for (const m of distIndexText.matchAll(/^\s*import[^'"]*['"]([^'"]+)['"]/gm)) {
+    const spec = m[1];
+    if (!spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('node:')) {
+      add('error', 'DIST_BARE_IMPORT', `dist/index.js 含裸导入 '${spec}'：会被 token-enforcer 拒绝（依赖须打进 bundle；能力走 ctx.services）`, join(ROOT, 'dist', 'index.js'));
+    }
+  }
+}
+
+// ── 5. 数据库契约 ───────────────────────────────────────────────────────
+if (scanText) {
+  for (const m of scanText.matchAll(/\.ensureTable\s*\(/g)) {
+    const args = readStringArgs(scanText, m.index + m[0].length - 1);
+    if (!args || args.length < 2) continue;
+    const [name, schema] = args;
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name.value)) add('error', 'DB_TABLE_NAME', `ensureTable('${name.value}') 不符合 /^[A-Za-z_][A-Za-z0-9_]{0,63}$/，生产宿主会拒绝`, 'src/index.ts');
+    if (schema.value.includes(';')) add('error', 'DB_SCHEMA_SEMICOLON', `ensureTable('${name.value}') 的 schema 含分号：生产宿主禁分号（防多语句注入）`, 'src/index.ts');
+    if (schema.value.length > 4000) add('error', 'DB_SCHEMA_LONG', `ensureTable('${name.value}') 的 schema 超过 4000 字符上限`, 'src/index.ts');
+  }
+  if (/ctx\.db\.prepare\s*\(/.test(scanText)) add('error', 'DB_NO_PREPARE', 'ctx.db 没有 prepare()：裸 SQL 请 ctx.resolve(IDatabaseToken)', 'src/index.ts');
+}
+
+// ── 6. 事件订阅是否保留引用 ──────────────────────────────────────────────
+if (scanText) {
+  const subs = [...scanText.matchAll(/\.subscribe\(\s*['"`]([^'"`]+)['"`]/g)].map((m) => norm(m[1]));
+  if (subs.length && !/\.unsubscribe\(/.test(scanText)) add('warn', 'EVENT_NO_UNSUB', `订阅了 ${subs.join(', ')} 但未调用 unsubscribe；宿主会兜底，自建资源仍需自行释放`, 'src/index.ts');
+}
+
+// ── 7. 密钥 / 敏感信息 ──────────────────────────────────────────────────
+const SECRETS = [
+  [/sk-[A-Za-z0-9]{16,}/, '疑似 OpenAI/Anthropic 风格 API Key'],
+  [/AKIA[0-9A-Z]{16}/, '疑似 AWS Access Key'],
+  [/ENCRYPTION_KEY\s*[=:]\s*\S+/, '疑似 ENCRYPTION_KEY 值'],
+  [/edu_os_token\s*[=:]\s*\S+/, '疑似会话 Cookie 值'],
+];
+for (const f of [...srcFiles, ...walk(join(ROOT, 'dist'), [], new Set(['node_modules', '.git']))]) {
+  const t = read(f) ?? '';
+  for (const [re, why] of SECRETS) if (re.test(t)) add('error', 'SECRET_LEAK', `${relative(ROOT, f)} 命中${why}：不得进入源码或产物`, f);
+}
+
+// ── 输出 ────────────────────────────────────────────────────────────────
+const errors = results.filter((r) => r.level === 'error');
+const warns = results.filter((r) => r.level === 'warn');
+
+if (JSON_OUT) {
+  console.log(JSON.stringify({ root: ROOT, errors, warns, ok: results.filter((r) => r.level === 'ok') }, null, 2));
+} else {
+  const icon = { ok: '✔', warn: '⚠', error: '✖' };
+  const color = { ok: '\x1b[32m', warn: '\x1b[33m', error: '\x1b[31m', reset: '\x1b[0m' };
+  console.log(`\n【L0 契约静态检查】${ROOT}`);
+  for (const r of results) console.log(`  ${color[r.level]}${icon[r.level]}${color.reset} [${r.code}] ${r.message}`);
+  if (!results.length) console.log('  （无检查项：确认在插件项目根目录运行）');
+  console.log(`\n结果：${errors.length} error，${warns.length} warn\n`);
+}
+process.exit(errors.length ? 1 : 0);

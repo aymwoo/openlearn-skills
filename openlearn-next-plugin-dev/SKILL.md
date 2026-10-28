@@ -2,15 +2,19 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.1.0
-description: 为 OpenLearnV2 教学平台（当前平台 v0.7.4 / SDK 3.7.x）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置插件侧/系统侧故障归因流程与可直接提交的 bug 报告；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，报告插件报错/不工作，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
+version: 2.4.0
+description: 为 OpenLearnV2 教学平台（当前平台 v0.7.7 / SDK 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
-> ⚠️ **上游不一致提醒（2026-10-27 实测）**：平台仓库 `origin/main`（平台 0.7.4 / SDK 源码 3.7.0）里的
-> `packages/plugin-sdk/scaffold/templates/` **仍是旧的 React 模板**；而 npm 上已发布的
-> `@openlearn/plugin-sdk@3.7.1` **才是桥接模板**。
-> → 插件作者应以 **npm 发布版 SDK** 为准（`npx @openlearn/plugin-sdk init` 拿到的就是桥接模板）；
-> 平台仓库 `main` 分支的模板可能滞后于已发布版本。
+> ✅ **版本基线口径（2026-10-28 核对）**：以 **npm 发布版**为准 ——
+> `@openlearn/plugin-sdk` 的 `latest` = **3.7.4**（2026-10-27 05:30 发布），对应平台 **v0.7.7**。
+>
+> 此前记录的「上游不一致」（平台仓库 `main` 用旧 React 模板、npm 已发桥接模板）**已消除**：
+> 现仓库 `main`（HEAD 2026-10-28）的 `packages/plugin-sdk/scaffold/templates/` 与 npm 3.7.4
+> 的 `scaffold/templates/` **逐字节一致**（`diff -rq` 无输出），均为桥接模板。
+>
+> **但判定顺序不变**：两者再次冲突时，仍以 **npm 发布版为准**
+> （`npx @openlearn/plugin-sdk init` 拿到的就是发布版模板），仓库 `main` 可能滞后。
 
 # OpenLearnV2 插件开发与仓库协作指南
 
@@ -22,13 +26,27 @@ description: 为 OpenLearnV2 教学平台（当前平台 v0.7.4 / SDK 3.7.x）�
 - **快照**：`references/` 存着本 skill 整理的参考资料，随平台版本更新。
 - **探活**：每次使用前核对平台版本 / SDK 版本 / 文档站构建版本，三者任一变化即刷新。
 
-> ⚠️ **当前基线：平台 v0.7.4 / SDK 3.7.1**。本 skill 的模板、权限字典、前端范式均以此为准。
+> ⚠️ **当前基线：平台 v0.7.7 / SDK 3.7.4**。本 skill 的模板、权限字典、前端范式均以此为准。
 >
-> **时效规则**：本文事实截至 **2026-10-27**。若你遇到的平台版本高于此：
+> **时效规则**：本文事实截至 **2026-10-28**。若你遇到的平台版本高于此：
 > 1. 先跑第一步探活，比对 `platformVersion` / `sdkVersion` / `docSiteVersion`；
 > 2. 仍不确定时，以**平台源码**为准（`~/Develop/openlearnv2/packages/core/`、`packages/plugin-sdk/`）——
 >    源码是最终真理，文档与官方模板都可能滞后；
 > 3. 发现本文与源码不一致时，**以源码为准**并当场指出差异，不要沿用本文的旧结论。
+
+> 🔴 **SDK 3.7.2 起的两处破坏性变化（3.7.4 仍在）**，写代码前先记住：
+>
+> 1. **宿主内部类改为 type-only 导出**。`PluginRuntimeComposition` / `PluginCapabilityGateway` /
+>    `PluginContextAdapter` / `PluginDistributionManager` / `PluginLifecycleManager` /
+>    `PluginRuntimeAdapter` / `UnifiedExtensionRegistry` 这 7 个符号**不再有运行期值**。
+>    插件里只能 `import type { ... }`；写成值导入会**编译通过、运行期 undefined**
+>    （比直接报 TS1362 更难查）。宿主侧实现请从 `packages/core/plugin-host/*.js` 导入。
+> 2. **CLI 新增 frontend 产物守卫**。构建时扫描 `frontend.js` 的**裸模块说明符**
+>    （`from 'x'` / `import 'x'` / `require('x')` / 动态 `import('x')`；相对 `./x` 与绝对 `/x` 放行），
+>    命中即输出 `✖ frontend 产物里有裸模块说明符` 并**构建失败**。
+>    原因：远程前端跑在不透明源 iframe，加载方式是 `Blob` + 动态 `import()`，裸说明符无从解析；
+>    宿主那段 `transformBareModuleImports` 改写发生在父页面，救不了 iframe 内的求值。
+>    → 依赖必须打进 bundle（`--bundle` 默认已开），前端不要 import React / 第三方包。
 
 ---
 
@@ -36,9 +54,14 @@ description: 为 OpenLearnV2 教学平台（当前平台 v0.7.4 / SDK 3.7.x）�
 
 | 用户意图 | 模式 | 入口 |
 |----------|------|------|
+| **粘贴插件运行报错 / 堆栈 / 白屏 / 日志**，或说「插件不工作」「装不上」「点了没反应」 | **A′：故障归因与上报** | 直接进「第六步」（先归因，后决定是否提 Issue） |
 | 处理某个 GitHub issue / PR；给出编号、URL，或说「接手这个 issue」「审查/合并 PR」 | **B：仓库协作** | 下方「模式 B」+ `references/github-collaboration.md` |
 | 开发 / 修改 / 排查 OpenLearn 插件 | **A：插件开发** | 「第一步 ~ 第六步」 |
 | 两者都不明确 | — | 先问清楚，不要猜 |
+
+> **A′ 的硬要求**：用户一贴报错，**不要先改代码，也不要先甩锅平台**。必须先给出
+> 「这是插件自己代码的问题，还是平台插件系统的问题」的明确结论 + 缘由（机制层面的解释），
+> 再决定动作。判为平台侧 → 按「第六步 B」向 `aymwoo/OpenLearn-Next-V2` 提 Issue。
 
 - 模式 B **不需要**执行第一步的文档探活，只需读取目标仓库的 `AGENTS.md` / `CLAUDE.md` / `README.md` / `package.json`。
 - 模式 B 遵守「两次主确认 + 不可逆动作单独确认」。
@@ -57,18 +80,23 @@ description: 为 OpenLearnV2 教学平台（当前平台 v0.7.4 / SDK 3.7.x）�
 
 ### 第一步：探活 + 版本比对
 
-#### 1a. 三个版本信号（每次必做）
+#### 1a. 四个版本信号（每次必做）
 
-| 信号 | 获取方式 |
-|------|----------|
-| 平台版本 | 本地仓库 `~/Develop/openlearnv2/package.json` 的 `version` |
-| SDK 版本 | `~/Develop/openlearnv2/packages/plugin-sdk/package.json` 的 `version` |
-| 文档站构建版本 | fetch 索引页，读标题中的 `OpenLearnV2 x.y.z 文档` |
+| 信号 | 获取方式 | 权威性 |
+|------|----------|--------|
+| **SDK latest（准绳）** | `npm view @openlearn/plugin-sdk version` 或 `npm view @openlearn/plugin-sdk dist-tags.latest` | **最高**：冲突时以它为准 |
+| 平台版本 | 本地仓库 `~/Develop/openlearnv2/package.json` 的 `version` | 次高（本地可能未 pull） |
+| SDK 源码版本 | `~/Develop/openlearnv2/packages/plugin-sdk/package.json` 的 `version` | 次高 |
+| 文档站构建版本 | fetch 索引页，读标题中的 `OpenLearnV2 x.y.z 文档` | 最低（线上构建常滞后） |
 
 ```bash
-# 一次拿到两个本地版本
-node -e "const p=require(process.env.HOME+'/Develop/openlearnv2/package.json');const s=require(process.env.HOME+'/Develop/openlearnv2/packages/plugin-sdk/package.json');console.log('platform',p.version,'| sdk',s.version)"
+# 一次拿到 npm latest + 两个本地版本
+node -e "const p=require(process.env.HOME+'/Develop/openlearnv2/package.json');const s=require(process.env.HOME+'/Develop/openlearnv2/packages/plugin-sdk/package.json');console.log('platform',p.version,'| sdk(local)',s.version)"
+npm view @openlearn/plugin-sdk version
 ```
+
+> **冲突处置**：npm latest 高于本地 → 以 npm 为准，并提示用户「本地仓库未 pull 或未安装最新 SDK」；
+> npm latest 低于本地 → 本地领先（预发布），仍按 npm 已发布口径写代码，避免用到未发布 API。
 
 #### 1b. 比对缓存
 
@@ -76,6 +104,7 @@ node -e "const p=require(process.env.HOME+'/Develop/openlearnv2/package.json');c
 
 - **三者全同** → 缓存命中，直接用本地快照（**0 额外 token**）
 - **任一不同** → 告知用户「平台已更新（旧 X，新 Y）」，刷新 `references/` 与 `.cache-meta.json`
+  （`docSiteVersion` 单独滞后不算更新，先看 `sdkVersion` 与 npm latest 是否一致）
 - **无缓存** → 直接用本地快照
 
 #### 1c. 刷新方式（优先本地仓库）
@@ -131,6 +160,9 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 
 > 模板与官方 CLI 脚手架（`packages/plugin-sdk/scaffold/templates/`）保持同源。
 > 若两者不一致，以**官方脚手架 + 平台源码**为准，并回来修正本 skill 的模板。
+>
+> 生成代码后**立刻铺测试护栏**（复制 `assets/test-harness/`，见「第四步 B」）——
+> 先让 L0 绿，再写业务逻辑；否则 manifest / 三件套的错会一直漏到课堂现场。
 
 占位符：
 
@@ -224,8 +256,9 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 > bash scripts/check-templates.sh          # 模板/文档一致性：main、engines、ActionDescriptor 配对、占位符、废弃写法
 > bash scripts/verify-templates-build.sh   # 三套模板真实构建 + tsc --noEmit + 产物体检
 > bash scripts/diff-official-scaffold.sh   # 与官方 CLI 脚手架比对契约（官方有、我们缺 → 失败）
+> bash scripts/verify-test-harness.sh      # 测试护栏自检：模板 L0 必须绿 + 反例必须被抓到
 > ```
-> 给用户开发插件时**不要**跑这三个脚本（各文件的适用对象见「资源文件说明」）。
+> 给用户开发插件时**不要**跑这四个脚本（各文件的适用对象见「资源文件说明」）。
 
 #### 构建产物预检清单 (Pre-flight Inspection)
 
@@ -233,9 +266,83 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 - [ ] **三件套映射**：`manifest.classroomTools[].commandType` / `contributes` 里引用的每个 commandType，
       都能在 `src/index.ts` 里找到**同名的 `actionRegistry.register` + `registerHandler`**
 - [ ] **裸导入非法引用**：`grep -E '^import .+ from "[^@\./]' dist/index.js` 应无输出
+- [ ] **前端产物无裸说明符**（3.7.2+ CLI 会直接拦）：`grep -nE "(from|require\(|import\() *['\"][^./]" dist/frontend.js` 应无输出
 - [ ] **远程前端无 React**：`grep -nE "from ['\"]react|document\.|window\." dist/frontend.js` 应无输出
 - [ ] **Worker/Process 兼容**：非 inline 模式下不得使用 `ctx.config` / `ctx.provide()` / `child_process` / `worker_threads` / `eval`
 - [ ] **清理 SOP**：`deactivate()` 中处理了自建定时器 / 子进程 / 第三方连接
+- [ ] **L0 + L1 已通过**：`npm run test:contract` 0 error、`npm test` 全绿（见「第四步 B」；人工预检不漏项，自动化防回归）
+
+---
+
+### 第四步 B：测试护栏（开发期把问题炸出来）
+
+> **L0 未 0 error、L1 未全绿，不得进入第五步。**
+> 原因很直接：平台的 default-deny、能力校验、沙箱边界只在运行期生效，
+> 「能 build、能装上」不等于「能用」—— 这些正是本地测试必须提前模拟的部分。
+> 完整方法论见 `references/testing-strategy.md`，护栏源码在 `assets/test-harness/`。
+
+#### 1. 四层阶梯（成本递增，覆盖不同失效面）
+
+| 层 | 手段 | 耗时 | 抓什么 |
+|----|------|------|--------|
+| **L0** | `node test-harness/static-check.mjs .` | <1s | manifest 必填项 / 权限串真伪 / 三件套配对 / 裸导入 / 前端越界 / process 禁用 API / DB 表名与分号 / type-only 误用 / 密钥泄漏 |
+| **L1** | `vitest run` 的 `contract.test.ts` | ~0.3s | 声明的入口与实际注册是否一致、handler 是否为 `{execute}` 对象、`capabilityRequired` 是否真实、`inputSchema` 类型名 |
+| **L2** | `vitest run` 的 `smoke.test.ts` | ~0.3s | 重复激活状态泄漏、命令执行期 `TypeError`、REST 路由 5xx、事件 payload 形状、停用未退订 |
+| **L3** | 真实宿主机：上传 → 激活 → 点入口 → 停用 | 3–10 min | Mock 与生产宿主的差异（能力审批、process 沙箱、熔断、全限定 commandType） |
+
+#### 2. 铺开（每个插件项目一次）
+
+```bash
+# 在插件项目根目录
+cp -r <skill>/assets/test-harness ./test-harness
+npm i -D vitest @openlearn/plugin-test-kit better-sqlite3 uuid zod
+npm pkg set scripts.test:contract="node test-harness/static-check.mjs ." \
+            scripts.test="vitest run --config test-harness/vitest.config.ts"
+```
+
+> `uuid` / `zod` 不是可选项：SDK 3.7.4 的 `dist/index.js` 引用了**未声明**的 `uuid`（`zod` 是 peerDep），
+> 不装会在 `import('@openlearn/plugin-sdk')` 时直接 `Cannot find package 'uuid'`。属平台打包缺陷，已记入
+> `references/testing-strategy.md` §6。
+
+#### 3. 跑
+
+```bash
+npm run test:contract   # L0
+npm test                # L1 + L2
+```
+
+#### 4. 六件必测事项（缺一视为未测）
+
+1. **三件套配对**：manifest 里每个 `commandType` 同时有 `registerHandler` + ActionDescriptor（双向检查）。
+2. **handler 形状**：必须是 `{ execute }` 对象；裸函数在 Mock / Worker / Process 下都报 `handler.execute is not a function`。
+3. **权限真伪**：`capabilitiesProposed` 与每个 `capabilityRequired` 都 ⊆ 平台真实 20 条（`references/capability-matrix-0.7.md`）。
+4. **执行期不崩**：按 `inputSchema` 造最小 payload 跑每条命令，不得出现 `TypeError` / `ReferenceError`（业务校验错误可抛）。
+5. **生命周期可重入**：`activate → deactivate → activate` 不抛错，同一事件订阅数不翻倍。
+6. **前端边界**：无 React / DOM / `fetch` / 裸模块说明符 / `component`（L0 静态即可；L1 只读 `slotProps`）。
+
+#### 5. 测试先行写法
+
+- 新增命令：**先**在 `contract.test.ts` 写期望（红）→ 实现 → 转绿。
+- 命令里出现深层解构（`payload.a.b`）：**补一条 L2 用例**，让 `undefined` 在本地暴露，而不是课堂现场。
+- **反向验证**：故意删掉一个 ActionDescriptor，确认 L0/L1 变红。没红过的护栏等于没有护栏。
+- 改 manifest 权限/入口后，先跑 L0 再跑 L1：L0 报错信息更精确（带错误码）。
+
+#### 6. 测试红了先归因，不要改宽断言
+
+| 现象 | 归属 | 动作 |
+|------|------|------|
+| `Cannot find package 'uuid' / 'zod'` | 环境 | 按第 2 节补依赖 |
+| `handler.execute is not a function` | 插件侧 | 把裸函数改为 `{ execute }` |
+| `Cannot read properties of undefined` | 插件侧 | 补判空 / 修 payload 形状 |
+| 权限断言失败（串不存在） | 插件侧 | 换成真实权限串 |
+| 权限正确但运行期仍被拒 | 环境与配置 | 管理员未审批（v0.7.2 起按已授予集合判定） |
+| Mock 行为与生产不一致 | 产品边界 | 见 `references/testing-strategy.md` §5，补 L3，**不改断言迎合 Mock** |
+| test-kit 自身报错 | 环境 | 核对 vitest 版本 / `server.deps.inline` / `better-sqlite3` |
+
+#### 7. L3 真实宿主冒烟
+
+交付前按 `references/testing-strategy.md` §7 的 10 步清单跑一遍，重点四项：
+**课堂工具按钮点击** · **Ctrl+K 条目派发（验证全限定 commandType）** · **AI 自然语言触发 Action** · **停用再激活无重复**。
 
 ---
 
@@ -257,6 +364,9 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 - [ ] 管理后台能激活，服务日志无 `[Plugin:<id>]` 错误
 - [ ] 可见入口已按第二步选定的通道验证（课堂工具按钮 / 命令面板条目 / toast）
 - [ ] `engines.openlearn` 与实际用到的 API 匹配（见 `references/manifest-0.7.md` §11）
+- [ ] L0 静态契约检查 0 error（`npm run test:contract`）
+- [ ] L1/L2 契约 + 冒烟测试全绿（`npm test`）
+- [ ] L3 真实宿主冒烟通过（按钮点击 / Ctrl+K 派发 / AI 触发 / 停用再激活）
 
 ### 交付格式（每次生成插件后按此汇报）
 
@@ -266,6 +376,7 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 构建：npm install && npx @openlearn/plugin-sdk build
 安装：上传 <dist 中的 zip 文件名>
 已实现：<功能点 1..N>
+测试：L0 <0 error|N error> · L1/L2 <n passed / n failed> · L3 <已跑|未跑（原因）>
 已核对：main / ActionDescriptor 配对 / 权限串 / 可见入口
 待办：<需要用户做的事，如"管理员批准出站域名"、"申请某权限">
 ```
@@ -275,6 +386,53 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 ### 第六步：故障归因（插件侧 vs 系统侧）
 
 当开发者报告「插件报错 / 不工作」时，**先归因，再动手**。完整方法见 `references/troubleshooting.md`，此处为速用版。
+
+#### 0. 受理：用户直接粘贴报错时的固定动作
+
+用户往往只贴一段报错（甚至只贴半截堆栈）。**按顺序做，不要跳步**：
+
+1. **把报错归类到阶段**（决定查哪张表）：构建期 / 安装（上传）期 / 激活期 / 运行期 / 停用期。
+   - `✖ frontend 产物里有裸模块说明符`、TS 报错 → 构建期
+   - `Import of "x" is not allowed`、`manifest 校验失败` → 安装期
+   - `ACTIVATING → ERROR`、`WorkerActivateError` / `WorkerTimeoutError` → 激活期
+   - 命令 500 `COMMAND_NOT_REGISTERED`、前端白屏、事件不推送、DB 报错 → 运行期
+2. **提取五要素**：平台版本 / SDK 版本 · `execution_mode`（inline / worker / process）· **堆栈顶层 3–5 帧的文件路径** · 触发操作 · 是否已用最小插件复现。
+   - 缺版本号 → 先跑 `npx openlearn-next@<ver> doctor` 或读 `GET /health` 的 `version`，禁止用「最新版」代替。
+   - 缺堆栈顶层路径 → 让用户贴完整堆栈（**不截断**），这决定归属。
+3. **定位到源码再下结论**：在 `~/Develop/openlearnv2/packages/core/`、`packages/plugin-sdk/` 里
+   用报错文案/符号名搜一次，确认是「平台按设计行事」还是「平台实现有缺陷」。
+   - 报错文案能搜到 → 看该处是否有意抛错（default-deny、token-enforcer、熔断、权限审批），
+     是设计行为就是**插件侧或产品边界**，不是系统缺陷。
+   - 搜不到 / 逻辑明显写错（漏 await、白名单漏项、错误被吞、假超时）→ 才是系统侧。
+4. **最小复现优先于口头判断**：先让用户用 server-only 模板做 ≤50 行插件（只留 manifest + 空 `activate`）
+   复现；**能复现的才是系统侧**。
+5. **输出归因 + 缘由**（格式见下），然后才决定是否改代码 / 提 Issue。
+
+> ❗ 常见误判：报错文案由平台打印 ≠ 平台缺陷。
+> 例：`import { randomUUID } from 'crypto'` 被拦是插件违规；声明了未授予的权限被拒是审批流程；
+> 远程插件传 `component` 报 `DataCloneError` 是产品边界（remote 插件没有自定义 UI 通道）。
+
+**高频报错的归属速查（先查表，再逐项验证；本表给方向，不给免验证结论）**
+
+| 报错 / 现象 | 归属 | 缘由（机制层） |
+|---|---|---|
+| `✖ frontend 产物里有裸模块说明符`（构建失败） | 插件侧 | 沙箱 iframe 用 Blob + 动态 `import()` 加载，无 importmap，裸说明符无从解析；CLI 3.7.2+ 主动拦截 |
+| `PluginRuntimeComposition is undefined` / 值导入宿主内部类 | 插件侧 | 3.7.2 起 7 个宿主内部类仅 type-only 导出，运行期无值 |
+| `Import of "x" is not allowed` | 插件侧 | token-enforcer 白名单拒绝裸导入（`crypto` / `fs` / 第三方裸包） |
+| `COMMAND_NOT_REGISTERED` / 403 | 插件侧 | 内核 default-deny：该 `commandType` 没有 ActionDescriptor |
+| `COMMAND_CAPABILITY_DENIED` | 插件侧 / 配置 | 0.7.2 起按**已授予**集合判定，声明了但未审批 |
+| `Cannot read properties of undefined (reading 'React')` | 插件侧 | 远程前端用了 React，沙箱内 `HostSharedDeps` 不存在 |
+| `DataCloneError`（`registerExtensionPoint` 传 `component`） | 产品边界 | postMessage 无法克隆函数；远程插件就没有自定义 UI 通道 |
+| 插件被自动停用 + 扩展点报错 | 产品边界 | 熔断器 3 次 / 5 分钟滑窗，设计行为 |
+| `api.routes` 声明 `auth:false` 仍 401 | 产品边界 | `auth:false` 只是**申请**公开，需管理员批准 |
+| Worker 下 `ctx.db.migrate` 报 `WorkerCapabilityError`（≤0.3.15） | 系统侧（已修复） | ServiceHost DDL 白名单漏 `plugin_migrations` |
+| Worker 激活异常变 60 秒假超时（≤0.3.15） | 系统侧（已修复） | 看门狗误熔断 |
+| `EUNSUPPORTEDPROTOCOL workspace:*`（安装） | 系统侧（已修复） | 制品打包带了 workspace 协议 |
+| 声明式贡献「闪现后消失」（≤0.6.x） | 系统侧（已修复） | 缺显式错误态渲染 |
+| 以上都不匹配 / 无堆栈 / 无版本号 | 待定 | 先补**五要素**与完整堆栈，再判 |
+
+> 命中「已修复」行：先确认用户版本是否在受影响区间。升级后仍复现 → 属**回归**，可提 Issue 并引原修复记录。
+> 完整「已知系统问题索引」与阶段决策树见 `references/troubleshooting.md` §3 与 §6。
 
 **三条铁律**
 
@@ -295,24 +453,108 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 
 | 结论 | 动作 |
 |------|------|
-| **插件侧** | 指出具体修改点，走第四步预检清单复查；**不生成报告** |
-| **系统侧** | 生成 bug 报告：`<插件项目根目录>/BUG-REPORT-<slug>-<YYYYMMDD>.md`（模板 `assets/bug-report-template.md`） |
-| **插件间冲突** | 定位命名空间 / 事件名 / 表名 / 槽位 id 撞车的双方并改名 |
-| **环境与配置** | 给出修复步骤（升级 / 重建 / 强刷 / 重新审批 / 加白名单），不算缺陷 |
-| **待定** | 列出缺失的证据项与取证命令，收齐后重判 |
+| **插件侧** | 指出具体修改点，走第四步预检清单复查；**不生成报告、不提 Issue** |
+| **系统侧** | ① 生成 bug 报告：`<插件项目根目录>/BUG-REPORT-<slug>-<YYYYMMDD>.md`（模板 `assets/bug-report-template.md`）；② 按「第六步 B」向平台仓库提 Issue（用户确认后执行） |
+| **插件间冲突** | 定位命名空间 / 事件名 / 表名 / 槽位 id 撞车的双方并改名；**不提 Issue** |
+| **环境与配置** | 给出修复步骤（升级 / 重建 / 强刷 / 重新审批 / 加白名单），不算缺陷；**不提 Issue** |
+| **产品边界 / 设计行为** | 改插件写法或告知用户操作路径（如 remote 插件无 UI、熔断停用、`auth:false` 需审批）；**绝不提 Issue** |
+| **待定** | 列出缺失的证据项与取证命令，收齐后重判；**不提 Issue** |
 
 **必给的简要汇总（≤10 行）**
 
 ```
-【故障归因】<插件侧 / 系统侧 / 插件间冲突 / 环境与配置 / 待定>
+【故障归因】<插件侧 / 系统侧 / 插件间冲突 / 环境与配置 / 产品边界 / 待定>
 现象：<一句话>
 关键证据：
   1. <堆栈归属 / 版本与执行模式核对 / 对照实验>
-判定依据：<为什么是这一类，而非另一类>
-建议动作：<修复方式 或 已生成 bug 报告：<路径>>
+判定依据：<为什么是这一类，而非另一类；哪一处机制导致的>
+缘由：<机制层解释：默认丢包 / 白名单 / 沙箱隔离 / 熔断 / 审批流程 / 漏 await …>
+建议动作：<修复方式 | 已生成报告：<路径> | 待提 Issue | 已提 Issue #<n>>
 ```
 
 > 生成报告前务必确认已包含：**具体版本号、完整堆栈、最小复现插件**。缺这三项通常会被系统作者以「信息不足」退回。
+
+### 第六步 B：系统侧缺陷上报（向平台仓库提 Issue）
+
+> 仅在第六步结论为 **系统侧** 时执行。这是「问题缘由 → 影响 → 修复建议」的正式上行通道。
+> 完整命令与异常处理见 `references/github-collaboration.md` §1A；正文模板：`assets/platform-issue-template.md`。
+
+**固定仓库**：`aymwoo/OpenLearn-Next-V2`（缺陷模板前缀 `[缺陷] `，标签用仓库已有的 `bug` / `needs-triage`）
+
+#### B1. 三项前置门禁（缺一即不提）
+
+1. **证据门禁**：第六步「系统侧」4 个必要条件全部满足（尤其**最小复现稳定复现**）。
+2. **去重门禁**：先查平台仓库既有 issue（含已关闭）与 `docs/beta/known-issues.md`。
+   - 命中已修复版本 → 建议升级，不提新 Issue（升级后仍复现 → 属回归，提 Issue 并在正文注明「回归」与原 Issue 号）。
+   - 命中开放 issue → **改为在该 issue 补充评论**（需用户确认），不重复开单。
+3. **同意门禁**：把最终标题 + 正文完整展示给用户，明确确认后才 `gh issue create`。
+   **绝不静默提交**（Issue 对仓库可读者公开可见）。
+
+```bash
+REPO=aymwoo/OpenLearn-Next-V2
+# 去重：关键词 <错误号/错误文案/模块名>，含已关闭
+gh issue list -R "$REPO" --state all --limit 50 \
+  --search "<关键词> in:title,body" --json number,title,state,url,closedAt
+# 同时对照仓库内的已知问题清单
+rg -n "<关键词>" ~/Develop/openlearnv2/docs/beta/known-issues.md
+```
+
+#### B2. Issue 正文（三段必备，缺任一段视为不合格）
+
+| 段 | 必须写清 | 常见不合格写法 |
+|----|---------|---------------|
+| `## 问题原因` | 定位到**具体代码路径 / 机制**：哪个包哪个文件哪一处逻辑（如 `packages/core/plugin-host/worker-runtime.ts` 的 DDL 白名单），版本口径（引入/影响版本），关键堆栈帧 | 「插件报错了」「可能是 bug」 |
+| `## 影响` | 谁受影响（哪些插件类型 / 哪种执行模式 / 哪些用户角色）、阻塞程度（停用 / 降级 / 可绕过）、影响版本范围、是否有临时规避 | 「影响使用」 |
+| `## 建议解决方式` | 改哪个文件/机制、可选方案与权衡、**验收标准**（修好后什么现象算通过） | 「请修复」 |
+
+另必须含：**环境信息**（平台精确版本 `GET /health` / `npx openlearn-next@<ver> doctor`、SDK 版本、插件 id+版本、`execution_mode`、`engines.openlearn`、Node/浏览器/OS）、
+**复现步骤 + 稳定性**、**期望 vs 实际**（附文档 URL 承诺）、**完整堆栈（不截断）**、**最小复现插件源码**、**已排除项**、**对照实验记录**、
+以及仓库缺陷表单要求的三项：报告人角色（开发者）、对上课的影响、版本。
+
+#### B3. 执行
+
+```bash
+REPO=aymwoo/OpenLearn-Next-V2
+BODY=/tmp/openlearn-issue-<slug>.md   # 由 assets/platform-issue-template.md 渲染
+
+gh issue create -R "$REPO" \
+  --title "[缺陷] <模块/组件>：<一句话现象>" \
+  --body-file "$BODY" \
+  --label bug --label needs-triage
+```
+
+- 标题：`[缺陷] <模块/组件>：<现象>`，如 `[缺陷] plugin-host/worker：ctx.db.migrate 首启被 DDL 白名单拦截`。一句话说清「哪里 + 什么现象」。
+  仓库既有 issue 里也有 `fix(plugin-host): …` 与 `[P1][文档] …` 写法，**沿用近期同类风格即可**，但模块 + 现象两者必须齐。
+- 标签只用仓库已有 `bug` / `needs-triage`；**不自创标签、不 assign 他人、不在正文 @ 维护者**。
+- 正文以自由格式提交（`gh issue create` 无法填写 yml 表单），所以把表单必填字段以纯文本列进「环境信息」。
+- 最小复现插件体积小就把源码贴进正文；否则说明「可提供 zip，需要时提供」。
+
+#### B4. 脱敏红线（仓库 issue 公开可见）
+
+提交前逐项自查，命中即删：学生姓名全名册 / 作业或试卷原文 / 成绩导出 · 密码、班级临时口令、Cookie、`edu_os_token` ·
+AI API Key（**连首尾几位掩码也不行**）· `.env`、`ENCRYPTION_KEY`、`bootstrap-credentials.txt` 内容 · 身份证 / 住址 / 电话 / 健康信息。
+需要定位请求时只写 `x-request-id`；需要指代学生时用「3 班第 2 次作业」。
+
+#### B5. 幂等与失败回退
+
+| 情况 | 动作 |
+|------|------|
+| 已提过同问题（自己的 issue 仍在开放） | 不再新开，改为补充评论（需确认） |
+| 同关键词有他人开放 issue | 不重复开单，建议在其下评论或订阅 |
+| `gh` 未登录 / 无权限 | 不重试刷屏；保留本地 `BUG-REPORT-*.md`，并给出 `https://github.com/aymwoo/OpenLearn-Next-V2/issues/new` 手动提交指引 |
+| 网络失败 / 429 | 报告原文错误，保留已渲染的正文文件路径，不自动循环重试 |
+| 提交成功 | 输出 issue 号与 URL，并提示用户把本地报告的附件（zip / 日志）按需补到 issue |
+
+#### B6. 上报后的输出（≤8 行）
+
+```
+【系统侧缺陷已上报】
+Issue：#<n> <url>
+原因：<一句话机制层原因（哪个包/哪处逻辑）>
+影响：<影响面 + 阻塞程度 + 规避方案>
+建议：<修复方向>
+本地留存：<BUG-REPORT-*.md 路径>
+```
 
 ---
 
@@ -323,7 +565,11 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 3. 不修改用户的 git 状态（不 commit / 不打 tag / 不 push），除非用户明确要求。
 4. 权限字符串、宿主版本、槽位名等**不确定时不猜**：先查 `references/`，仍不确定就问用户。
 5. 需求有歧义时先问，不擅自扩大范围（尤其"要不要建表""要不要申请高危权限""要不要占新槽位"）。
-6. 归因未达「系统侧」证据门槛时，**不生成 bug 报告**，只给结论与取证命令。
+6. 归因未达「系统侧」证据门槛时，**不生成 bug 报告、不提 Issue**，只给结论与取证命令。
+7. 提 Issue 是**公开可见动作**：必须先把标题 + 正文全文给用户看并得到明确同意，绝不静默 `gh issue create`。
+8. 不代替用户编造证据：缺版本号、缺完整堆栈、缺最小复现时，先要证据，不拿猜测填进 Issue。
+9. **交付前必须给出测试结果**：L0 0 error + L1/L2 全绿；没跑就是没跑，不许写「应该没问题」。
+10. **测试失败不改宽断言**：先按「第四步 B」第 6 节归因，是插件问题就改实现，是 Mock 差异就补 L3。
 
 ---
 
@@ -453,7 +699,7 @@ gh pr merge <pr> -R <repo> --squash --match-head-commit "$HEAD_SHA" --subject "<
 `ctx` 上还有：`ctx.i18n.t(key, default?, params?)`、`ctx.config.get(key, { classId })`、`ctx.http`（REST 路由）、
 `ctx.contributions.list()`、`ctx.require(moduleName)`、`ctx.manifest`、`ctx.pluginId`、`ctx.log`。
 
-### 2. Capabilities 权限全集（v0.7.4 真源）
+### 2. Capabilities 权限全集（v0.7.7 / SDK 3.7.4 真源，20 条，与官方矩阵逐条一致）
 
 平台真实存在 **20 条** `resource:action` 权限：
 
@@ -550,7 +796,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 
 ## 调试 SOP 与故障排查指南 (Troubleshooting SOP)
 
-> 本表是「症状 → 直接处理」的速查。**若需判定责任方并产出 bug 报告，请先走第六步，并阅读 `references/troubleshooting.md`。**
+> 本表是「症状 → 直接处理」的速查。**若需判定责任方（插件侧 vs 平台插件系统侧）、讲清缘由并决定是否向平台仓库提 Issue，请先走第六步，并阅读 `references/troubleshooting.md`。**
 
 | 现象 / 报错信息 | 可能原因 | 解决办法 (SOP) |
 | :--- | :--- | :--- |
@@ -563,6 +809,8 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `HANDLER_ALREADY_EXISTS` | 同一 commandType 重复注册 | 检查是否重复激活；宿主已在停用时自动注销 handler |
 | `empty manifestCapabilities, only 'get' methods allowed` | process/worker 模式下 `capabilitiesProposed` 为空 | 声明真实存在的权限串 |
 | `Import of "<module>" is not allowed` | 产物残留裸导入（`crypto`/`fs`/`path`/第三方裸包） | 用 `crypto.randomUUID()`；文件走 VFS；依赖必须打进 bundle |
+| `✖ frontend 产物里有裸模块说明符`（CLI 构建失败，3.7.2+） | `frontend.js` 里残留 `from 'x'` / `require('x')` / `import('x')` 形式的裸说明符 | 前端不要 import React / 第三方包；能力全走 `ctx.services.*`，依赖交给 bundler 内联（相对路径不受影响） |
+| `PluginRuntimeComposition is undefined` / 值导入宿主内部类得到 `undefined` | 3.7.2 起这 7 个符号是 **type-only** 导出 | 改 `import type`；宿主内部实现从 `packages/core/plugin-host/*.js` 取，插件本不该直接 new 它们 |
 | 白板工具栏样式错乱 / 按钮被挤压 | `classroom.tool` 槽位里塞了面板 DOM | 远程插件根本不能渲染 UI；可见入口改走 `classroomTools` 声明 + 后端命令 |
 | 远程插件前端无法自行联网 / 收不到推送 | 沙箱 iframe CSP 为 `connect-src 'none'`，宿主也不向 iframe 推事件 | 改为**轮询**：`ctx.invokeCommand(...)` 或 `frontendApi.get(...)`（均由宿主代发）；反馈用 `ctx.ui.showToast` |
 | 声明式迁移未执行（表不存在） | 官方 CLI 不打包 `migrations/`，装上后迁移被静默跳过 | 改用 `ctx.db.ensureTable()` + `ctx.db.migrate(version, fn)`（见 `references/manifest-0.7.md` §12） |
@@ -583,14 +831,18 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `references/plugin-development-tutorial.md` | 插件开发完全指南本地快照（API、Action/Handler/Event、前端、安全） |
 | `references/architecture.md` | 架构总览本地快照（CommandBus、生命周期、Worker Thread、DI、安全模型） |
 | `references/scaffold.md` | 脚手架指南本地快照（CLI 命令、模板、构建、测试、常见问题） |
-| `references/troubleshooting.md` | **故障归因 SOP**（证据清单、归因决策树、系统侧证据门槛、最小复现实验、已知系统问题索引、输出规范） |
-| `references/github-collaboration.md` | **GitHub Issue/PR 协作 SOP**（仓库定位、issue 预检与占位、worktree、PR 模板、CI、审查、返工、合并、清理、异常表、输出模板、红线） |
-| `assets/bug-report-template.md` | **系统侧 Bug 报告模板**（环境信息、复现步骤、完整堆栈、最小复现插件、对照实验、已排除项） |
+| `references/testing-strategy.md` | **开发期测试策略**（L0–L3 阶梯、必测矩阵、Guardrail→用例映射、Mock 与生产宿主 8 处差异、环境坑、L3 冒烟清单、CI 片段） |
+| `assets/test-harness/` | **插件测试护栏（用户侧）**：`static-check.mjs`（零依赖 L0 契约静态检查）+ `contract.test.ts`（L1）+ `smoke.test.ts`（L2）+ `vitest.config.ts` + `README.md`，复制到插件项目即用 |
+| `references/troubleshooting.md` | **故障归因 SOP**（受理报错的五要素、证据清单、归因决策树、系统侧证据门槛、最小复现实验、已知系统问题索引、输出规范、上报 issue 衔接） |
+| `references/github-collaboration.md` | **GitHub Issue/PR 协作 SOP**（仓库定位、**§1A 缺陷 Issue 创建**、issue 预检与占位、worktree、PR 模板、CI、审查、返工、合并、清理、异常表、输出模板、红线） |
+| `assets/bug-report-template.md` | **系统侧 Bug 报告模板**（本地留存版：环境信息、复现步骤、完整堆栈、最小复现插件、对照实验、已排除项） |
+| `assets/platform-issue-template.md` | **平台仓库 Issue 正文模板**（三段必备：问题原因 / 影响 / 建议解决方式，附环境、堆栈、最小复现、去重与脱敏清单） |
 | `assets/server-only/` | server-only 插件模板（含 ActionDescriptor 配对、清理 SOP） |
 | `assets/full-stack/` | full-stack 插件模板（命令/事件/数据表 + 前端沙箱桥接） |
 | `assets/frontend-only/` | frontend-only 插件模板（桥接上下文与提示通道示范） |
 | `scripts/check-templates.sh` | **自检脚本**：校验模板的 `main` / `engines` / ActionDescriptor 配对 / 远程前端无 React / 占位符与 SKILL.md 对齐 / 废弃 API 残留。修改模板后必跑 |
 | `scripts/verify-templates-build.sh` | **构建验证**：三套模板用官方 SDK CLI 真实构建 + `tsc --noEmit` + 产物体检（manifest 字段 / 裸导入 / React 残留）。支持 npm 安装的 SDK 或本地平台仓库 |
+| `scripts/verify-test-harness.sh` | **测试护栏自检**：`static-check.mjs` 语法 + 三套模板替换占位符后 L0 必须 0 error + 含缺陷反例必须报出 14 个预期错误码 + L1/L2 文件骨架校验 |
 | `scripts/diff-official-scaffold.sh` | **脚手架漂移检测**：与官方 CLI 脚手架逐项比对契约（manifest 字段 / `main` / `engines` / command 配对 / 前端是否误用 React / 占位符）。官方有、我们缺 → 判失败。`DIFF_ADVISORY=1` 转为仅预警 |
 
 > **谁该跑 `scripts/*`**：这三个脚本是**维护本 skill** 用的（改模板、改 SKILL.md、升级平台基线时跑），
@@ -613,7 +865,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | 脚手架指南 | `.../sdk/scaffold-cli.html` |
 | SDK API 参考 | `.../sdk/plugin-sdk.html` |
 | 故障排查 FAQ | `.../troubleshooting/troubleshooting-faq.html` |
-| Release Notes | `.../release-notes/v0.7.4.html` |
+| Release Notes | `.../release-notes/v0.7.7.html`（线上构建若仍停在 0.7.4，改看仓库 `~/Develop/openlearnv2/docs/release-notes/`） |
 
 > 文档站路径在版本间会变动（例：`plugin-update-distribution` 从 `plugin/` 移到 `reference/`）。
 > **以平台仓库 `~/Develop/openlearnv2/docs/` 的一手源为准**，线上只用于校验版本号与最终确认。

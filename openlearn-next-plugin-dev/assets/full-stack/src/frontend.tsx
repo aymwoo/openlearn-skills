@@ -68,7 +68,7 @@ async function activate(hostCtx: SandboxFrontendContext): Promise<void> {
       title: '{{pluginName}}：新建记录',
       description: '写入一条记录到 {{pluginName}} 的插件表',
       category: 'Plugin',
-      commandType: '{{commandPrefix}}.create',
+      commandType: '{{pluginId}}.{{commandPrefix}}.create',
       payload: { lessonId: '$lessonId', input: 'created from command palette' },
     },
   });

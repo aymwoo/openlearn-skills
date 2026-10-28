@@ -6,6 +6,46 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.4.0] - 2026-10-28
+
+两条主线：**用户贴报错时能判定「插件自己 vs 平台插件系统」并把系统侧缺陷直接上报**，
+以及**四层测试护栏让潜在问题在开发期暴露**。同时修掉模板里一个会让远程前端命令找不到的真实 bug。
+
+### 新增
+
+- **报错归因入口（任务模式 A′）**：用户粘贴插件报错/堆栈/白屏时，先归因再动手。
+  - 「第六步 §0 受理固定动作」：判阶段 → 提取五要素（平台/SDK 版本、`execution_mode`、堆栈顶层帧、触发操作、是否最小复现）→ **回源码搜报错文案**确认是设计行为还是实现缺陷 → 最小复现。
+  - **高频报错归属速查表**（15 行）：每条给出归属（插件侧 / 产品边界 / 系统侧已修复 / 待定）+ **机制层缘由**，如 `COMMAND_NOT_REGISTERED`=内核 default-deny 缺 ActionDescriptor、`DataCloneError`=postMessage 不能克隆函数。
+  - 归因结论从 5 类扩为 **6 类**，新增「产品边界 / 设计行为」并明确**绝不提 Issue**；汇总格式新增 `缘由` 字段。
+- **系统侧缺陷上报（第六步 B）**：固定仓库 `aymwoo/OpenLearn-Next-V2`。
+  - 三道门禁：证据（4 条门槛）→ 去重（仓库 issue **含已关闭** + `docs/beta/known-issues.md`）→ **同意**（标题+正文全文给用户确认，绝不静默创建）。
+  - 正文**三段必备**：`问题原因`（包/文件/机制 + 触发链 + 版本口径 + 堆栈帧）、`影响`（受影响对象 + 阻塞程度 + 版本区间 + 规避）、`建议解决方式`（改动点 + 方案权衡 + 验收标准）。
+  - 脱敏红线（名册/作业原文/口令/Cookie/`edu_os_token`/API Key 含掩码）、幂等与失败回退（重复 issue 改评论、`gh` 不可用给 `issues/new` 手动入口）。
+  - 新增 `assets/platform-issue-template.md`；`references/github-collaboration.md` 新增 §1A 完整 SOP + 异常表 + 命令速查 + 红线。
+- **L0–L3 四层测试护栏（第四步 B）**：
+  - `assets/test-harness/static-check.mjs`（零依赖 L0，<1s）：manifest 必填项 / 权限串真伪 / **三件套双向配对** / 裸导入 / 前端越界 / process 禁用 API / DB 表名与分号 / type-only 误用 / 密钥泄漏 / 扩展点未全限定。
+  - `contract.test.ts`（L1）：声明的 commandType 是否真有 handler + ActionDescriptor、handler 是否 `{execute}` 对象、`capabilityRequired` 是否真实、`inputSchema` 类型名。
+  - `smoke.test.ts`（L2）：重复激活状态泄漏、按 schema 造 payload 跑命令抓 `TypeError`、REST 路由 5xx、事件 payload、停用未退订（订阅翻倍）。
+  - `references/testing-strategy.md`：L0–L3 阶梯、按插件特征的必测矩阵、**8 条 Guardrail → 用例映射**、Mock 与生产宿主 8 处差异、环境坑、L3 十步冒烟清单、CI 片段。
+  - `scripts/verify-test-harness.sh`：护栏自检（模板 L0 必须绿 + 含缺陷反例必须报出 14 个预期错误码）。
+  - 门禁：L0 0 error + L1 全绿才允许进入构建/上传；完成定义、交付格式、红线同步更新。
+
+### 修复
+
+- **模板 bug（full-stack）**：`src/frontend.tsx` 的 `registerExtensionPoint` 把 commandType 写成 `{{commandPrefix}}.create`，运行期注册**不前缀化** → 命令找不到。改为 `{{pluginId}}.{{commandPrefix}}.create`（由新增的 L0 检查抓出）。
+- `references/troubleshooting.md`：§0 对齐 6 类结论并标注是否提 Issue；§7 拆成「本地报告 / 提交 Issue / 插件侧与产品边界 / 待定」四节。
+
+### 已验证
+
+- `check-templates.sh` 39 项全过；`verify-test-harness.sh` 26 项全过（三套模板 L0 均 0 error，反例命中 14 个错误码）。
+- L1/L2 在 server-only 与 full-stack 模板上均 **15 passed / 1 skipped**；在 6 缺陷夹具上稳定 **6 failed**，每条指向具体根因。
+- 静态检查已消除注释示例、TS 泛型、slotProps 引用三类误报（注释遮蔽 + 描述符锚定）。
+
+### 上报
+
+- 验证测试护栏时发现平台侧缺陷：`@openlearn/plugin-sdk` 3.6.0–3.7.4 的 `dist/index.js` 裸导入 `uuid` 但未声明依赖，第三方 `import` SDK 即 `ERR_MODULE_NOT_FOUND`。已按第六步 B 提交
+  [Issue #349](https://github.com/aymwoo/OpenLearn-Next-V2/issues/349)，并记入 `troubleshooting.md` 已知问题索引与 `testing-strategy.md` §6。
+
 ## [2.2.0] - 2026-10-28
 
 把版本基线从 SDK 3.7.1 抬到 **npm 发布版 latest `3.7.4`**（对应平台 v0.7.7），并补上 3.7.2 引入的两处破坏性变化。

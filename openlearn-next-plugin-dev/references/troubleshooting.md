@@ -1,25 +1,26 @@
 # 插件故障归因与 Bug 报告 SOP
 
-[本文件为 skill 自建的诊断方法论，依据 OpenLearnV2 官方文档 **v0.7.4**（插件宿主 / 生命周期 / 安全权限 / 信任边界 / Release Notes）整理；文末列出依据来源]
+[本文件为 skill 自建的诊断方法论，依据 OpenLearnV2 官方文档 **v0.7.7**（插件宿主 / 生命周期 / 安全权限 / 信任边界 / Release Notes）整理；文末列出依据来源]
 
-> **版本基线**：平台 v0.7.4 / SDK 3.7.1。v0.7.0 起第三方插件被策略层强制改写为 `process` 子进程执行模式，
-> 排障时**必须**先确认实际执行模式（见 §D6 与 §D4-W）。
+> **版本基线**：平台 v0.7.7 / SDK 3.7.4（npm `latest`，2026-10-28 核对）。v0.7.0 起第三方插件被策略层强制改写为 `process` 子进程执行模式，
+> 排障时**必须**先确认实际执行模式（见 §D6 与 §D4-W）。SDK 3.7.2 起 frontend 产物不得含裸模块说明符，CLI 构建期直接拦截。
 
 当开发者报告"插件不工作 / 报错了"时，**不要立刻改代码，也不要立刻甩锅给平台**。先按本 SOP 做归因，得出明确结论后再决定动作。归因错误会导致：明明是系统缺陷却在插件里到处打补丁，或明明是插件违规却去给作者提无效 bug。
 
 ---
 
-## 0. 归因结论只有 5 种
+## 0. 归因结论只有 6 种
+
+> 用户直接粘贴报错时，输出的结论必须落到下表之一，并附**缘由**（哪一处机制导致）与**证据**。
 
 | 结论 | 含义 | 后续动作 |
 |------|------|---------|
-| **插件侧** | 插件自身代码/配置/manifest 违规 | 直接修插件（配合 SKILL.md 第四步预检清单） |
-| **系统侧** | 宿主 / 内核 / SDK / 官方文档缺陷 | 生成 bug 报告文档，交用户发给系统作者 |
-| **插件间冲突** | 两个插件命名空间/事件名/表名/槽位撞车 | 定位冲突双方，按命名空间规范改名 |
-| **环境与配置** | 版本不匹配、未重新构建、缓存、权限未审批 | 给出修复步骤，不算缺陷 |
-| **待定** | 证据不足，无法归因 | 列出缺失证据，指导用户补充后再判定 |
-
-> 用户问"是插件的原因还是系统的原因"时，答案必须落到上表之一，并给出**证据**。
+| **插件侧** | 插件自身代码/配置/manifest 违规 | 直接修插件（配合 SKILL.md 第四步预检清单）；**不提 Issue** |
+| **系统侧** | 宿主 / 内核 / SDK / 官方文档缺陷 | ① 生成本地 bug 报告；② 去重后向 `aymwoo/OpenLearn-Next-V2` 提 Issue（见 SKILL.md 第六步 B） |
+| **插件间冲突** | 两个插件命名空间/事件名/表名/槽位撞车 | 定位冲突双方，按命名空间规范改名；**不提 Issue** |
+| **环境与配置** | 版本不匹配、未重新构建、缓存、权限未审批 | 给出修复步骤，不算缺陷；**不提 Issue** |
+| **产品边界 / 设计行为** | 文档已写明的限制（remote 无 UI、熔断停用、`auth:false` 需审批） | 改插件写法或告知操作路径；**绝不提 Issue** |
+| **待定** | 证据不足，无法归因 | 列出缺失证据，指导用户补充后再判定；**不提 Issue** |
 
 ---
 
@@ -76,6 +77,8 @@
 | 现象 | 归因 | 依据 |
 |------|------|------|
 | `Import of "<module>" is not allowed` | **插件侧** | 产物残留裸导入，违反 token-enforcer 白名单（禁用 `crypto`/`fs`/`path`/第三方裸包） |
+| `✖ frontend 产物里有裸模块说明符`（**构建阶段**，3.7.2+） | **插件侧** | `frontend.js` 残留 `from 'x'` / `import 'x'` / `require('x')` / 动态 `import('x')`。沙箱 iframe 无 importmap、无 React，裸说明符无从解析；依赖须内联进 bundle，能力走 `ctx.services.*`。相对/绝对路径放行 |
+| 值导入 SDK 符号得到 `undefined`（如 `PluginRuntimeComposition`） | **插件侧** | 3.7.2 起 7 个宿主内部类改为 **type-only** 导出，只能 `import type` |
 | manifest 缺失 / 字段非法 / `id` 非 `@scope/name` | **插件侧** | 插件元数据不合规 |
 | `engines.openlearn` 高于系统实际版本 | **插件侧** | 声明不兼容，属配置错误而非系统 bug |
 | manifest 完全符合当前版本文档却被拒 | **系统侧** | 需引用文档 URL 作为"承诺与实际不符"的证据 |
@@ -212,6 +215,7 @@
 | ≤0.7.1 | `auth: false` 的路由仍返回 401 | `auth:false` 只是**申请**公开，需管理员批准 | 0.7.0 起的**设计行为**，见 Release Notes v0.7.0 §八.2 |
 | ≤0.7.1 | 插件代码相对导入逃出插件目录 | ESM loader 边界 | 0.7.2 已收紧（Issue #218），越界导入被拒属**插件侧** |
 | ≤0.7.1 | 声明了权限但运行期仍被拒 | 能力判定改为按**已授予**集合（Issue #224） | 0.7.2 起的**设计行为**，需管理员审批 |
+| 3.6.0–3.7.4（SDK） | 第三方 `import('@openlearn/plugin-sdk')` / `import { createMockContext }` 报 `ERR_MODULE_NOT_FOUND: Cannot find package 'uuid'` | SDK 打包依赖缺陷（dist 含 `from "uuid"` 但未声明） | **已提 Issue [#349](https://github.com/aymwoo/OpenLearn-Next-V2/issues/349)**；临时解法 `npm i -D uuid zod` |
 | 0.7.3 | `npm i openlearn-next@0.7.3` 报 `EUNSUPPORTEDPROTOCOL workspace:*` | 制品协议缺陷 | **该版本已弃用**，升到 0.7.4 |
 
 > 该表需在每次缓存探活时对照最新 Release Notes 维护。
@@ -228,28 +232,83 @@
 ### 7.1 对话内的简要汇总（必给，≤10 行）
 
 ```
-【故障归因】系统侧（或：插件侧 / 插件间冲突 / 环境与配置 / 待定）
+【故障归因】系统侧（或：插件侧 / 插件间冲突 / 环境与配置 / 产品边界 / 待定）
 现象：<一句话>
 关键证据：
   1. <堆栈归属 / 版本核对 / 对照实验>
   2. ...
 判定依据：<为什么是这一类，而非另一类>
-建议动作：<修复方式 或 生成 bug 报告>
+建议动作：<修复方式 或 生成 bug 报告 或 提 Issue>
 ```
 
-### 7.2 系统侧 → 生成 Bug 报告文档
+> 用户问「是插件的问题还是平台插件系统的问题」时，**必须落到上表 6 类之一**，并同时说清**缘由**：
+> 哪一处机制导致的（默认丢包、白名单、沙箱、熔断、审批），而不是只给一个标签。
+
+### 7.2 系统侧 → ① 生成本地 Bug 报告文档
 
 - **模板**：`assets/bug-report-template.md`
 - **落盘路径**：插件项目根目录，文件名 `BUG-REPORT-<slug>-<YYYYMMDD>.md`
   - `<slug>`：问题英文短名，如 `worker-migrate-capability-denied`
   - 日期取当前日期，如 `20260918`
-- 生成后告知用户：该文件可直接发送给系统作者；并提示把「最小复现插件」一并附上。
+- 生成后告知用户：该文件可直接发给系统作者；并提示把「最小复现插件」一并附上。
 
-### 7.3 插件侧 → 不生成报告
+### 7.3 系统侧 → ② 向平台仓库提交 Issue（推荐，与①并行）
 
-给出具体修改点，并按 SKILL.md「第四步」的预检清单复查。
+仓库：`aymwoo/OpenLearn-Next-V2`（缺陷 Issue 用前缀 `[缺陷] `，标签 `bug` + `needs-triage`）
 
-### 7.4 待定 → 不生成报告
+**提交前三个门禁（缺一不提）**
+
+1. 已满足第 4 节的 4 条「系统侧」证据门槛（尤其最小复现稳定复现）；
+2. 已去重：仓库既有 issue（**含已关闭**）+ `docs/beta/known-issues.md`；命中已修复版本 → 建议升级；命中开放 issue → 改为补充评论；
+3. 用户已看过完整标题与正文并**明确同意**——Issue 对仓库可读者公开可见，**不得静默提交**。
+
+```bash
+REPO=aymwoo/OpenLearn-Next-V2
+gh issue list -R "$REPO" --state all --limit 50 \
+  --search "<错误号/错误文案/模块名> in:title,body" --json number,title,state,url
+rg -n "<关键词>" ~/Develop/openlearnv2/docs/beta/known-issues.md
+
+gh auth status   # 确认 gh 已登录且对该仓库有权限
+
+gh issue create -R "$REPO" \
+  --title "[缺陷] <模块/组件>：<一句话现象>" \
+  --body-file /tmp/openlearn-issue-<slug>.md \
+  --label bug --label needs-triage
+```
+
+**正文三段必备**（模板 `assets/platform-issue-template.md`）
+
+| 段 | 必须写清 |
+|----|---------|
+| `## 问题原因` | 具体包/文件/机制 + 触发链 + 版本口径 + 关键堆栈帧 |
+| `## 影响` | 受影响对象 + 阻塞程度 + 影响版本范围 + 触发概率 + 连带影响 + 临时规避 |
+| `## 建议解决方式` | 建议改动点 + 方案与权衡 + **验收标准** |
+
+另附：环境信息（含仓库表单要求项：报告人角色=开发者、对上课的影响、版本）、复现步骤与稳定性、期望 vs 实际（附文档 URL）、
+完整堆栈（不截断）、最小复现插件源码、归因证据与对照实验、已排除项、脱敏确认。
+
+**脱敏红线**（issue 公开可见）：禁学生全名册 / 作业试卷原文 / 成绩导出 / 密码 · 班级临时口令 · Cookie · `edu_os_token` /
+AI API Key（含首尾掩码）/ `.env` · `ENCRYPTION_KEY` · `bootstrap-credentials.txt` / 身份证 · 住址 · 电话 · 健康信息。
+定位请求只写 `x-request-id`；指代学生用「3 班第 2 次作业」。
+
+**幂等与失败**：同问题已有自己的开放 issue → 补充评论不开新单；`gh` 未登录/无权限/429 → 不重试刷屏，保留已渲染的正文文件，
+给出手动入口 `https://github.com/aymwoo/OpenLearn-Next-V2/issues/new`。
+
+**上报后输出**：
+
+```
+【系统侧缺陷已上报】Issue #<n> <url>
+原因：<机制层一句话>
+影响：<影响面 + 阻塞程度 + 规避>
+建议：<修复方向>
+本地留存：<BUG-REPORT-*.md 路径>
+```
+
+### 7.4 插件侧 / 产品边界 → 不生成报告、不提 Issue
+
+给出具体修改点，并按 SKILL.md「第四步」的预检清单复查；产品边界类要明确告知用户「这是设计行为」，不是缺陷。
+
+### 7.5 待定 → 不生成报告、不提 Issue
 
 列出缺失的证据项（对照第 2 节清单），并给出用户可自行执行的取证命令。
 
@@ -266,6 +325,6 @@
 - 信任边界矩阵：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/reference/plugin-trust-boundary.html
 - 前端沙箱能力边界：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/plugin/frontend-sandbox-capability-boundary.html
 - UI 扩展槽位：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/reference/plugin-ui-extension-slots.html
-- Release Notes v0.7.4 / v0.7.3 / v0.7.2 / v0.7.1 / v0.7.0 / v0.6.x / v0.4.x（已知系统缺陷来源）
+- Release Notes v0.7.7 / v0.7.6 / v0.7.5 / v0.7.4 / v0.7.3 / v0.7.2 / v0.7.1 / v0.7.0 / v0.6.x / v0.4.x（已知系统缺陷来源）
 - 版本迁移指南：https://openlearn-next-v2.readthedocs.io/zh-cn/latest/migration/version-migration.html
 - 平台源码（一手真理）：`~/Develop/openlearnv2/packages/core/`、`~/Develop/openlearnv2/packages/plugin-sdk/`

@@ -118,6 +118,81 @@ issue 至少应能回答：**要什么、怎么复现/验证、什么算完成**
 
 ---
 
+## 1A. 创建缺陷 Issue（系统侧缺陷上行）
+
+> 与第 1 节相反方向：不是「接手已有 issue」，而是「把插件侧归因出的**平台缺陷**上报」。
+> 入口：`SKILL.md`「第六步 B」。**只有归因结论为「系统侧」才能走本节。**
+
+### 1A.1 上游门禁（缺一不提）
+
+1. 已满足系统侧 4 条证据门槛（最小复现稳定复现 / 版本与堆栈齐全 / 报错点在宿主或 SDK / 已排除环境与插件冲突）。
+2. 已去重（见 1A.2）。
+3. 用户已审阅完整标题与正文并**明确同意**——Issue 对仓库可读者公开可见。
+4. 已过脏数据脱敏（见 1A.5）。
+
+### 1A.2 去重（含已关闭 issue）
+
+```bash
+REPO=aymwoo/OpenLearn-Next-V2
+gh issue list -R "$REPO" --state all --limit 50 \
+  --search "<错误码 / 错误文案 / 模块名> in:title,body" \
+  --json number,title,state,url,closedAt
+rg -n "<关键词>" ~/Develop/openlearnv2/docs/beta/known-issues.md
+```
+
+| 命中 | 动作 |
+|------|------|
+| 开放 issue（同现象） | 不新开；改为在该 issue 下补充评论（需确认） |
+| 已关闭 issue 且修复版本 ≤ 当前版本 | 建议升级；升级后仍复现 → 新开并在正文注明「回归：原 #<n>」 |
+| 已关闭 issue 且修复版本 > 当前版本 | 同上，先升级 |
+| `known-issues.md` 已列为已知限制 | 不提 Issue，转告用户官方口径与规避方案 |
+| 无命中 | 继续 |
+
+### 1A.3 标题与正文
+
+- 标题：`[缺陷] <模块/组件>：<一句话现象>`（仓库缺陷表单用 `[缺陷] ` 前缀）
+- 正文：`assets/platform-issue-template.md` 渲染到 `/tmp/openlearn-issue-<slug>.md`
+- **三段必备**：`## 问题原因`（具体包/文件/机制 + 触发链 + 版本口径 + 关键堆栈帧）、
+  `## 影响`（受影响对象 + 阻塞程度 + 版本区间 + 触发概率 + 连带影响 + 临时规避）、
+  `## 建议解决方式`（改动点 + 方案权衡 + 验收标准）
+- 另必附：环境信息（含表单要求项：报告人角色=开发者 / 对上课的影响 / 版本）、复现步骤、期望 vs 实际、完整堆栈、
+  最小复现插件、归因证据与对照实验、已排除项
+
+### 1A.4 执行
+
+> **确认门**：先展示 `TITLE` 与 `BODY` 全文，确认后才执行。
+
+```bash
+REPO=aymwoo/OpenLearn-Next-V2
+TITLE="[缺陷] <模块/组件>：<一句话现象>"
+BODY=/tmp/openlearn-issue-<slug>.md
+
+gh auth status || { echo "未登录 gh，改用手动提交"; }
+gh issue create -R "$REPO" --title "$TITLE" --body-file "$BODY" \
+  --label bug --label needs-triage
+```
+
+- 只用仓库已有标签（`bug` / `needs-triage`）；**不自创标签、不 assign 他人、不在正文 @ 维护者**。
+- 提交后用 `gh issue view <n> -R "$REPO" --json number,title,url,state` 回读确认，并输出标题/URL/标签。
+- 最小复现插件体积小 → 源码贴正文；否则写「可提供 zip」。
+
+### 1A.5 脱敏（公开可见）
+
+删除：学生全名册 / 作业试卷原文 / 成绩导出 · 密码、班级临时口令、Cookie、`edu_os_token` ·
+AI API Key（**含首尾掩码**）· `.env` / `ENCRYPTION_KEY` / `bootstrap-credentials.txt` · 身份证 / 住址 / 电话 / 健康信息。
+只留 `x-request-id` 与「3 班第 2 次作业」这类去标识描述。
+
+### 1A.6 失败回退
+
+| 情况 | 动作 |
+|------|------|
+| `gh` 未登录 / 无该仓库权限 | 不重试；保留正文文件，给 `https://github.com/aymwoo/OpenLearn-Next-V2/issues/new` 手动提交 |
+| 网络失败 / 429 | 报告错误原文，保留正文文件路径，不自动循环 |
+| 创建后才发现信息不足 | 用 `gh issue comment` 补充（需确认），不删重建 |
+| 用户事后反悔 | 不擅自关闭/删除；询问后按用户指令操作 |
+
+---
+
 ## 2. 占位三件套（assign + label + comment）
 
 > **确认门 1**：先把 issue 摘要、验收标准、分支名、worktree 路径、评论草稿展示给用户，确认后才执行本节。所有公开可见动作不得跳过确认。
@@ -614,6 +689,10 @@ gh pr list -R "$REPO" --state all --head "<branch>" \
 | 主 clone 工作区有未提交改动 | 不影响 worktree；但不要在主 clone 改动或提交 |
 | `in-progress` 标签不存在 | 按 2.2 创建；不创建其他 triage 标签 |
 | 无 project scope | 不更新 Projects 看板，用标签 + assignee 表达状态 |
+| 上报系统侧缺陷时 `gh` 未登录/无权限 | 不作静默失败；保留正文文件并给手动 `issues/new` 入口 |
+| 上报前命中已有开放 issue | 不开新单，建议在原 issue 补充评论（需确认） |
+| 上报前命中已修复版本记录 | 建议升级复测；仍复现则标「回归」并引原 issue 号 |
+| 用户要求把插件侧问题也提 issue | 拒绝，说明会污染缺陷库；改为给修复指引 |
 | push 失败（权限/网络） | 报告错误原文；不盲目重试 |
 | CI 红且属于本次改动 | 自动修 1 轮并重推；仍红则停止汇报 |
 | CI 红且属于环境/flaky | 停止汇报，不反复重跑 |
@@ -633,6 +712,13 @@ gh issue edit <n> -R "$REPO" --add-assignee @me --add-label in-progress
 gh issue comment <n> -R "$REPO" --body-file <file>
 gh issue edit <n> -R "$REPO" --remove-label in-progress
 gh issue view <n> -R "$REPO" --json state,stateReason
+
+# ---- 缺陷上报（模型侧 → 平台仓库）----
+gh issue list -R "$REPO" --state all --limit 50 --search "<关键词> in:title,body" \
+  --json number,title,state,url,closedAt
+gh issue create -R "$REPO" --title "[缺陷] <模块>：<现象>" --body-file <file> \
+  --label bug --label needs-triage
+gh label list -R "$REPO" --json name --jq '.[].name'
 
 # ---- 重复开发 ----
 git -C "$LOCAL" fetch origin --prune
@@ -732,3 +818,6 @@ CI：<status>
 8. **绝不把无关改动、构建产物、密钥带进 PR**。
 9. **阻断性 CI 未绿不合并**，不提供绕过选项；非阻塞检查失败也必须汇报。
 10. **不确定就停**：仓库、权限、issue 归属、验收标准任何一项不清楚，都先问用户。
+11. **只提「系统侧」缺陷**：插件侧问题、产品边界（设计行为）、环境与配置问题绝不提 Issue；
+    提 Issue 前必须完成去重 + 脏数据脱敏 + 用户确认标题与正文。
+12. **不伪造证据**：缺版本号 / 完整堆栈 / 最小复现时，不拿猜测填进 Issue。
