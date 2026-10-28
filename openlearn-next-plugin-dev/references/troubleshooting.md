@@ -236,6 +236,7 @@
 | ≤0.7.1 | `auth: false` 的路由仍返回 401 | `auth:false` 只是**申请**公开，需管理员批准 | 0.7.0 起的**设计行为**，见 Release Notes v0.7.0 §八.2 |
 | ≤0.7.1 | 插件代码相对导入逃出插件目录 | ESM loader 边界 | 0.7.2 已收紧（Issue #218），越界导入被拒属**插件侧** |
 | ≤0.7.1 | 声明了权限但运行期仍被拒 | 能力判定改为按**已授予**集合（Issue #224） | 0.7.2 起的**设计行为**，需管理员审批 |
+| 0.7.6–0.7.7 | 无 `frontend.js` 的插件：`contributes` / `view` 全部不注册，插件状态正常、日志无 404 | 前端 `has_frontend` 门禁 + 贡献注册排在 fetch 之后 | **已提 Issue [#350](https://github.com/aymwoo/OpenLearn-Next-V2/issues/350)**；临时解法：补空 `src/frontend.tsx` |
 | 3.6.0–3.7.4（SDK） | 第三方 `import('@openlearn/plugin-sdk')` / `import { createMockContext }` 报 `ERR_MODULE_NOT_FOUND: Cannot find package 'uuid'` | SDK 打包依赖缺陷（dist 含 `from "uuid"` 但未声明） | **已提 Issue [#349](https://github.com/aymwoo/OpenLearn-Next-V2/issues/349)**；临时解法 `npm i -D uuid zod` |
 | 0.7.3 | `npm i openlearn-next@0.7.3` 报 `EUNSUPPORTEDPROTOCOL workspace:*` | 制品协议缺陷 | **该版本已弃用**，升到 0.7.4 |
 

@@ -192,6 +192,9 @@ curl -s -b cookie.txt http://localhost:3000/api/plugins | jq '.[] | {id, executi
 | 有 `frontend.js` 但 404（文件缺失/路由未挂） | 激活抛 `Failed to fetch frontend.js ... HTTP 404`，贡献同样注册不到 |
 | 只有 `classroomTools` | 按钮可能仍出现（宿主部分消费端直读 manifest），但依赖 store 的入口不会出现 → 半残，更难查 |
 
+**已上报**：[Issue #350](https://github.com/aymwoo/OpenLearn-Next-V2/issues/350)（平台侧：贡献注册门禁 + fetch 顺序）。
+修复落地前，所有插件按下面的口径执行。
+
 **判定口径**
 
 - 只要声明了 **任何 `contributes` 或 `view`**，就必须提供 `src/frontend.tsx`（空导出 `{ activate, deactivate }` 即可）。
