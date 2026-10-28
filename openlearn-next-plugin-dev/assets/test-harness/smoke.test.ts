@@ -10,6 +10,7 @@
  * 跑：npx vitest run --config test-harness/vitest.config.ts
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { createMockContext } from '@openlearn/plugin-test-kit';
 // @ts-expect-error 插件源码是 TS，vitest 负责转译
@@ -20,6 +21,17 @@ const PLUGIN = plugin as {
   activate(ctx: any): Promise<void>;
   deactivate?(): Promise<void>;
 };
+
+/** 读取设计契约（没有则返回 null，老项目不受影响） */
+function readContract(): Record<string, any> | null {
+  try {
+    return JSON.parse(readFileSync(new URL('../plugin.contract.json', import.meta.url), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+const CONTRACT = readContract();
 
 /** 用 ActionDescriptor.inputSchema 造一份「最小但合法」的 payload */
 function buildPayload(schema: any): Record<string, unknown> {
@@ -157,5 +169,69 @@ describe('停用清理（宿主兜底之外的资源）', () => {
       expect(set.size, `事件 ${eventType} 存在重复订阅：停用未 unsubscribe`).toBeLessThanOrEqual(1);
     }
     await PLUGIN.deactivate?.();
+  });
+});
+
+
+/**
+ * 契约驱动：白板挂件「下发」必须真的写白板。
+ *
+ * 这是「教师点了按钮，学生端什么也看不到」的第一大根因：
+ * handler 只 return 内存对象，没有派发 whiteboard.draw。
+ */
+describe('白板挂件下发（contract.whiteboardWidget）', () => {
+  const enabled = CONTRACT?.whiteboardWidget === true;
+
+  it.skipIf(!enabled)('classroomTools 的每个命令最终都会派发 whiteboard.draw(type:"plugin")', async () => {
+    const ctx = await boot();
+    const handlers = (ctx.services.commandBus as any).handlers as Map<string, any>;
+    const actions = [...((ctx.services.actionRegistry as any).actions as Map<string, any>).values()] as any[];
+    const tools: any[] = (PLUGIN.manifest.classroomTools as any[]) ?? [];
+    expect(tools.length, 'contract 声明了白板挂件，但 manifest.classroomTools 没有任何入口').toBeGreaterThan(0);
+
+    const failures: string[] = [];
+    for (const tool of tools) {
+      const type = String(tool.commandType);
+      const handler = handlers.get(type);
+      if (!handler) {
+        failures.push(`${type} → 没有注册 handler`);
+        continue;
+      }
+      const descriptor = actions.find((a) => a.commandType === type);
+      try {
+        await handler.execute({
+          id: `test-${type}`,
+          type,
+          payload: { ...buildPayload(descriptor?.inputSchema), lessonId: 'lesson-test' },
+          actorId: 'user:test-teacher',
+          timestamp: Date.now(),
+        });
+      } catch (err) {
+        failures.push(`${type} → 执行抛错 ${classify(err)}`);
+        continue;
+      }
+      const calls = (ctx.services.commandBus as any).executeCalls as any[];
+      const draw = calls.filter((c) => c?.type === 'whiteboard.draw').pop();
+      if (!draw) {
+        failures.push(`${type} → 没有派发 whiteboard.draw（只 return 了内存对象）`);
+        continue;
+      }
+      const payload = draw.payload ?? {};
+      if (payload.type !== 'plugin') failures.push(`${type} → whiteboard.draw payload.type 应为 'plugin'，实际 ${payload.type}`);
+      const data = typeof payload.data === 'string' ? (() => { try { return JSON.parse(payload.data); } catch { return null; } })() : payload.data;
+      if (!data?.teacherWidgetId) failures.push(`${type} → 白板元素缺 teacherWidgetId`);
+      if (!data?.studentWidgetId) failures.push(`${type} → 白板元素缺 studentWidgetId（学生端只会看到「正在加载」）`);
+    }
+    expect(failures, failures.join('\n')).toEqual([]);
+  });
+
+  it.skipIf(!enabled)('contract.executionMode 必须是 inline（process 无法渲染组件）', () => {
+    expect(CONTRACT?.executionMode, 'whiteboardWidget 需要 inline：自定义组件无法跨 postMessage').toBe('inline');
+  });
+
+  it.skipIf(!enabled)('contract.studentVisible 为 true 时已声明学生侧槽位', () => {
+    expect(CONTRACT?.studentVisible, '白板挂件必须让学生可见').toBe(true);
+    const slots: string[] = (CONTRACT?.slots as string[]) ?? [];
+    expect(slots.some((s) => s.startsWith('student.')), `缺少 student.* 槽位：${slots.join(', ')}`).toBe(true);
   });
 });

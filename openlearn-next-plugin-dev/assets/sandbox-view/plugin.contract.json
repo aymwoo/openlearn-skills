@@ -1,0 +1,8 @@
+{
+  "executionMode": "process",
+  "uiChannel": "sandbox-view",
+  "studentVisible": true,
+  "whiteboardWidget": false,
+  "slots": ["teacher.tab", "student.view"],
+  "viewFiles": ["storage/teacher.html", "storage/student.html"]
+}

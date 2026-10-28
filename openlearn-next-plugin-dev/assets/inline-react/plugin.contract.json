@@ -1,0 +1,8 @@
+{
+  "executionMode": "inline",
+  "uiChannel": "inline-react",
+  "studentVisible": true,
+  "whiteboardWidget": true,
+  "slots": ["teacher.dashboard.widget", "student.view"],
+  "trustedInlineAllowlistEntry": "{{pluginId}}"
+}

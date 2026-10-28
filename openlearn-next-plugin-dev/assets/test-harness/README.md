@@ -45,11 +45,33 @@ npm test                # L1+L2：契约测试 + 冒烟测试
 
 | 文件 | 层 | 抓的问题 | 典型报错 |
 |------|----|---------|---------|
-| `static-check.mjs` | L0 静态 | manifest 必填项 / 权限串捏造 / 三件套缺失 / 裸导入 / 前端越界 / process 禁用 API / DB 表名与分号 / 密钥泄漏 / type-only 误用 | `PAIR_ACTION_MISSING` `CAP_UNKNOWN` `FRONTEND_REACT` `DB_SCHEMA_SEMICOLON` |
+| `static-check.mjs` | L0 静态 | manifest 必填项 / 权限串捏造 / 三件套缺失 / **UI 通道（executionMode·槽位真伪·白名单·白板挂件闭环·`view` 页面）** / 裸导入 / 前端越界 / process 禁用 API / DB 契约 / 密钥泄漏 | `UI_MODE_MISMATCH` `SLOT_UNKNOWN` `WHITEBOARD_WIDGET_NEEDS_INLINE` `VIEW_BRIDGE_MISSING` `DB_SCHEMA_SEMICOLON` |
+| `slot-registry.json` | 平台真源 | v0.7.7 的 122 个真实扩展槽位 + 5 个 `view` 槽位（由 `src/plugin-host/types.ts` 生成） | `SLOT_UNKNOWN` |
 | `contract.test.ts` | L1 契约 | manifest 声明的 commandType 是否真有 handler + ActionDescriptor；handler 是否为 `{execute}` 对象；`capabilityRequired` 是否真实；`inputSchema` 类型名大写 | `COMMAND_NOT_REGISTERED` / `handler.execute is not a function` / `DataCloneError` |
-| `smoke.test.ts` | L2 冒烟 | 重复激活的状态泄漏；命令执行期 `TypeError`；REST 路由 5xx；事件 payload 形状；停用未退订 | `Cannot read properties of undefined` / 订阅翻倍 |
+| `smoke.test.ts` | L2 冒烟 | 重复激活的状态泄漏；命令执行期 `TypeError`；REST 路由 5xx；事件 payload 形状；停用未退订；**契约驱动：白板挂件必须真的派发 `whiteboard.draw`** | `Cannot read properties of undefined` / 订阅翻倍 / `没有派发 whiteboard.draw` |
 
 L0 是**启发式**（正则 + 注释遮蔽），用于秒级反馈；L1/L2 才是语义保证。两者一起跑，不要只留一个。
+
+### 设计契约 `plugin.contract.json`
+
+放在插件根目录，由需求阶段确定（模板：`references/ui-channel-decision.md` §6）。L0/L2 用它判断：
+
+```jsonc
+{
+  "executionMode": "process",           // process | inline
+  "uiChannel": "sandbox-view",          // declarative | polling | sandbox-view | inline-react
+  "studentVisible": true,
+  "whiteboardWidget": false,
+  "slots": ["teacher.tab", "student.view"],
+  "viewFiles": ["storage/teacher.html", "storage/student.html"]   // sandbox-view 时必填
+}
+```
+
+| 没写契约会怎样 | 写了契约能拦住什么 |
+|---|---|
+| L0 只能给 `CONTRACT_MISSING` 警告，无法判断「process 里写 React」「studentVisible 却只有 teacher.tab」 | `UI_MODE_MISMATCH` / `CONTRACT_MODE_CONFLICT` / `STUDENT_ENTRY_MISSING` / `WHITEBOARD_*` / `VIEW_*` |
+
+> 老项目可以先不写契约：L0 仍会跑基础检查，只是 UI 通道类规则退化为 warn。
 
 ---
 
@@ -74,6 +96,8 @@ L0 是**启发式**（正则 + 注释遮蔽），用于秒级反馈；L1/L2 才�
 2. **不要把测试改成迎合实现**：断言失败先判断是实现错还是断言错，别直接放宽期望。
 3. **不要在测试里连真实数据库 / 真实网络**：需要外部依赖时用 `customTokens` 注入桩。
 4. **不要提交带真实 API Key / 学生数据的 fixture**：L0 的 `SECRET_LEAK` 会拦，但别依赖它兜底。
+5. **`storage/**` 记得打包**：官方 CLI 只打三件套，`view` 页面必须自写 `pack.mjs` 补进 ZIP
+   （`sandbox-view` 模板已带），否则装上去就是空白面板。
 
 ---
 

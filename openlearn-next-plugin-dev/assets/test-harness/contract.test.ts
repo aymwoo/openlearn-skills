@@ -10,6 +10,7 @@
  * 跑：npx vitest run --config test-harness/vitest.config.ts
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { createMockContext } from '@openlearn/plugin-test-kit';
 // @ts-expect-error 插件源码是 TS，vitest 负责转译；tsc 不检查本目录
@@ -20,6 +21,18 @@ const PLUGIN = plugin as {
   activate(ctx: any): Promise<void>;
   deactivate?(): Promise<void>;
 };
+
+/** 读取设计契约与槽位注册表（缺失时相关用例自动跳过） */
+function readJson(rel: string): any {
+  try {
+    return JSON.parse(readFileSync(new URL(rel, import.meta.url), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+const CONTRACT = readJson('../plugin.contract.json');
+const SLOT_REGISTRY = readJson('./slot-registry.json');
+const REAL_SLOTS = new Set<string>(SLOT_REGISTRY?.slots ?? []);
 
 /** 平台真实权限全集（20 条 RBAC + 3 条仅声明项），见 references/capability-matrix-0.7.md */
 const REAL_CAPS = new Set([
@@ -145,5 +158,33 @@ describe('ActionDescriptor 质量（决定 AI 能否选对 + 授权是否通过�
       }
     }
     expect(bad, `类型名应为 OBJECT / STRING / NUMBER / INTEGER / BOOLEAN / ARRAY：${bad.join(', ')}`).toEqual([]);
+  });
+});
+
+
+describe('UI 通道契约（plugin.contract.json）', () => {
+  it('契约中的槽位都存在于平台真实注册表', () => {
+    if (!CONTRACT) return;
+    if (REAL_SLOTS.size === 0) return;
+    const slots: string[] = Array.isArray(CONTRACT.slots) ? CONTRACT.slots : [];
+    const unknown = slots.filter((s) => !s.startsWith('anchor:') && !REAL_SLOTS.has(s));
+    expect(unknown, `槽位不在平台注册表（写错不会报错，只会永远不渲染）：${unknown.join(', ')}`).toEqual([]);
+  });
+
+  it('executionMode 与 uiChannel 自洽', () => {
+    if (!CONTRACT) return;
+    const { executionMode, uiChannel } = CONTRACT;
+    if (executionMode === 'process') {
+      expect(uiChannel, 'process 模式下不能是 inline-react：自定义组件无法渲染').not.toBe('inline-react');
+    }
+    if (executionMode === 'inline' && uiChannel === 'inline-react') {
+      expect(CONTRACT.trustedInlineAllowlistEntry, 'inline 需要宿主白名单条目（id 前缀不构成信任）').toBeTruthy();
+    }
+  });
+
+  it('学生可见时存在学生侧槽位', () => {
+    if (!CONTRACT || CONTRACT.studentVisible !== true) return;
+    const slots: string[] = Array.isArray(CONTRACT.slots) ? CONTRACT.slots : [];
+    expect(slots.some((s) => s.startsWith('student.')), `studentVisible=true 但没有 student.* 槽位：${slots.join(', ')}`).toBe(true);
   });
 });

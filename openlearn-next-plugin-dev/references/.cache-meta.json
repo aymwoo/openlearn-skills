@@ -59,5 +59,29 @@
       "dumped": true,
       "note": "槽位清单（115 个）与真实 props 注入模型"
     }
+  },
+  "watchlist": {
+    "purpose": "文档与源码不一致的高风险点；远端文档更新后先跑 scripts/platform-drift-check.sh 再逐条复核 references/platform-change-watchlist.md",
+    "checkedAt": "2026-10-28",
+    "platformCommit": "b03e216",
+    "slotCount": 122,
+    "viewSlots": [
+      "teacher.tab",
+      "teacher.panel",
+      "teacher.dashboard.widget",
+      "student.view",
+      "student.lesson.tool"
+    ],
+    "installExtractPrefixes": [
+      "storage/"
+    ],
+    "cliPackedFiles": [
+      "index.js",
+      "manifest.json",
+      "frontend.js"
+    ],
+    "readmeMentionsTrustedInline": 0,
+    "allowlistWildcard": true,
+    "whiteboardCardSupportsView": false
   }
 }

@@ -13,7 +13,8 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = process.argv.find((a) => !a.startsWith('-') && a !== process.argv[0] && a !== process.argv[1]) ?? process.cwd();
 const JSON_OUT = process.argv.includes('--json');
@@ -41,6 +42,14 @@ const add = (level, code, message, file) => results.push({ level, code, message,
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'test-harness', 'tests', 'test', '__tests__', 'coverage', '.cache']);
 const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
+
+// ── 平台真源：扩展槽位注册表（由 assets/test-harness/slot-registry.json 提供）──
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+const REGISTRY = (() => {
+  const raw = read(join(HERE, 'slot-registry.json'));
+  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+})();
+const REAL_SLOTS = new Set(REGISTRY.slots ?? []);
 
 /** 从 idx 处的引号开始读取一个字符串/模板字面量 */
 function readStringAt(text, idx) {
@@ -149,6 +158,9 @@ function parseSourceManifest(text) {
     engines: enginesBlock ? { openlearn: enginesBlock.match(/openlearn\s*:\s*['"\`]([^'"\`]+)['"\`]/)?.[1] } : undefined,
     capabilitiesProposed: arr('capabilitiesProposed'),
     __declaredTypes: [...b.matchAll(/commandType\s*:\s*['"\`]([^'"\`]+)['"\`]/g)].map((m) => m[1]),
+    __viewPaths: [...b.matchAll(/view\s*:\s*['"`]([^'"`]+)['"`]/g)].map((m) => m[1]),
+    // 源码推导时无法可靠解析 contributes 的键，退化为「在 manifest 块里出现的已知槽位名」
+    __declaredSlots: [...REAL_SLOTS].filter((slot) => b.includes(`'${slot}'`) || b.includes(`"${slot}"`)),
   };
 }
 
@@ -165,6 +177,10 @@ const srcDir = join(ROOT, 'src');
 const srcFiles = walk(srcDir);
 if (srcFiles.length === 0) add('warn', 'NO_SRC', '未找到 src/，按纯 JS 插件继续（源码级规则将跳过）');
 const srcText = srcFiles.map((f) => `\n//# ${f}\n${maskComments(read(f) ?? '')}`).join('\n');
+
+// 前端产物/源码（用于 UI 通道判定；注释已遮蔽，避免文档示例误报）
+const fePath = [join(ROOT, 'dist', 'frontend.js'), join(ROOT, 'src', 'frontend.tsx'), join(ROOT, 'src', 'frontend.ts')].find((p) => existsSync(p));
+const feCode = fePath ? maskComments(read(fePath) ?? '') : '';
 
 if (manifest) {
   if (!manifest.main) add('error', 'MANIFEST_MAIN', 'manifest.main 缺失（manifestSchema 为 min(1)，插件会装不上）', manifestPath);
@@ -190,6 +206,18 @@ if (manifest) {
   if (existsSync(join(ROOT, 'dist')) && !existsSync(distIndex)) add('error', 'DIST_ENTRY_MISSING', 'dist/index.js 不存在（构建未完成或产物被移动）', join(ROOT, 'dist'));
   if (manifest.main && existsSync(join(ROOT, 'dist')) && !existsSync(join(ROOT, 'dist', manifest.main))) add('error', 'DIST_MAIN_MISMATCH', `dist/ 下找不到 manifest.main 指向的 ${manifest.main}`, join(ROOT, 'dist'));
 }
+
+const contractPath = join(ROOT, 'plugin.contract.json');
+let contract = null;
+if (existsSync(contractPath)) {
+  try { contract = JSON.parse(read(contractPath)); add('ok', 'CONTRACT_FOUND', `设计契约: ${relative(ROOT, contractPath)}`, contractPath); }
+  catch (e) { add('error', 'CONTRACT_INVALID', `plugin.contract.json 不是合法 JSON：${e.message}`, contractPath); }
+} else {
+  add('warn', 'CONTRACT_MISSING', '缺少 plugin.contract.json：UI 通道/执行模式无法自动校验（模板见 references/ui-channel-decision.md §6）', ROOT);
+}
+
+const mode = contract?.executionMode;
+const uiChannel = contract?.uiChannel;
 
 // ── 2. 命令三件套配对 ───────────────────────────────────────────────────
 const norm = (s) => String(s).replace(/^['"`]|['"`]$/g, '').trim();
@@ -307,14 +335,16 @@ for (const f of srcFiles) {
 }
 
 // ── 4. 前端产物边界 ─────────────────────────────────────────────────────
-const frontendCandidates = [join(ROOT, 'dist', 'frontend.js'), join(ROOT, 'src', 'frontend.tsx'), join(ROOT, 'src', 'frontend.ts')];
-const fe = frontendCandidates.find((p) => existsSync(p));
+const fe = fePath;
 if (fe) {
-  const t = maskComments(read(fe) ?? '');
+  const t = feCode;
   const rel = relative(ROOT, fe);
-  if (/^\s*import\s+React\b|\bfrom\s+['"]react['"]|from\s+['"]react-dom/.test(t)) add('error', 'FRONTEND_REACT', `${rel} 引用了 React：远程前端跑在沙箱 iframe，HostSharedDeps 为 undefined，激活必失败`, fe);
+  if (/^\s*import\s+React\b|\bfrom\s+['"]react['"]|from\s+['"]react-dom/.test(t)) add('error', 'FRONTEND_REACT', `${rel} 引用了 React：① process/worker 下沙箱 iframe 无 HostSharedDeps，激活必失败；② inline 下 CLI 的裸说明符守卫也会让构建失败。正解是 globalThis.HostSharedDeps.React（见 references/ui-channel-decision.md §4）`, fe);
   if (/\bdocument\.|\bwindow\.|\bfetch\s*\(/.test(t)) add('error', 'FRONTEND_DOM', `${rel} 使用 document/window/fetch：沙箱 CSP connect-src 'none'，且 iframe 内无宿主 DOM`, fe);
-  if (/\bcomponent\s*:/.test(t)) add('error', 'FRONTEND_COMPONENT', `${rel} 传 component：postMessage 无法克隆函数 → DataCloneError（远程插件没有自定义 UI 通道）`, fe);
+  if (/\bcomponent\s*:/.test(t)) {
+    if (mode === 'process') add('error', 'FRONTEND_COMPONENT', `${rel} 传 component，但契约 executionMode=process：函数无法跨 postMessage → DataCloneError / 组件永不渲染`, fe);
+    else if (!mode) add('warn', 'FRONTEND_COMPONENT', `${rel} 传 component，但没有 plugin.contract.json 判定执行模式；process 下会静默失败`, fe);
+  }
   for (const m of t.matchAll(/(?:from|require\(|import\()\s*['"]([^'"]+)['"]/g)) {
     const spec = m[1];
     if (!spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('node:')) {
@@ -369,6 +399,157 @@ const SECRETS = [
 for (const f of [...srcFiles, ...walk(join(ROOT, 'dist'), [], new Set(['node_modules', '.git']))]) {
   const t = read(f) ?? '';
   for (const [re, why] of SECRETS) if (re.test(t)) add('error', 'SECRET_LEAK', `${relative(ROOT, f)} 命中${why}：不得进入源码或产物`, f);
+}
+
+// ── 7. UI 通道契约（executionMode / 槽位 / 白名单 / 白板挂件）──────────────
+// 这一组专治「教师点了按钮，学生端什么也看不到」：
+//   process 模式写 React / 编造槽位 / 只声明教师端 / 只 return 不写白板 / 以为 id 前缀能换信任
+if (REAL_SLOTS.size === 0) add('warn', 'SLOT_REGISTRY_MISSING', 'test-harness/slot-registry.json 缺失，槽位真伪无法校验', HERE);
+
+const declaredCaps = Array.isArray(manifest?.capabilitiesProposed) ? manifest.capabilitiesProposed : [];
+const manifestSlots = new Set([
+  ...Object.keys(manifest?.contributes ?? {}),
+  ...(manifest?.__declaredSlots ?? []),
+]);
+const contractSlots = Array.isArray(contract?.slots) ? contract.slots : [];
+const allSlots = new Set([...manifestSlots, ...contractSlots]);
+
+for (const slot of allSlots) {
+  if (slot.startsWith('anchor:')) continue; // anchor:{区域}:{锚点id} 为动态模式
+  if (REAL_SLOTS.size && !REAL_SLOTS.has(slot)) {
+    add('error', 'SLOT_UNKNOWN', `槽位 '${slot}' 不在平台真实注册表（v${REGISTRY.platformVersion} 共 ${REAL_SLOTS.size} 个）；写错不会报错，只会永远不渲染`, contractPath);
+  }
+}
+if (contract && contractSlots.length) {
+  if (uiChannel === 'declarative') {
+    // 声明式槽位由宿主按 manifest 渲染 → 必须在 manifest 里声明
+    for (const slot of contractSlots) {
+      if (!slot.startsWith('anchor:') && !manifestSlots.has(slot)) add('error', 'SLOT_NOT_DECLARED', `契约声明了声明式槽位 '${slot}'，但 manifest.contributes 未声明 → 宿主不会渲染`, manifestPath);
+    }
+  } else if (uiChannel === 'inline-react' || uiChannel === 'polling') {
+    // 运行期注册的槽位（React 组件或数据型）→ 在 frontend 里应能找到 registerExtensionPoint 调用
+    for (const slot of contractSlots) {
+      const registered = new RegExp(`registerExtensionPoint\\(\\s*['"\`]${slot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`).test(feCode);
+      if (!registered) add('error', 'SLOT_NOT_REGISTERED', `契约声明了槽位 '${slot}'，但 frontend 没有 registerExtensionPoint('${slot}', …) → 该容器永远空着`, fePath);
+    }
+  }
+  for (const slot of manifestSlots) {
+    if (!contractSlots.includes(slot) && !slot.startsWith('anchor:')) add('warn', 'SLOT_UNDECLARED_IN_CONTRACT', `manifest 声明了槽位 '${slot}'，契约里没有 → 设计漂移，补进 contract.slots`, manifestPath);
+  }
+}
+
+const usesComponent = /registerExtensionPoint\([\s\S]{0,400}?component\s*:/.test(feCode) || /\bcomponent\s*:/.test(feCode);
+const usesReactImport = /^\s*import\s+React\b|\bfrom\s+['"]react(?:-dom)?['"]/.test(feCode);
+const usesHostDeps = /HostSharedDeps/.test(feCode);
+const pluginId = String(manifest?.id ?? '');
+const whiteboardWidget = contract?.whiteboardWidget === true;
+const studentVisible = contract?.studentVisible === true;
+
+if (contract && !['process', 'inline'].includes(mode)) {
+  add('error', 'CONTRACT_MODE_INVALID', `contract.executionMode 必须是 'process' 或 'inline'，当前：${mode ?? '(缺失)'}`, contractPath);
+}
+if (manifest && 'executionMode' in (manifest ?? {})) {
+  add('warn', 'MANIFEST_MODE_IGNORED', 'manifest.executionMode 不参与判定：实际模式由服务端 resolvePluginExecutionMode() 写入 plugins.execution_mode', manifestPath);
+}
+
+if (mode === 'process') {
+  if (usesComponent) add('error', 'UI_MODE_MISMATCH', '契约 executionMode=process，但 frontend 注册了 component：函数无法跨 postMessage，组件不会渲染（且 DataCloneError / 静默丢失）', fePath);
+  if (uiChannel === 'inline-react') add('error', 'CONTRACT_MODE_CONFLICT', "contract.uiChannel='inline-react' 与 executionMode='process' 矛盾：自定义 React UI 必须 inline", contractPath);
+}
+
+if (mode === 'inline') {
+  const entry = contract?.trustedInlineAllowlistEntry;
+  if (!entry) add('error', 'INLINE_TRUST_MISSING', 'executionMode=inline 但缺少 trustedInlineAllowlistEntry：id 前缀不构成信任，必须由宿主 OPENLEARN_TRUSTED_INLINE_PLUGINS 或内置目录放行', contractPath);
+  const allow = process.env.OPENLEARN_TRUSTED_INLINE_PLUGINS;
+  if (entry && allow) {
+    const matched = allow.split(',').map((x) => x.trim()).filter(Boolean).some((pat) => {
+      if (pat === '*') return true;
+      if (pat.endsWith('*')) return pluginId.startsWith(pat.slice(0, -1));
+      return pat === pluginId;
+    });
+    if (!matched) add('error', 'INLINE_NOT_WHITELISTED', `宿主白名单（${allow}）未包含 '${entry}' 或 ${pluginId}：插件会被强制改写成 process，React 不挂载`, contractPath);
+  } else if (entry && !allow) {
+    add('warn', 'INLINE_TRUST_UNVERIFIED', '未读取到 OPENLEARN_TRUSTED_INLINE_PLUGINS：无法验证宿主是否放行（把宿主 .env 导入环境变量后可校验）', contractPath);
+  }
+  if (uiChannel === 'inline-react' && usesReactImport) {
+    add('error', 'INLINE_REACT_IMPORT', 'inline 前端也不能写 import React：CLI 3.7.2+ 裸说明符守卫会构建失败；改用 globalThis.HostSharedDeps.React', fePath);
+  }
+  if (uiChannel === 'inline-react' && !usesHostDeps && usesComponent) {
+    add('warn', 'INLINE_REACT_NO_HOSTDEPS', '注册了 component 但没看到 HostSharedDeps：确认 React 来自宿主注入，而不是自己 bundle（否则 Invalid hook call）', fePath);
+  }
+}
+
+if (whiteboardWidget) {
+  if (mode && mode !== 'inline') add('error', 'WHITEBOARD_WIDGET_NEEDS_INLINE', "whiteboardWidget=true 需要 inline：白板挂件由宿主渲染 component，process 模式没有可渲染组件", contractPath);
+  const dispatchesDraw = /whiteboard\.draw/.test(scanText);
+  if (!dispatchesDraw) add('error', 'WHITEBOARD_DRAW_MISSING', "契约声明白板挂件，但源码没有派发 whiteboard.draw：只 return 内存对象，学生端画布上没有元素", 'src/index.ts');
+  if (!/teacherWidgetId/.test(scanText) || !/studentWidgetId/.test(scanText)) add('error', 'WHITEBOARD_WIDGET_ID_MISSING', "whiteboard.draw 的 data 需同时含 teacherWidgetId 与 studentWidgetId（JSON 字符串），否则一侧永远显示「正在加载」", 'src/index.ts');
+  if (!declaredCaps.includes('whiteboard:write')) add('error', 'WHITEBOARD_CAP_MISSING', "派发 whiteboard.draw 需要 capabilitiesProposed 含 'whiteboard:write'，否则命令 403", manifestPath);
+  if (mode === 'inline' && !/(teacher\.dashboard\.widget|student\.view)/.test(feCode)) add('error', 'WHITEBOARD_RENDERER_MISSING', "白板挂件需要注册 teacher.dashboard.widget（教师侧）与 student.view（学生侧）扩展点，id 与 widget id 一致", fePath);
+}
+
+if (studentVisible) {
+  const studentSlots = [...allSlots].filter((x) => x.startsWith('student.'));
+  if (studentSlots.length === 0) add('error', 'STUDENT_ENTRY_MISSING', "契约 studentVisible=true，但没有任何 student.* 槽位：学生端没有渲染容器（白板挂件用 student.view）", contractPath);
+  if (whiteboardWidget && !allSlots.has('student.view')) add('error', 'STUDENT_WIDGET_SLOT_MISSING', "白板挂件要让学生看到，必须声明 student.view（教师侧配 teacher.dashboard.widget）", contractPath);
+}
+
+// 声明式 UI 契约却写了组件 → 设计漂移
+if (mode === 'inline' && uiChannel === 'declarative' && usesComponent) {
+  add('warn', 'UI_CHANNEL_DRIFT', "contract.uiChannel='declarative' 但前端注册了 component：要么改契约，要么去掉组件", contractPath);
+}
+
+
+// ── 7b. 沙箱 HTML 视图（view，v0.7.6 双轨制 UI）─────────────────────────
+// process 插件唯一的自定义 UI 通道：manifest 条目写 view: 'storage/x.html'，宿主用不透明源 iframe 渲染。
+const viewPaths = new Set([
+  ...(manifest?.__viewPaths ?? []),
+  ...(Array.isArray(contract?.viewFiles) ? contract.viewFiles : []),
+]);
+const viewSlotsUsed = new Set();
+for (const [slotName, entries] of Object.entries(manifest?.contributes ?? {})) {
+  if (!Array.isArray(entries)) continue;
+  for (const e of entries) {
+    if (e && typeof e.view === 'string') { viewPaths.add(e.view); viewSlotsUsed.add(slotName); }
+  }
+}
+
+const VIEW_SLOTS = new Set(REGISTRY.viewSlots ?? ['teacher.tab', 'teacher.panel', 'teacher.dashboard.widget', 'student.view', 'student.lesson.tool']);
+
+if (contract?.uiChannel === 'sandbox-view' && viewPaths.size === 0) {
+  add('error', 'VIEW_FILES_MISSING', "contract.uiChannel='sandbox-view' 但未声明任何 view 页面（contract.viewFiles / manifest 条目 view）", contractPath);
+}
+
+for (const v of viewPaths) {
+  if (/^\/|\\|:\/\/|\.\.|^(javascript|data|blob):/i.test(v)) {
+    add('error', 'VIEW_PATH_UNSAFE', `view 路径非法：'${v}'（宿主 sanitizeViewPath 会拒绝：禁绝对路径 / .. / 协议）`, contractPath);
+    continue;
+  }
+  if (!v.startsWith('storage/')) {
+    add('error', 'VIEW_NOT_IN_STORAGE', `view 路径必须以 storage/ 开头：'${v}'。安装器只解压 storage/**（install.ts），docs 里的 "views/index.html" 示例对 ZIP 插件是错的 → 装上去 404 / 空白面板`, contractPath);
+  }
+  const file = join(ROOT, v);
+  if (!existsSync(file)) {
+    add('error', 'VIEW_FILE_MISSING', `view 指向的文件不存在：${v}（安装后会 404 / 空白面板）`, file);
+    continue;
+  }
+  const html = read(file) ?? '';
+  if (!html.includes('/plugin-sandbox/view-bridge.js')) {
+    add('error', 'VIEW_BRIDGE_MISSING', `${v} 未引入 /plugin-sandbox/view-bridge.js：页面拿不到 invokeCommand / api / toast`, file);
+  }
+  if (/<script[^>]+src=["']https?:/i.test(html)) {
+    add('warn', 'VIEW_REMOTE_SCRIPT', `${v} 引用了远程脚本：校内离线/白名单环境可能加载失败，建议随包内置`, file);
+  }
+}
+if (viewPaths.size > 0) {
+  const pkg = (() => { try { return JSON.parse(read(join(ROOT, 'package.json')) ?? '{}'); } catch { return {}; } })();
+  const hasPack = Object.keys(pkg.scripts ?? {}).some((k) => /pack|zip|postbuild/.test(k));
+  if (!hasPack) add('warn', 'VIEW_PACK_HINT', '官方 CLI 只打 manifest.json/index.js/frontend.js：storage/** 需自写打包脚本补进 ZIP（见 references/ui-channel-decision.md §4.5.4）', join(ROOT, 'package.json'));
+}
+for (const slot of viewSlotsUsed) {
+  if (!VIEW_SLOTS.has(slot)) {
+    add('warn', 'VIEW_SLOT_UNSUPPORTED', `槽位 '${slot}' 未在 schema 中显式声明 view：可能透传但不保证长期可用，优先用 ${[...VIEW_SLOTS].join(' / ')}`, manifestPath);
+  }
 }
 
 // ── 输出 ────────────────────────────────────────────────────────────────

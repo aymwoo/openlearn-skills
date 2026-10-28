@@ -22,7 +22,7 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 # ── 1. 模板必备字段 ────────────────────────────────────────────────────────
 head_ "1. 模板必备字段（manifest.main / engines.openlearn）"
 
-for tpl in server-only full-stack frontend-only; do
+for tpl in server-only full-stack frontend-only inline-react sandbox-view; do
   idx="assets/$tpl/src/index.ts"
   [ -f "$idx" ] || { bad "$tpl: 缺少 src/index.ts"; continue; }
 
@@ -37,6 +37,8 @@ for tpl in server-only full-stack frontend-only; do
     server-only)   exp=">=0.2.5" ;;
     full-stack)    exp=">=0.7.0" ;;
     frontend-only) exp=">=0.7.0" ;;
+    inline-react)  exp=">=0.7.0" ;;
+    sandbox-view)  exp=">=0.7.6" ;;
     *)             exp="" ;;
   esac
   if [ -n "$exp" ] && grep -qE "engines: *\{ *openlearn: *'${exp}'" "$idx"; then
@@ -55,7 +57,7 @@ done
 # ── 2. commandType ↔ ActionDescriptor 配对（内核 default-deny） ───────────
 head_ "2. commandType ↔ ActionDescriptor 配对（default-deny）"
 
-for tpl in server-only full-stack frontend-only; do
+for tpl in server-only full-stack frontend-only inline-react sandbox-view; do
   idx="assets/$tpl/src/index.ts"
   [ -f "$idx" ] || continue
 
@@ -108,6 +110,36 @@ for tpl in full-stack frontend-only; do
     ok "$tpl: frontend.tsx 无 socket / fetch（符合沙箱无网络约束）"
   fi
 done
+
+# ── 3b. inline-react：React 只能来自 HostSharedDeps ────────────────────────
+head_ "3b. inline-react 模板：不写 import React（否则 CLI 裸说明符守卫构建失败）"
+
+fe="assets/inline-react/src/frontend.tsx"
+if [ -f "$fe" ]; then
+  if grep -qE "^\s*import\s+React|from ['\"]react['\"]" "$fe"; then
+    bad "inline-react: frontend.tsx 出现 import React（构建必失败）"
+  else
+    ok "inline-react: 无 import React"
+  fi
+  grep -q "HostSharedDeps" "$fe" && ok "inline-react: 通过 HostSharedDeps 取宿主 React" || bad "inline-react: 未使用 HostSharedDeps"
+  grep -q "component:" "$fe" && ok "inline-react: 注册了 component" || bad "inline-react: 未注册 component"
+else
+  bad "inline-react: 缺少 src/frontend.tsx"
+fi
+
+# ── 3c. sandbox-view：view 文件存在且引了桥接脚本 ─────────────────────────
+head_ "3c. sandbox-view 模板：view / 桥接 / 打包脚本"
+
+sv="assets/sandbox-view"
+for f in storage/teacher.html storage/student.html; do
+  if [ -f "$sv/$f" ] && grep -q "/plugin-sandbox/view-bridge.js" "$sv/$f"; then
+    ok "sandbox-view: $f 存在且引入桥接脚本"
+  else
+    bad "sandbox-view: $f 缺失或未引入 view-bridge.js"
+  fi
+done
+grep -q '"view"' "$sv/plugin.contract.json" 2>/dev/null || grep -q 'viewFiles' "$sv/plugin.contract.json" && ok "sandbox-view: 契约声明了 viewFiles" || bad "sandbox-view: 契约缺 viewFiles"
+[ -f "$sv/scripts/pack.mjs" ] && ok "sandbox-view: 带 pack.mjs（补 storage/**）" || bad "sandbox-view: 缺 scripts/pack.mjs"
 
 # ── 4. 跨插件服务契约（provides / contracts）─────────────────────────────
 head_ "4. 跨插件服务契约（provides ↔ contracts）"

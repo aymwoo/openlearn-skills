@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{pluginName}} · 教师</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 13px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 16px; }
+    h1 { font-size: 15px; margin: 0 0 12px; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; }
+    input[type="text"] { flex: 1; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 10px; font: inherit; }
+    button { border: 1px solid #6366f1; background: #6366f1; color: #fff; border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+    li { background: #fef9c3; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 10px; }
+    li small { display: block; color: #a16207; font-size: 11px; margin-top: 2px; }
+    .muted { color: #9ca3af; }
+    .error { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>{{pluginName}}（教师）</h1>
+  <div class="row">
+    <input id="text" type="text" placeholder="写一条便签，回车发送" />
+    <button id="send">贴上</button>
+  </div>
+  <ul id="notes"></ul>
+  <p id="hint" class="muted">正在连接宿主…</p>
+
+  <!-- 宿主注入的桥接脚本：必须引入，否则拿不到 invokeCommand / api / toast -->
+  <script src="/plugin-sandbox/view-bridge.js"></script>
+  <script>
+    const bridge = window.OpenLearnPluginBridge;
+    const notesEl = document.getElementById('notes');
+    const hintEl = document.getElementById('hint');
+    const inputEl = document.getElementById('text');
+    const sendEl = document.getElementById('send');
+
+    let lessonId = null;
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+      ));
+    }
+
+    async function refresh() {
+      if (!lessonId) {
+        hintEl.textContent = '请先进入课堂（未拿到 lessonId）';
+        return;
+      }
+      try {
+        const res = await bridge.invokeCommand('list_notes', { lessonId });
+        const notes = Array.isArray(res?.notes) ? res.notes : [];
+        notesEl.innerHTML = notes.length
+          ? notes.map((n) => `<li>${escapeHtml(n.text)}<small>${escapeHtml(n.author)}</small></li>`).join('')
+          : '<li class="muted" style="background:transparent;border:0">还没有便签</li>';
+        hintEl.textContent = `课节 ${lessonId}`;
+      } catch (err) {
+        hintEl.textContent = '加载失败：' + (err && err.message ? err.message : String(err));
+      }
+    }
+
+    async function send() {
+      const text = inputEl.value.trim();
+      if (!text || !lessonId) return;
+      sendEl.disabled = true;
+      try {
+        await bridge.invokeCommand('add_note', { lessonId, text });
+        inputEl.value = '';
+        await refresh();
+      } catch (err) {
+        bridge.ui.showToast('发送失败：' + (err && err.message ? err.message : String(err)), 'error');
+      } finally {
+        sendEl.disabled = false;
+      }
+    }
+
+    bridge.onInit((ctx) => {
+      lessonId = ctx.lessonId || null;
+      document.documentElement.lang = ctx.lang || 'zh-CN';
+      refresh();
+      setInterval(refresh, 3000); // 沙箱内无推送，统一轮询
+    });
+    bridge.onContextUpdate((ctx) => {
+      lessonId = ctx.lessonId || null;
+      refresh();
+    });
+
+    sendEl.addEventListener('click', send);
+    inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+
+    // 高度自适应：宿主按这个高度撑开容器
+    new ResizeObserver(() => bridge.ui.resize(document.body.scrollHeight)).observe(document.body);
+  </script>
+</body>
+</html>

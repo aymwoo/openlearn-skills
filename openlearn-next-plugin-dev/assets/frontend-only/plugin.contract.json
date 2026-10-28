@@ -1,0 +1,7 @@
+{
+  "executionMode": "process",
+  "uiChannel": "polling",
+  "studentVisible": false,
+  "whiteboardWidget": false,
+  "slots": []
+}

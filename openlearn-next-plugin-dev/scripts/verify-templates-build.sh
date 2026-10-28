@@ -56,10 +56,10 @@ substitute() {
   python3 -c "
 import pathlib
 vals = {'name':'demo-x','pluginId':'@demo/demo-x','pluginName':'Demo X',
-        'description':'demo','author':'demo','sdkVersion':'3.7.1',
+        'description':'demo','author':'demo','sdkVersion':'3.7.4',
         'commandPrefix':'demox','toolId':'demo-tool','toolName':'Demo Tool','tabId':'demo-tab'}
 for p in pathlib.Path('.').rglob('*'):
-    if p.is_file() and p.suffix in {'.ts','.tsx','.json'}:
+    if p.is_file() and p.suffix in {'.ts','.tsx','.json','.html','.mjs'}:
         t = p.read_text()
         for k, v in vals.items():
             t = t.replace('{{' + k + '}}', v)
@@ -67,7 +67,7 @@ for p in pathlib.Path('.').rglob('*'):
 "
 }
 
-for tpl in server-only full-stack frontend-only; do
+for tpl in server-only full-stack frontend-only inline-react sandbox-view; do
   printf '\033[1m%s\033[0m\n' "$tpl"
 
   TMP=$(mktemp -d)
@@ -93,6 +93,8 @@ for tpl in server-only full-stack frontend-only; do
     server-only)   exp_eng=">=0.2.5" ;;
     full-stack)    exp_eng=">=0.7.0" ;;
     frontend-only) exp_eng=">=0.7.0" ;;
+    inline-react)  exp_eng=">=0.7.0" ;;
+    sandbox-view)  exp_eng=">=0.7.6" ;;
     *)             exp_eng="" ;;
   esac
   if EXP_ENG="$exp_eng" python3 - <<'PY'

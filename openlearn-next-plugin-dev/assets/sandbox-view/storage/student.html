@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{pluginName}} · 学生</title>
+  <style>
+    body { font: 13px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 12px; }
+    h1 { font-size: 14px; margin: 0 0 10px; }
+    .row { display: flex; gap: 6px; margin-bottom: 10px; }
+    input[type="text"] { flex: 1; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 8px; font: inherit; }
+    button { border: 1px solid #0ea5e9; background: #0ea5e9; color: #fff; border-radius: 6px; padding: 6px 10px; font: inherit; }
+    ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+    li { background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 8px; padding: 6px 8px; }
+    li small { display: block; color: #0369a1; font-size: 11px; margin-top: 2px; }
+    .muted { color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <h1>{{pluginName}}（学生）</h1>
+  <div class="row">
+    <input id="text" type="text" placeholder="写一条便签…" />
+    <button id="send">贴上</button>
+  </div>
+  <ul id="notes"></ul>
+  <p id="hint" class="muted">正在连接宿主…</p>
+
+  <script src="/plugin-sandbox/view-bridge.js"></script>
+  <script>
+    const bridge = window.OpenLearnPluginBridge;
+    const notesEl = document.getElementById('notes');
+    const hintEl = document.getElementById('hint');
+    const inputEl = document.getElementById('text');
+    const sendEl = document.getElementById('send');
+    let lessonId = null;
+
+    const escapeHtml = (v) => String(v).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+
+    async function refresh() {
+      if (!lessonId) { hintEl.textContent = '请先进入课堂'; return; }
+      try {
+        const res = await bridge.invokeCommand('list_notes', { lessonId });
+        const notes = Array.isArray(res?.notes) ? res.notes : [];
+        notesEl.innerHTML = notes.length
+          ? notes.map((n) => `<li>${escapeHtml(n.text)}<small>${escapeHtml(n.author)}</small></li>`).join('')
+          : '<li class="muted" style="background:transparent;border:0">还没有便签</li>';
+        hintEl.textContent = '';
+      } catch (err) {
+        hintEl.textContent = '加载失败：' + (err && err.message ? err.message : String(err));
+      }
+    }
+
+    async function send() {
+      const text = inputEl.value.trim();
+      if (!text || !lessonId) return;
+      sendEl.disabled = true;
+      try {
+        await bridge.invokeCommand('add_note', { lessonId, text });
+        inputEl.value = '';
+        await refresh();
+      } catch (err) {
+        bridge.ui.showToast('发送失败：' + (err && err.message ? err.message : String(err)), 'error');
+      } finally {
+        sendEl.disabled = false;
+      }
+    }
+
+    bridge.onInit((ctx) => {
+      lessonId = ctx.lessonId || null;
+      document.documentElement.lang = ctx.lang || 'zh-CN';
+      refresh();
+      setInterval(refresh, 3000);
+    });
+    bridge.onContextUpdate((ctx) => { lessonId = ctx.lessonId || null; refresh(); });
+
+    sendEl.addEventListener('click', send);
+    inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    new ResizeObserver(() => bridge.ui.resize(document.body.scrollHeight)).observe(document.body);
+  </script>
+</body>
+</html>

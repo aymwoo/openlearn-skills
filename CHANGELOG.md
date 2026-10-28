@@ -6,6 +6,115 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.6.0] - 2026-10-28
+
+新增**平台变更观察清单**与**漂移检测**，专门记录「文档看不出来 / 文档本身写错」的高风险事实。
+起因：平台同日完成 README 精简（#343）与双轨制可视沙箱（#344/#345），很容易让人误判
+「白名单已移除」「view 放 views/ 下」，两种误判都会让插件方案直接跑偏。
+
+### 新增
+
+- `references/platform-change-watchlist.md`：8 条「文档与代码不一致」事实 + 复核 SOP：
+  1. `OPENLEARN_TRUSTED_INLINE_PLUGINS` **仍存在**（`04038ff` 起支持 `*` / `前缀*`），只是 README 不再公开环境变量表；
+  2. `view` 页面**必须以 `storage/` 开头**——安装器只解压 `storage/**`，教程里的 `views/index.html` 示例对 ZIP 插件是错的；
+  3. SDK CLI 仍只打三件套（`index.js`/`manifest.json`/`frontend.js`），`storage/**` 需自写 pack；`sign` 另写 `signature.json`；
+  4. `view` 槽位集合在每个版本可能扩张（当前 5 个显式声明；overlay 走 passthrough 可用但非长期契约）；
+  5. 白板画布卡片（`type:'plugin'`）**仍不支持 `view`**，自定义卡片仍需 inline；
+  6. 槽位是版本相关封闭集合（v0.7.7 = 122）；
+  7. `execution_mode` 以服务端求值 + `GET /api/plugins` 为准，manifest 自述无效；
+  8. 漂移期望值表（脚本与文档共用口径）。
+- `scripts/platform-drift-check.sh`：一键比对 8 项事实（版本 / 槽位数 / view 槽位 / install 解压前缀 /
+  CLI 打包 / README 是否重新公开白名单 / 通配符 / 白板 view 支持）；`--write` 按源码重生成
+  `slot-registry.json`（保留分组），漂移时退出码 1 并指向 watchlist 条目。
+- `references/.cache-meta.json` 新增 `watchlist` 期望值块（单一真源，供脚本读取）。
+
+### 变更
+
+- 第一步探活新增**第五个信号：文档结构变化**（README/教程/CHANGELOG），并规定「先跑漂移检测，再下结论」；
+  附 5 行「观察到 → 不要急着认为 → 以什么为准」对照表。
+- L0 `VIEW_NOT_IN_STORAGE` 由 warn 升级为 **error**（含教程示例错误的说明），避免本地能跑、安装后 404。
+- 模式 A 红线新增：文档冲突以安装器/运行器为准；每次回答前先确认版本信号。
+
+### 已验证
+
+- `platform-drift-check.sh` 8/8 无漂移（平台 v0.7.7 / HEAD `b03e216`）；`--write` 重生成仍为 122 槽位 / 5 view 槽位。
+- `check-templates.sh` 54/54、`verify-test-harness.sh` 46/46（新增 `VIEW_NOT_IN_STORAGE` 反例）。
+
+## [2.5.0] - 2026-10-28
+
+补上第三方插件**自定义 UI 的唯一可行通道**——声明式可视沙箱视图（`view`），
+以及开发 `@ext/lab-help` 时实测出来的四个必踩陷阱。
+
+### Added
+
+- `references/frontend-bridge-0.7.md` 新增 §5.5：
+  - `view` 完整链路（manifest → registerManifestContributions → PluginSandboxIframeView → view-bridge.js → `ctx.http`）
+  - 桥接 API 面清单（`onInit` / `api.get|post|del` / `invokeCommand` / `ui.toast|resize` / `storage.*`）与 `.html` 的 CSP 口径
+  - `view` 路线自检清单 8 条
+- SKILL.md 构建产物预检清单新增 6 条：`view` 存在性断言、`storage/` 前缀、桥接引用与 `ui.resize`、
+  身份敏感请求不走 `invokeCommand`、`api.routes` 限流、静态文件入包。
+
+### Fixed / 记录
+
+- **zod 会 strip `view`**：`contributes["teacher.tab"|"teacher.panel"|"student.view"]` 条目缺 `view` 字段声明，
+  `manifestSchema.parse()` 后字段消失 → 宿主退回占位空态、面板空白且无任何报错。
+  平台 0.7.7 已补字段与回归用例；本文给出自检断言写法（`student.classroom.overlay` 走
+  `frontendSlotEntrySchema(.passthrough)`，本就保留）。
+- **第三方强制 `process` 模式**：`execution-policy` 会把非授信 id 的 inline/worker 一律改写为 process，
+  故 group-points 那套「inline + 真 React 组件」对第三方不成立。
+- **`invokeCommand` 身份丢失**：`/sandbox-command` 用 `pluginActorIdFor()`，`command.actorId` 恒为插件，
+  拿不到 `userId`/`role`；身份敏感业务必须走 `bridge.api.*` → `ctx.http`（`req.actor`）。
+- **机房同出口 IP 打爆限流**：网关限流键含 `clientIp`，40 台机 × 5 秒轮询 = 480/分钟 > 默认 120/分钟，
+  需在 `manifest.api.routes` 逐端点放大。
+- **CLI `pack` 不带静态文件**：只写 `index.js`/`manifest.json`/`frontend.js`；安装侧只解压 `storage/**`，
+  因此 HTML 必须放 `storage/` 且需自写打包脚本（附打包期 view 路径守卫的做法）。
+
+### 同版本补充：UI 通道判定与测试护栏
+
+新增 **UI 通道可行性判定**，并把「教师点了按钮、学生端什么也看不到」这类错配变成可在开发期自动拦截的契约。
+同时修正两处会直接误导方案设计的平台事实错误。
+
+#### 新增
+
+- **UI 通道决策真源** `references/ui-channel-decision.md`：
+  - 四条通道：声明式槽位 / **`view` 沙箱 HTML 页面（v0.7.6+，process 可用）** / inline React / 内置插件；
+  - 执行模式判定（`execution_mode` 由服务端 `resolvePluginExecutionMode()` 计算，manifest 自述无效）；
+  - 白名单机制（支持 `*` / `前缀*`，改完需重启 + 重装/切档位）、122 个真实槽位、白板挂件端到端契约、失败模式对照表。
+- **第二步 P0 门禁**：写代码前必须回答「谁看 / 什么 UI / 什么模式 / 凭什么 inline / 数据怎么到学生端」，
+  并把结论落成 `<插件根>/plugin.contract.json`；不确定就停，不得先写一版注定渲染不出来的 React。
+- **沙箱 HTML `view` 通道**（补上此前缺失的能力）：`contributes.<slot>.view = 'storage/x.html'` +
+  `/plugin-sandbox/view-bridge.js`（toast / resize / invokeCommand / api / storage / 上下文同步），
+  并说明 `storage/**` 必须自写打包脚本补进 ZIP。
+- **新模板**：
+  - `assets/sandbox-view/`：process + `view` 页面（教师 Tab / 学生视图），含 `scripts/pack.mjs`；
+  - `assets/inline-react/`：inline + 白板挂件（`teacher.dashboard.widget` + `student.view` 成对组件，
+    React 只从 `globalThis.HostSharedDeps` 取，附「下发→学生可见」全链路）。
+- **测试护栏升级**：
+  - `assets/test-harness/slot-registry.json`（122 个真实槽位 + 5 个 `view` 槽位，由平台源码生成）；
+  - L0 新增：`UI_MODE_MISMATCH` / `CONTRACT_MODE_CONFLICT` / `SLOT_UNKNOWN` / `SLOT_NOT_DECLARED` /
+    `SLOT_NOT_REGISTERED` / `INLINE_TRUST_MISSING` / `INLINE_NOT_WHITELISTED` / `WHITEBOARD_*` /
+    `STUDENT_ENTRY_MISSING` / `VIEW_PATH_UNSAFE` / `VIEW_FILE_MISSING` / `VIEW_BRIDGE_MISSING` / `VIEW_PACK_HINT`；
+  - L2 新增契约驱动断言：`classroomTools` 命令必须真的派发 `whiteboard.draw(type:'plugin')` 且
+    `data` 同含 `teacherWidgetId` / `studentWidgetId`；
+  - 三个既有模板补 `plugin.contract.json`；`verify-test-harness.sh` 覆盖 5 个模板 + 3 组反例。
+- **排障**：`troubleshooting.md` 新增 `D4-UI`（教师有反应、学生看不到的 8 层检查表）。
+
+#### 修正（会误导方案设计的事实错误）
+
+- **「`@openlearn/` 前缀 + 白名单才可用 React」→ 错**：id 前缀不构成任何信任，`execution-trust-boundary` /
+  `ui-channel-decision` 统一为「内置目录 或 `OPENLEARN_TRUSTED_INLINE_PLUGINS`」。
+- **「第三方插件没有自定义 UI 通道」→ 过时**：v0.7.6 起有 `view` 沙箱 HTML；本 skill 此前只覆盖到 v0.7.0 的边界。
+  只有**白板画布内卡片**和**必须复用宿主 React 的组件**才需要 inline。
+- 模板 `full-stack/src/frontend.tsx` 的 `registerExtensionPoint` commandType 已是全限定（2.4.0 修复，此处补记）。
+
+#### 已验证
+
+- `check-templates.sh` 54/54（新增 5 个模板的契约 / `view` / 桥接校验）。
+- `verify-templates-build.sh` 28/28：5 个模板全部通过官方 CLI 构建 + `tsc --noEmit` + manifest 字段校验。
+- `verify-test-harness.sh` 45/45（5 模板正例 + UI 错配 / `view` 配置错 / 通用缺陷三组反例）。
+- L1/L2：server-only / full-stack 18 passed、inline-react 21 passed、sandbox-view 18 passed；缺陷夹具稳定报错。
+- `sandbox-view` 模板 `npm run pack` 实测产出含 `storage/**` 的 ZIP（4 个文件）。
+
 ## [2.4.0] - 2026-10-28
 
 两条主线：**用户贴报错时能判定「插件自己 vs 平台插件系统」并把系统侧缺陷直接上报**，

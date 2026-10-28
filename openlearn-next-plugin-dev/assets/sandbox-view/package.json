@@ -1,0 +1,19 @@
+{
+  "name": "openlearn-plugin-{{name}}-view",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "{{description}}",
+  "author": "{{author}}",
+  "scripts": {
+    "build": "openlearn-plugin-sdk build",
+    "pack": "node scripts/pack.mjs"
+  },
+  "dependencies": {
+    "@openlearn/plugin-sdk": "^{{sdkVersion}}"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.0",
+    "jszip": "^3.10.1"
+  }
+}

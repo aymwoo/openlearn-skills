@@ -2,8 +2,8 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.4.0
-description: 为 OpenLearnV2 教学平台（当前平台 v0.7.7 / SDK 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
+version: 2.6.0
+description: 为 OpenLearnV2 教学平台（当前平台 v0.7.7 / SDK 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
 > ✅ **版本基线口径（2026-10-28 核对）**：以 **npm 发布版**为准 ——
@@ -25,6 +25,9 @@ description: 为 OpenLearnV2 教学平台（当前平台 v0.7.7 / SDK 3.7.4）�
 - **一手源**：平台仓库 `~/Develop/openlearnv2/docs/` 下有一手文档源（带 `doc-version` 标记），源码 `packages/core/` / `packages/plugin-sdk/` 是最终真理。**查 API 先看源码，不要只看文档。**
 - **快照**：`references/` 存着本 skill 整理的参考资料，随平台版本更新。
 - **探活**：每次使用前核对平台版本 / SDK 版本 / 文档站构建版本，三者任一变化即刷新。
+- **文档 ≠ 行为**：README 会被精简、教程示例会滞后。`references/platform-change-watchlist.md` 记录了
+  「文档看不出、一错就整套方案跑偏」的条目；**远端文档一有更新，先跑 `bash scripts/platform-drift-check.sh`
+  逐条复核，再改 skill**（例：白名单变量被 README 删表但代码仍在；教程写 `views/index.html` 但安装器只解压 `storage/`）。
 
 > ⚠️ **当前基线：平台 v0.7.7 / SDK 3.7.4**。本 skill 的模板、权限字典、前端范式均以此为准。
 >
@@ -98,6 +101,24 @@ npm view @openlearn/plugin-sdk version
 > **冲突处置**：npm latest 高于本地 → 以 npm 为准，并提示用户「本地仓库未 pull 或未安装最新 SDK」；
 > npm latest 低于本地 → 本地领先（预发布），仍按 npm 已发布口径写代码，避免用到未发布 API。
 
+#### 1a′. 第五个信号：文档结构变化（最容易忽略）
+
+README 重构、教程改写、CHANGELOG 折叠**都不等于行为变化**，但它们最容易让人得出反向结论。
+只要发现下列任一变化，**先跑漂移检测再下结论**：
+
+```bash
+bash scripts/platform-drift-check.sh          # 8 项平台事实逐条比对（槽位/view/解压前缀/打包/白名单/白板）
+bash scripts/platform-drift-check.sh --write  # 槽位变化时重生成 slot-registry.json
+```
+
+| 观察到 | 不要急着认为 | 以什么为准 |
+|--------|-------------|-----------|
+| README 环境变量表被删 | 「白名单功能已移除」 | `execution-policy.ts` 仍读 `OPENLEARN_TRUSTED_INLINE_PLUGINS`（README 只是不再公开推荐） |
+| 教程写 `view: "views/index.html"` | 「view 放 views/ 下」 | `install.ts` 只解压 `storage/**` → ZIP 插件必须写 `storage/...` |
+| 新增「双轨制可视沙箱」叙事 | 「以后不需要 inline 了」 | 白板画布卡片（`type:'plugin'`）仍只认 `component`/`render` → 仍需 inline |
+| CHANGELOG 折叠/重排 | 「某能力被回滚」 | 看提交与源码；`platform-drift-check.sh` 的 8 项事实 |
+| 相邻两页文档口径不一致 | 随便选一页信 | 源码 > Release Notes > 教程；`system-configuration.md` 的「非 @openlearn/ 强制子进程」措辞有歧义，以 `execution-policy.ts` 为准 |
+
 #### 1b. 比对缓存
 
 读取 `references/.cache-meta.json` 的 `platformVersion` / `sdkVersion` / `docSiteVersion`：
@@ -132,11 +153,33 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
    - `full-stack`：需要后端命令、数据库或 EventBus（**绝大多数课堂插件属于这类**）——
      后端逻辑 + 前端沙箱桥接（**不是** React 组件，见「Guardrail 5」）
    - `frontend-only`：确实不需要后端命令，且只需要存储/提示这类轻量前端能力
-4. **可见入口方式**（关键决策）：远程插件**不能**提供 React 组件，可见 UI 走
-   - `manifest.classroomTools` —— 课堂工具按钮（点击派发 commandType）
-   - `manifest.contributes.<slot>` —— 声明式槽位贡献（宿主渲染）
-   - `ctx.ui.registerExtensionPoint(slot, { slotProps })` —— **仅数据型**，如 `command_palette.item`
-   - 内建插件（`@openlearn/` 前缀且在 `OPENLEARN_TRUSTED_INLINE_PLUGINS` 白名单）才可用命令式 React 组件
+4. **【P0 门禁】UI 通道可行性判定**（写代码前必须回答，答错后面全白做）：
+   1. **谁看**？教师 / 学生 / 两者（学生可见时必须有 `student.*` 槽位或白板挂件）
+   2. **要什么 UI**？宿主可渲染的列表/按钮（声明式）/ 自定义页面（沙箱 HTML `view`）/ 自定义 React 组件
+      （白板画布卡片只认这一种）
+   3. **执行模式**？第三方 ZIP 默认 `process`；自定义 React 必须 `inline`
+   4. **凭什么 inline**？只有「文件位于 `packages/plugins`」或「id 在 `OPENLEARN_TRUSTED_INLINE_PLUGINS`」
+      —— **`@openlearn/`、`@ext/` 等 id 前缀不构成信任**，manifest 自述也不参与判定
+   5. **数据怎么到学生端**？白板挂件必须派发 `whiteboard.draw(type:'plugin')`，
+      只 `return { opened: true }` 学生端永远空白
+
+   判定结果写进 `<插件根>/plugin.contract.json`（模板见 `references/ui-channel-decision.md` §6），
+   L0/L2 会强制校验；**不要只在对话里口头约定**。
+
+   通道选择（按能力从低到高）：
+   | 需要 | 通道 | 模式 |
+   |------|------|------|
+   | 教师按钮 / Tab / 命令面板条目 | `manifest.classroomTools` / `contributes` / 数据型扩展点 | process 即可 |
+   | 前端读后端数据、提示 | 桥接 `ctx.invokeCommand` / `frontendApi` 轮询 | process 即可 |
+   | **自定义界面（页面级）** | **`contributes.<slot>.view = 'storage/x.html'`（双轨制 UI，宿主沙箱 iframe + `OpenLearnPluginBridge`）** | **process 即可，无需白名单** |
+   | 学生端白板卡片（画布内 `type:'plugin'`） | `registerExtensionPoint({ component })` + 真实 React | **仅 inline（白名单）** |
+   | 学生端浮层页面 | `view` 优先；确需 React 才 inline | process / inline |
+
+   ⚠️ 两条常见误判：
+   - 「要自定义 UI 就必须 inline」——**错**。v0.7.6+ 的自定义页面走 `view`，process 就能用；
+     只有**白板画布内卡片**和**必须复用宿主 React 的组件**才需要 inline。
+   - 「写 `@openlearn/` 前缀就能拿信任 / 写 `manifest.executionMode` 就能变 inline」——**都错**。
+     判定只看内置目录 + `OPENLEARN_TRUSTED_INLINE_PLUGINS`，由服务端计算。
 5. **权限需求 (Capabilities)**：显式核对**平台真实存在**的能力字符串（见「权限全集」一节）
 6. **AI 能力与 Action 关联**：是否需要 AI Agent 调用？（必须注册 Action 且描述清晰）
 7. **数据库需求**：需要哪些表？是否需要版本迁移？
@@ -157,12 +200,17 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 | server-only | `assets/server-only/` | `package.json`, `tsconfig.json`, `src/index.ts` |
 | full-stack | `assets/full-stack/` | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx`, `src/contracts/index.ts` |
 | frontend-only | `assets/frontend-only/` | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx` |
+| **sandbox-view** | `assets/sandbox-view/` | 上面全部 + `storage/*.html` + `scripts/pack.mjs` + `plugin.contract.json`；**process 下的自定义界面推荐方案**（HTML + 桥接，无需白名单） |
+| **inline-react** | `assets/inline-react/` | 上面全部 + `plugin.contract.json`；**唯一可写 React 的模板**（需宿主白名单），演示白板挂件「下发→学生可见」全链路 |
 
 > 模板与官方 CLI 脚手架（`packages/plugin-sdk/scaffold/templates/`）保持同源。
 > 若两者不一致，以**官方脚手架 + 平台源码**为准，并回来修正本 skill 的模板。
 >
+> **模板选择的第一判据是执行模式，不是功能多少**：需要自定义 React UI 只能用 `inline-react`
+> （并接受「必须进宿主白名单」这个前提）；其余场景一律用 process 模板，UI 走声明式。
+>
 > 生成代码后**立刻铺测试护栏**（复制 `assets/test-harness/`，见「第四步 B」）——
-> 先让 L0 绿，再写业务逻辑；否则 manifest / 三件套的错会一直漏到课堂现场。
+> 先让 L0 绿，再写业务逻辑；否则 manifest / 三件套 / UI 通道的错会一直漏到课堂现场。
 
 占位符：
 
@@ -198,12 +246,15 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 4. **事件订阅 API**：`eventBus.subscribe(type, handler)` 返回 `Promise<void>`（**没有 Disposable**）；
    退订是 `eventBus.unsubscribe(type, handler)` —— 必须自己保留 handler 引用。
    宿主在停用时会自动退订并注销 handler，插件只需清理**宿主管不到**的资源（自建定时器、子进程、第三方连接）。
-5. **远程前端不得使用 React / DOM**：`frontend.tsx` 里禁止 `import React`、`document.`、`window.`、`fetch(`。
-   远程插件前端跑在 `sandbox="allow-scripts"` 的隐藏 iframe 里，`window.HostSharedDeps` 为 `undefined`，
-   官方 CLI 构建的远程前端插件一旦用到 React/JSX 就**必然激活失败**。
-   详见 `references/frontend-bridge-0.7.md`。
-6. **可见 UI 走声明式**：`manifest.contributes` / `manifest.classroomTools` 由宿主渲染；
-   运行期只允许注册**数据型**扩展点（`slotProps`），传 `component` 会 `DataCloneError`。
+5. **前端分轨，按通道选写法**（详见 `references/ui-channel-decision.md`）：
+   - `process`（第三方默认）：`frontend.tsx` 只做桥接，禁 `import React` / `document.` / `window.` / `fetch(`
+     —— 沙箱 iframe 无 `HostSharedDeps`；自定义界面用 `view` 页面，不写 React。
+   - `inline`（受信）：可注册 `component`，但 React 只能来自 `globalThis.HostSharedDeps`
+     （`import React` 会被 SDK CLI 裸说明符守卫拦死）。
+   - 任何模式都不要自己 bundle 一份 React 去渲染宿主组件（`Invalid hook call`）。
+6. **可见 UI 优先声明式 / view**：`contributes` / `classroomTools` 由宿主渲染；页面级自定义 UI 用
+   `view: 'storage/x.html'` + `/plugin-sandbox/view-bridge.js`；运行期 `registerExtensionPoint({component})`
+   仅限 inline（process 下函数跨 `postMessage` → `DataCloneError` / 静默丢）。
 7. **数据库**：`ctx.db.ensureTable()` 是异步的必须 `await`；`ctx.db.table()` 同步返回带前缀的表名；
    `ctx.db` **没有** `prepare()` —— 需要裸 SQL 时用 `const rawDb = await ctx.resolve(IDatabaseToken)`，
    且 `await rawDb.prepare(sql).run(...)` 可同时兼容 inline（同步）与 process 沙箱（Promise）。
@@ -257,8 +308,9 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 > bash scripts/verify-templates-build.sh   # 三套模板真实构建 + tsc --noEmit + 产物体检
 > bash scripts/diff-official-scaffold.sh   # 与官方 CLI 脚手架比对契约（官方有、我们缺 → 失败）
 > bash scripts/verify-test-harness.sh      # 测试护栏自检：模板 L0 必须绿 + 反例必须被抓到
+> bash scripts/platform-drift-check.sh     # 平台事实漂移：槽位/view/解压前缀/打包/白名单/白板
 > ```
-> 给用户开发插件时**不要**跑这四个脚本（各文件的适用对象见「资源文件说明」）。
+> 给用户开发插件时**不要**跑这五个脚本（各文件的适用对象见「资源文件说明」）。
 
 #### 构建产物预检清单 (Pre-flight Inspection)
 
@@ -268,6 +320,17 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 - [ ] **裸导入非法引用**：`grep -E '^import .+ from "[^@\./]' dist/index.js` 应无输出
 - [ ] **前端产物无裸说明符**（3.7.2+ CLI 会直接拦）：`grep -nE "(from|require\(|import\() *['\"][^./]" dist/frontend.js` 应无输出
 - [ ] **远程前端无 React**：`grep -nE "from ['\"]react|document\.|window\." dist/frontend.js` 应无输出
+- [ ] **`view` 声明可用**（第三方要给自定义 UI 时）：`view` 必须**以 `storage/` 开头**且文件真在包里
+      （安装器只解压 `storage/**`；教程里的 `views/index.html` 对 ZIP 插件是错的）；
+      跑一次 `manifestSchema.parse()` 断言 `contributes["teacher.tab"][0].view` 仍在（zod 会 strip 未声明键，
+      低版本平台会静默吞掉 → 面板空白无报错）。细节见 `references/frontend-bridge-0.7.md` §5.5
+- [ ] **`view` 页面引用桥接**：`grep -q "/plugin-sandbox/view-bridge.js" storage/*.html`；页面必须调 `ui.resize()`
+- [ ] **身份敏感请求不走 `invokeCommand`**：宿主的 sandbox-command 用「插件自己的 actor」，
+      `command.actorId` 恒为插件、拿不到 `userId`/`role`；要认人就走 `bridge.api.*` → `ctx.http`（`req.actor`）
+- [ ] **`api.routes` 限流够用**：网关限流键含 `clientIp`，机房/校园网同出口 IP 会共享配额
+      （40 台机 × 12 次/分钟 = 480/分钟，默认 120/分钟直接 429）
+- [ ] **静态文件入包**：官方 CLI `pack` 只打 `index.js`/`manifest.json`/`frontend.js`，
+      `storage/**` 要自写打包脚本补进去（安装侧只解压 `storage/**`）
 - [ ] **Worker/Process 兼容**：非 inline 模式下不得使用 `ctx.config` / `ctx.provide()` / `child_process` / `worker_threads` / `eval`
 - [ ] **清理 SOP**：`deactivate()` 中处理了自建定时器 / 子进程 / 第三方连接
 - [ ] **L0 + L1 已通过**：`npm run test:contract` 0 error、`npm test` 全绿（见「第四步 B」；人工预检不漏项，自动化防回归）
@@ -285,7 +348,7 @@ npx @openlearn/plugin-sdk build     # 或 npm run build
 
 | 层 | 手段 | 耗时 | 抓什么 |
 |----|------|------|--------|
-| **L0** | `node test-harness/static-check.mjs .` | <1s | manifest 必填项 / 权限串真伪 / 三件套配对 / 裸导入 / 前端越界 / process 禁用 API / DB 表名与分号 / type-only 误用 / 密钥泄漏 |
+| **L0** | `node test-harness/static-check.mjs .` | <1s | manifest 必填项 / 权限串真伪 / 三件套配对 / **UI 通道契约（executionMode·槽位真伪·白名单·白板挂件闭环）** / 裸导入 / 前端越界 / process 禁用 API / DB 契约 / type-only 误用 / 密钥泄漏 |
 | **L1** | `vitest run` 的 `contract.test.ts` | ~0.3s | 声明的入口与实际注册是否一致、handler 是否为 `{execute}` 对象、`capabilityRequired` 是否真实、`inputSchema` 类型名 |
 | **L2** | `vitest run` 的 `smoke.test.ts` | ~0.3s | 重复激活状态泄漏、命令执行期 `TypeError`、REST 路由 5xx、事件 payload 形状、停用未退订 |
 | **L3** | 真实宿主机：上传 → 激活 → 点入口 → 停用 | 3–10 min | Mock 与生产宿主的差异（能力审批、process 沙箱、熔断、全限定 commandType） |
@@ -299,6 +362,9 @@ npm i -D vitest @openlearn/plugin-test-kit better-sqlite3 uuid zod
 npm pkg set scripts.test:contract="node test-harness/static-check.mjs ." \
             scripts.test="vitest run --config test-harness/vitest.config.ts"
 ```
+
+> 同时把第二步判定结果落成 `plugin.contract.json`。没有它，L0 无法判断「process 里写 React」
+> 「studentVisible 却只有 teacher.tab」「whiteboardWidget 却没派发 whiteboard.draw」这类错配。
 
 > `uuid` / `zod` 不是可选项：SDK 3.7.4 的 `dist/index.js` 引用了**未声明**的 `uuid`（`zod` 是 peerDep），
 > 不装会在 `import('@openlearn/plugin-sdk')` 时直接 `Cannot find package 'uuid'`。属平台打包缺陷，已记入
@@ -318,7 +384,10 @@ npm test                # L1 + L2
 3. **权限真伪**：`capabilitiesProposed` 与每个 `capabilityRequired` 都 ⊆ 平台真实 20 条（`references/capability-matrix-0.7.md`）。
 4. **执行期不崩**：按 `inputSchema` 造最小 payload 跑每条命令，不得出现 `TypeError` / `ReferenceError`（业务校验错误可抛）。
 5. **生命周期可重入**：`activate → deactivate → activate` 不抛错，同一事件订阅数不翻倍。
-6. **前端边界**：无 React / DOM / `fetch` / 裸模块说明符 / `component`（L0 静态即可；L1 只读 `slotProps`）。
+6. **前端边界**：process 下无 React/DOM/`fetch`/裸说明符/`component`；inline 下 React 只能来自
+   `globalThis.HostSharedDeps`（`import React` 会被 CLI 守卫拦）。
+7. **UI 通道闭环**（契约驱动）：`studentVisible` 有学生槽位；`whiteboardWidget` 真的派发
+   `whiteboard.draw` + 成对 widget id + 注册 `teacher.dashboard.widget`/`student.view` 组件。
 
 #### 5. 测试先行写法
 
@@ -341,8 +410,9 @@ npm test                # L1 + L2
 
 #### 7. L3 真实宿主冒烟
 
-交付前按 `references/testing-strategy.md` §7 的 10 步清单跑一遍，重点四项：
-**课堂工具按钮点击** · **Ctrl+K 条目派发（验证全限定 commandType）** · **AI 自然语言触发 Action** · **停用再激活无重复**。
+交付前按 `references/testing-strategy.md` §7 的 10 步清单跑一遍，重点五项：
+**课堂工具按钮点击** · **Ctrl+K 条目派发（验证全限定 commandType）** · **AI 自然语言触发 Action** ·
+**停用再激活无重复** · **`view` 页面与桥接**（`storage/*.html` 200、`view-bridge.js` 200、`bridge.invokeCommand` 通、`ui.resize` 生效）。
 
 ---
 
@@ -570,6 +640,13 @@ Issue：#<n> <url>
 8. 不代替用户编造证据：缺版本号、缺完整堆栈、缺最小复现时，先要证据，不拿猜测填进 Issue。
 9. **交付前必须给出测试结果**：L0 0 error + L1/L2 全绿；没跑就是没跑，不许写「应该没问题」。
 10. **测试失败不改宽断言**：先按「第四步 B」第 6 节归因，是插件问题就改实现，是 Mock 差异就补 L3。
+11. **UI 承诺前先过 P0 门禁**：没确认「谁看 / 什么通道 / 什么执行模式 / 白名单是否具备」，
+    不得回答「可以有自定义界面」；不得因为「需要自定义 UI」就直接上 inline，`view` 优先。
+12. **绝不编造平台事实**：槽位必须来自 `slot-registry.json`（122 个）；不得声称 id 前缀能换信任、
+    不得声称 manifest 可自选执行模式、不得声称 process 能渲染 React 组件。拿不准就查源码，查不到就问。
+13. **文档冲突以「安装器/运行器」为准**：`view` 路径只认 `storage/`（`install.ts` 解压前缀）；
+    教程示例、README、相邻文档口径都不作数。发现文档与代码不一致时，写进 watchlist 并跑漂移检测。
+14. **每次回答前先确认版本信号**：基线变化却沿用旧结论，比写错代码更难排查。
 
 ---
 
@@ -831,8 +908,10 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `references/plugin-development-tutorial.md` | 插件开发完全指南本地快照（API、Action/Handler/Event、前端、安全） |
 | `references/architecture.md` | 架构总览本地快照（CommandBus、生命周期、Worker Thread、DI、安全模型） |
 | `references/scaffold.md` | 脚手架指南本地快照（CLI 命令、模板、构建、测试、常见问题） |
+| `references/platform-change-watchlist.md` | **平台变更观察清单**（白名单仍在/通配符、`view` 必须 `storage/`、CLI 打包三件套、view 槽位集合、白板卡片不支持 view、槽位数量、execution_mode 求值口径 + 复核 SOP） |
+| `references/ui-channel-decision.md` | **UI 通道决策真源**（4 条通道：声明式 / `view` 沙箱页面 / inline React / 内置；执行模式与白名单机制、122 个槽位、白板挂件端到端契约、失败模式对照） |
 | `references/testing-strategy.md` | **开发期测试策略**（L0–L3 阶梯、必测矩阵、Guardrail→用例映射、Mock 与生产宿主 8 处差异、环境坑、L3 冒烟清单、CI 片段） |
-| `assets/test-harness/` | **插件测试护栏（用户侧）**：`static-check.mjs`（零依赖 L0 契约静态检查）+ `contract.test.ts`（L1）+ `smoke.test.ts`（L2）+ `vitest.config.ts` + `README.md`，复制到插件项目即用 |
+| `assets/test-harness/` | **插件测试护栏（用户侧）**：`static-check.mjs`（零依赖 L0，含 UI 通道/槽位/白板/`view` 检查）+ `slot-registry.json`（122 个真实槽位）+ `contract.test.ts`（L1）+ `smoke.test.ts`（L2，含白板下发断言）+ `vitest.config.ts` + `README.md` |
 | `references/troubleshooting.md` | **故障归因 SOP**（受理报错的五要素、证据清单、归因决策树、系统侧证据门槛、最小复现实验、已知系统问题索引、输出规范、上报 issue 衔接） |
 | `references/github-collaboration.md` | **GitHub Issue/PR 协作 SOP**（仓库定位、**§1A 缺陷 Issue 创建**、issue 预检与占位、worktree、PR 模板、CI、审查、返工、合并、清理、异常表、输出模板、红线） |
 | `assets/bug-report-template.md` | **系统侧 Bug 报告模板**（本地留存版：环境信息、复现步骤、完整堆栈、最小复现插件、对照实验、已排除项） |
@@ -840,8 +919,11 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `assets/server-only/` | server-only 插件模板（含 ActionDescriptor 配对、清理 SOP） |
 | `assets/full-stack/` | full-stack 插件模板（命令/事件/数据表 + 前端沙箱桥接） |
 | `assets/frontend-only/` | frontend-only 插件模板（桥接上下文与提示通道示范） |
+| `assets/sandbox-view/` | **process + 自定义界面模板**：`view` 沙箱 HTML 页面 + `OpenLearnPluginBridge` + `pack.mjs` 补 `storage/**` |
+| `assets/inline-react/` | **inline + React 模板**（需宿主白名单）：白板挂件「下发→学生可见」全链路 + `HostSharedDeps` 写法 |
 | `scripts/check-templates.sh` | **自检脚本**：校验模板的 `main` / `engines` / ActionDescriptor 配对 / 远程前端无 React / 占位符与 SKILL.md 对齐 / 废弃 API 残留。修改模板后必跑 |
 | `scripts/verify-templates-build.sh` | **构建验证**：三套模板用官方 SDK CLI 真实构建 + `tsc --noEmit` + 产物体检（manifest 字段 / 裸导入 / React 残留）。支持 npm 安装的 SDK 或本地平台仓库 |
+| `scripts/platform-drift-check.sh` | **平台事实漂移检测**（8 项：版本/槽位/view 槽位/install 解压前缀/CLI 打包/README 白名单曝光/通配符/白板 view 支持；`--write` 重生成 slot-registry.json） |
 | `scripts/verify-test-harness.sh` | **测试护栏自检**：`static-check.mjs` 语法 + 三套模板替换占位符后 L0 必须 0 error + 含缺陷反例必须报出 14 个预期错误码 + L1/L2 文件骨架校验 |
 | `scripts/diff-official-scaffold.sh` | **脚手架漂移检测**：与官方 CLI 脚手架逐项比对契约（manifest 字段 / `main` / `engines` / command 配对 / 前端是否误用 React / 占位符）。官方有、我们缺 → 判失败。`DIFF_ADVISORY=1` 转为仅预警 |
 

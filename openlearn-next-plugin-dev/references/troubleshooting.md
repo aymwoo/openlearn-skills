@@ -137,6 +137,25 @@
 | `child_process` / `worker_threads` / `eval` | 可用 | ❌ 全部禁止（Node permission model 不提供 `--allow-child-process` / `--allow-worker`，并禁止字符串代码生成） | 触碰被禁 API → 插件侧 |
 | 出站网络 | 不受限 | 默认拒绝；仅管理员批准的域名由宿主代发（`plugin_network_grants`） | 直接 `fetch` 外网 → 插件侧 |
 
+#### D4-UI. 教师端点了有反应，学生端看不到 / 自定义界面不出现
+
+按「渲染链路」从数据到容器逐层排查，**每层都能单独导致空白，且宿主不会报错**：
+
+| 检查点 | 典型现象 | 归因 | 证据/动作 |
+|--------|---------|------|----------|
+| 1. handler 是否真的写了共享状态 | 命令返回 `{opened:true}` 但白板无元素 | **插件侧** | 看 handler 是否派发 `whiteboard.draw` / 写 DB / 发事件；L2 契约用例可直接抓 |
+| 2. 写入命令用对没有 | 元素存在但类型不对 | **插件侧** | 白板挂件必须 `whiteboard.draw` + `type:'plugin'` + `data` 为 JSON 字符串 |
+| 3. widget id 是否成对且一致 | 「组件 [x] 正在加载或未启用…」 | **插件侧** | `data.teacherWidgetId` / `data.studentWidgetId` 与扩展点 `id` 逐字符比对 |
+| 4. 是否声明了学生侧容器 | 学生端完全没有位置 | **插件侧** | 白板挂件要 `teacher.dashboard.widget` + `student.view`；页面级 UI 要 `view` |
+| 5. 通道与执行模式是否匹配 | 注册了 component 却永不渲染 | **插件侧** | process 只能声明式或 `view`；React 组件必须 inline（白名单，且 id 前缀不算信任） |
+| 6. `view` 页面是否可达 | 面板空白 / 「非法的插件视图路径」 | **插件侧（打包/路径）** | `storage/**` 是否进 ZIP；`view` 是否相对路径且无 `..`；是否引 `/plugin-sandbox/view-bridge.js` |
+| 7. 权限是否授予 | 命令 403 / 元素写不进 | **环境与配置** | `whiteboard:write` 等是否声明 + 管理员批准（v0.7.2 起按已授予集合） |
+| 8. 以上都对仍不渲染 | 宿主渲染器/白名单求值异常 | **待定 → 系统侧** | 取 `GET /api/plugins` 的 `executionMode`、`x-request-id`、完整 console，做最小复现 |
+
+> 快速自查脚本：`node test-harness/static-check.mjs .`（槽位/模式/白板/`view` 全查）、
+> `OPENLEARN_TRUSTED_INLINE_PLUGINS='@scope/*' node test-harness/static-check.mjs .`（白名单校验）。
+> 完整契约见 `references/ui-channel-decision.md`。
+
 ### D5. 停用 / 卸载阶段
 
 | 现象 | 归因 |

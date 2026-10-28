@@ -103,6 +103,8 @@ export default { activate, deactivate };   // 宿主逐字检查 typeof plugin.a
 │   └─ 可以用 inline 执行 + 命令式 registerExtensionPoint({ component })（宿主父 realm 内执行）
 └─ 否（第三方 / 社区插件）
     └─ 走「声明式」路线：
+       ⓪ contributes["teacher.tab"|"teacher.panel"|...].view = "storage/xxx.html"
+          —— 自带 HTML 页面，宿主用严格沙箱 iframe 挂载（v0.7.6+，见 §5.5）
        ① manifest.contributes / manifest.classroomTools —— 宿主渲染，插件提供数据
        ② 后端 commandBus + actionRegistry —— 宿主代发，插件提供行为
        ③ ctx.ui.showToast —— 宿主代发提示
@@ -110,7 +112,86 @@ export default { activate, deactivate };   // 宿主逐字检查 typeof plugin.a
 
 > 官方产品方向（v0.7.0 定稿）：远程插件的可见 UI 走**声明式 slot DSL** —— manifest 描述 UI 结构与数据 schema，
 > 宿主用自己的 React 渲染；插件只提供数据与命令，不提供组件。
-> 插件作者体验更好（不需要理解 React 实例 / Context / Portal），也与沙箱安全目标天然兼容。
+> **v0.7.6 起补上了 `view`（可视沙箱 HTML）**，第三方插件终于能做真正自定义的界面（网格、图表、表单），
+> 而不再受限于宿主渲染的固定插槽形态。实测细节与三个必踩的坑见 §5.5。
+
+---
+
+## 5.5 声明式可视沙箱视图（`view`）—— 第三方自定义 UI 的唯一可行通道
+
+**版本门槛**：平台 v0.7.6+（`sdk 3.7.x`）。低于此版本没有该字段，声明了也只会被静默忽略。
+
+### 链路
+
+```
+manifest.json
+  contributes["teacher.tab"][0] = { id, label, icon, view: "storage/dashboard.html" }
+        ↓ 宿主 registerManifestContributions 注册（view 进 entry 与 slotProps）
+PluginSandboxIframeView  <iframe src="/plugins/{pluginId}/storage/dashboard.html"
+                                 sandbox="allow-scripts allow-forms allow-downloads">   ← 无 allow-same-origin
+        ↓ HTML 里 <script src="/plugin-sandbox/view-bridge.js"> 注入 window.OpenLearnPluginBridge
+bridge.api.get/post  →  宿主父页面同源 fetch  →  /api/plugins/{id}/*  →  插件 ctx.http 处理器
+```
+
+宿主渲染优先级：`React 真实组件 ≻ DOM render 函数 ≻ 声明式 view ≻ 占位空态`。
+所以第三方插件给 `view` 时，宿主那一侧一定能走到 iframe 分支。
+
+### 三个必踩的坑（都实测过）
+
+| 坑 | 现象 | 处理 |
+|---|---|---|
+| **zod 把 `view` 剥掉** | 面板空白、日志无报错。`contributes["teacher.tab"]` / `["teacher.panel"]` / `["student.view"]` 的条目 schema 没有 `.passthrough()`，zod 默认 strip 未声明键 | 平台 ≥ 0.7.7 已修（补了 `view` 字段 + 回归用例）。**在自己的平台上先 `manifestSchema.parse()` 断言一次**：`parse({...}).contributes["teacher.tab"][0].view` 必须还在 |
+| **view 路径必须在 `storage/` 下** | 404，面板空。安装侧只解压 ZIP 里 `storage/**` 的条目（`install.ts → extractZipEntries`），其它位置即使入包也不会落盘 | 页面放 `storage/dashboard.html`，`view` 写 `"storage/dashboard.html"`。`student.classroom.overlay` 等 `frontendSlotEntrySchema` 槽位同样是 `.passthrough()`，规则一致 |
+| **官方 CLI `pack` 不打静态文件** | zip 里只有 `index.js` / `manifest.json` / `frontend.js` | 自写打包脚本（`jszip`）：`index.js` + `manifest.json` + 递归 `storage/**`；并在打包期断言「每个 `view` 都以 `storage/` 开头且文件真实存在」（平台对缺失的 view 只会 404，作者拿不到任何报错） |
+
+### 桥接 API 面（`window.OpenLearnPluginBridge`）
+
+| 成员 | 说明 |
+|---|---|
+| `onInit(cb)` / `onContextUpdate(cb)` / `getContext()` | 上下文 `{ pluginId, slot, lessonId, classId, lang, theme }`，**没有 studentId** |
+| `api.get(path)` / `api.post(path, body)` / `api.del(path)` | 由宿主父页面代发，带 session cookie；相对路径拼成 `/api/plugins/{pluginId}/{path}` |
+| `invokeCommand(type, payload)` | 走宿主的 `/sandbox-command`（见下方身份陷阱） |
+| `ui.toast(msg, type)` / `ui.resize(height)` | iframe 自撑高度必须调 `resize`，否则被裁切 |
+| `storage.get/set/delete` | 宿主 localStorage 命名空间化（`ol_pv_{pluginId}_*`）；iframe 自身无 `allow-same-origin`，直接访问 localStorage 会抛错 |
+
+CSP 对 `.html` 是宽松的（`script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:`），
+单文件内联 `<style>` / `<script>` 与 `Blob` 下载均可用。
+
+### ⚠️ 身份陷阱：`invokeCommand` 拿不到登录用户
+
+宿主 `/api/plugins/:id/sandbox-command` 构造命令时用的是 `pluginActorIdFor(manifestId, pluginId)`
+—— **插件自己的 actor**。命令处理器里 `command.actorId` 恒为插件，`userId` / `role` 都没有。
+
+因此：
+- **身份敏感的业务**（学生上报、教师审批、个人数据）必须走 `bridge.api.get/post` → `ctx.http` 路由，
+  那里 `req.actor = { actorId, userId, username, role, permissions }` 才是真实登录身份；
+- `invokeCommand` 只适合**无身份动作**（拉字典、触发无状态计算），或作为排障探针。
+
+### ⚠️ 限流陷阱：机房 / 校园网同出口 IP
+
+网关限流键是 `clientIp:pluginId:method:path`。机房 40 台机器共用一个 NAT 出口，
+5 秒轮询 = 12 次/分钟/人 × 40 = **480 次/分钟**，直接打爆默认的 120/分钟。
+
+```json
+"api": { "routes": [
+  { "method": "GET", "path": "/board", "roles": ["teacher", "administrator"],
+    "rateLimit": { "windowMs": 60000, "max": 1200 } }
+] }
+```
+
+`roles` 由网关强制（`administrator` 恒放行），未声明的路由只要登录即可访问。
+声明 `api.routes` 时**路由 path 必须与 `ctx.http` 注册的 path 一致**，否则规则匹配不上、退回默认限流。
+
+### 自检清单（`view` 路线）
+
+- [ ] `manifestSchema.parse()` 后 `contributes[*][0].view` 仍然存在
+- [ ] `view` 全部以 `storage/` 开头，且对应文件在 zip 里
+- [ ] HTML 引用了 `/plugin-sandbox/view-bridge.js`
+- [ ] 页面在桥接未就绪时有等待/超时提示（脚本是外部资源，可能被网络策略挡住）
+- [ ] 页面调 `ui.resize()` 上报高度
+- [ ] 身份敏感请求走 `api.*` 而非 `invokeCommand`
+- [ ] `manifest.api.routes` 为该端点声明了够用的 `rateLimit`
+- [ ] 内联脚本做过语法检查（无构建步骤，语法错 = 空白面板）
 
 ---
 

@@ -45,11 +45,12 @@ substitute() {
     "$f"
 }
 
-for tpl in server-only full-stack frontend-only; do
+for tpl in server-only full-stack frontend-only inline-react sandbox-view; do
   dir="$TMP/$tpl"
   cp -r "$SKILL_DIR/assets/$tpl" "$dir"
   while IFS= read -r f; do substitute "$f"; done < <(find "$dir" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.json' \))
-  if out=$(node "$CHECKER" "$dir" 2>&1) && ! grep -q '✖' <<<"$out"; then
+  # inline 模板需要在白名单环境里校验；其他模板不受影响
+  if out=$(OPENLEARN_TRUSTED_INLINE_PLUGINS='@demo/*' node "$CHECKER" "$dir" 2>&1) && ! grep -q '✖' <<<"$out"; then
     ok "$tpl：L0 通过"
   else
     bad "$tpl：L0 报错"
@@ -98,6 +99,83 @@ else
   done
 fi
 
+# ── 3b. 反例：UI 通道错配必须被抓到 ─────────────────────────────────────────
+head "3b. 反例：process 下想上 React UI / 白板挂件未闭环"
+UI_BAD="$TMP/ui-bad"
+mkdir -p "$UI_BAD/src"
+cat > "$UI_BAD/plugin.contract.json" <<'JSON'
+{
+  "executionMode": "process",
+  "uiChannel": "inline-react",
+  "studentVisible": true,
+  "whiteboardWidget": true,
+  "slots": ["teacher.tab", "classroom.float"]
+}
+JSON
+cat > "$UI_BAD/src/index.ts" <<'TS'
+export default {
+  manifest: {
+    id: '@demo/ui-bad', name: 'Bad', version: '0.1.0', main: 'index.js',
+    engines: { openlearn: '>=0.7.0' }, capabilitiesProposed: ['lesson:read'],
+    contributes: { 'teacher.tab': [{ id: 'b', label: 'B' }] },
+  },
+  async activate(ctx: any) {
+    await ctx.services.actionRegistry.register({ id: 'b-open', commandType: 'bad.open', description: '打开面板', capabilityRequired: 'lesson:read', inputSchema: { type: 'OBJECT', properties: {} } });
+    await ctx.services.commandBus.registerHandler('bad.open', { async execute() { return { opened: true }; } });
+  },
+};
+TS
+cat > "$UI_BAD/src/frontend.tsx" <<'TSX'
+function Panel() { return null; }
+export default { activate(ctx: any) { ctx.ui.registerExtensionPoint('teacher.tab', { id: 'b', component: Panel }); } };
+TSX
+if out=$(node "$CHECKER" "$UI_BAD" 2>&1); then
+  bad "UI 反例未被拦截（退出码 0）"
+else
+  ok "UI 反例被拦截（非零退出）"
+  for code in UI_MODE_MISMATCH CONTRACT_MODE_CONFLICT WHITEBOARD_WIDGET_NEEDS_INLINE \
+              WHITEBOARD_DRAW_MISSING WHITEBOARD_WIDGET_ID_MISSING WHITEBOARD_CAP_MISSING \
+              STUDENT_ENTRY_MISSING STUDENT_WIDGET_SLOT_MISSING SLOT_UNKNOWN; do
+    if grep -q "\[$code\]" <<<"$out"; then ok "命中 $code"; else bad "漏报 $code"; fi
+  done
+fi
+
+# ── 3c. 反例：view（沙箱 HTML）配置错必须被抓到 ────────────────────────────
+head "3c. 反例：view 路径非法 / 文件缺失 / 漏桥接脚本"
+VIEW_BAD="$TMP/view-bad"
+mkdir -p "$VIEW_BAD/src" "$VIEW_BAD/storage"
+cat > "$VIEW_BAD/plugin.contract.json" <<'JSON'
+{
+  "executionMode": "process",
+  "uiChannel": "sandbox-view",
+  "studentVisible": true,
+  "whiteboardWidget": false,
+  "slots": ["student.view"],
+  "viewFiles": ["../etc/passwd", "views/legacy.html", "storage/missing.html"]
+}
+JSON
+cat > "$VIEW_BAD/src/index.ts" <<'TS'
+export default {
+  manifest: {
+    id: '@demo/view-bad', name: 'VB', version: '0.1.0', main: 'index.js',
+    engines: { openlearn: '>=0.7.6' }, capabilitiesProposed: [],
+    contributes: { 'student.view': [{ id: 'vb', label: 'VB', view: 'storage/nobridge.html' }] },
+  },
+  async activate() {},
+};
+TS
+printf '<!doctype html><html><body>no bridge</body></html>' > "$VIEW_BAD/storage/nobridge.html"
+mkdir -p "$VIEW_BAD/views" && printf '<!doctype html><html></html>' > "$VIEW_BAD/views/legacy.html"
+
+if out=$(node "$CHECKER" "$VIEW_BAD" 2>&1); then
+  bad "view 反例未被拦截（退出码 0）"
+else
+  ok "view 反例被拦截（非零退出）"
+  for code in VIEW_PATH_UNSAFE VIEW_NOT_IN_STORAGE VIEW_FILE_MISSING VIEW_BRIDGE_MISSING VIEW_PACK_HINT; do
+    if grep -q "\[$code\]" <<<"$out"; then ok "命中 $code"; else bad "漏报 $code"; fi
+  done
+fi
+
 # ── 4. L1/L2 骨架自检（不联网） ─────────────────────────────────────────────
 head "4. L1/L2 用例文件自检"
 for f in contract.test.ts smoke.test.ts vitest.config.ts README.md; do
@@ -106,6 +184,8 @@ done
 grep -q 'REAL_CAPS' "$SKILL_DIR/assets/test-harness/contract.test.ts" && ok "契约测试含权限全集断言" || bad "契约测试缺权限全集断言"
 grep -q 'TypeError|ReferenceError' "$SKILL_DIR/assets/test-harness/smoke.test.ts" && ok "冒烟测试含崩溃分类断言" || bad "冒烟测试缺崩溃分类断言"
 grep -q 'inline' "$SKILL_DIR/assets/test-harness/vitest.config.ts" && ok "vitest 配置含 test-kit inline 兜底" || bad "vitest 配置缺 inline 兜底"
+grep -q 'whiteboardWidget' "$SKILL_DIR/assets/test-harness/smoke.test.ts" && ok "冒烟测试含白板挂件下发断言" || bad "冒烟测试缺白板挂件断言"
+[[ -s "$SKILL_DIR/assets/test-harness/slot-registry.json" ]] && ok "槽位注册表存在" || bad "槽位注册表缺失"
 
 printf '\n\033[1m结果\033[0m：通过 %d，失败 %d\n' "$PASS" "$FAIL"
 printf '提示：L1/L2 端到端验证需在临时插件里 npm i -D vitest @openlearn/plugin-test-kit better-sqlite3 uuid zod 后按 README 运行。\n'
