@@ -1,10 +1,11 @@
 {
   "source": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/",
-  "cacheDate": "2026-10-27",
-  "lastUpdated": "2026-10-24",
+  "cacheDate": "2026-10-28",
+  "lastUpdated": "2026-10-28",
   "docSiteVersion": "0.7.4",
-  "platformVersion": "0.7.4",
-  "sdkVersion": "3.7.1",
+  "platformVersion": "0.7.7",
+  "sdkVersion": "3.7.4",
+  "authority": "npm 发布版 @openlearn/plugin-sdk 的 latest（2026-10-28 核对为 3.7.4）；docSiteVersion 记录的是 readthedocs 线上构建版本，滞后于仓库与 npm，仅作探活信号之一，不作事实来源。",
   "note": "探活需同时比对三个信号：(1) 索引页页脚『最后更新：YYYY-MM-DD』；(2) 页面标题中的构建版本『OpenLearnV2 x.y.z 文档』；(3) 本地平台仓库的 package.json version 与 packages/plugin-sdk/package.json version。页脚日期可能滞后于实际构建版本，三者任一变化即视为有更新。",
   "localSourceHint": "一手文档源在平台仓库内：~/Develop/openlearnv2/docs/（含 doc-version 标记），优先从本地仓库同步，再以 readthedocs 校验线上版本号。",
   "documents": {

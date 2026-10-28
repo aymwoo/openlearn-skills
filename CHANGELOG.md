@@ -6,6 +6,33 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.2.0] - 2026-10-28
+
+把版本基线从 SDK 3.7.1 抬到 **npm 发布版 latest `3.7.4`**（对应平台 v0.7.7），并补上 3.7.2 引入的两处破坏性变化。
+
+### 变更
+
+- **版本基线**：`SDK 3.7.1 / 平台 v0.7.4` → `SDK 3.7.4 / 平台 v0.7.7`（SKILL.md 头部、description、
+  `references/.cache-meta.json`、四篇 references 的版本头）。
+- **探活升级为四个信号**：新增 `npm view @openlearn/plugin-sdk version` 作为**最高权威**，
+  并写明冲突处置（npm 高于本地 → 以 npm 为准；本地领先 → 仍按 npm 已发布口径写代码）。
+- **上游不一致提醒改写为「已消除」**：平台仓库 `main`（0.7.7 / HEAD 2026-10-28）的
+  `scaffold/templates/` 与 npm 3.7.4 的**逐字节一致**（`diff -rq` 无输出），此前「仓库仍是 React 模板」的勘误已修复；
+  但「冲突时以 npm 为准」的判定顺序保留。
+- **新增 SDK 3.7.2 破坏性变化**（3.7.4 仍在）：
+  1. 7 个宿主内部类（`PluginRuntimeComposition` / `PluginCapabilityGateway` / `PluginContextAdapter` /
+     `PluginDistributionManager` / `PluginLifecycleManager` / `PluginRuntimeAdapter` / `UnifiedExtensionRegistry`）
+     改为 **type-only 导出**，值导入编译通过但运行期 `undefined`；
+  2. 官方 CLI 新增 **frontend 产物裸说明符守卫**（`✖ frontend 产物里有裸模块说明符`，构建期失败）。
+- **排障与预检**：SKILL.md 排障表与 `references/troubleshooting.md` §D2 各补两条现象；
+  构建预检清单加 `dist/frontend.js` 裸说明符 grep。
+
+### 已验证（未变的契约）
+
+- 三套模板与 npm 3.7.4 的 `scaffold/templates` **契约一致**（`diff-official-scaffold.sh` 通过，无漂移）。
+- 权限字典 **20 条**与官方 3.7.4 矩阵逐条一致；`check-templates.sh` 39 项全过。
+- `docSiteVersion` 仍记 0.7.4：readthedocs 线上构建滞后于仓库与 npm，只作探活信号，不作事实来源。
+
 ## [2.1.0] - 2026-10-27
 
 修复 v2.0.0 残留的运行时行为错误，并把模式 A 的文档纪律拉到与模式 B 同等水平。

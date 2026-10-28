@@ -1,6 +1,6 @@
-# 前端插件：沙箱桥接模型（v0.7.4 真源）
+# 前端插件：沙箱桥接模型（v0.7.7 真源，SDK 3.7.4）
 
-> 整理自官方文档 `plugin/frontend-sandbox-capability-boundary.html`（`doc-version: sdk=3.7.1`）与
+> 整理自官方文档 `plugin/frontend-sandbox-capability-boundary.html`（`doc-version: sdk=3.7.4`）与
 > `reference/plugin-host-shared-deps.html` 的 v0.7.0 勘误；源码见 `src/plugin-host/plugin-host.ts`
 > （`mountSandboxFrame` / `activateRemotePlugin`）与 `src/plugin-host/sandbox-frame.ts`。
 > 平台仓库本地路径：`~/Develop/openlearnv2/docs/plugin/frontend-sandbox-capability-boundary.md`。
@@ -174,16 +174,17 @@ export default { activate, deactivate };   // 宿主逐字检查 typeof plugin.a
 
 ---
 
-## 9. 上游不一致提醒（2026-10-27 实测）
+## 9. 上游一致性（2026-10-28 核对，此前的不一致已消除）
 
 | 位置 | 脚手架模板 | SDK 版本 |
 |------|-----------|---------|
-| npm 发布版 `@openlearn/plugin-sdk@3.7.1` | **桥接**（无 React）✅ 与本文一致 | 3.7.1 |
-| 平台仓库 `origin/main`（平台 0.7.4） | **仍是旧的 React 模板** ⚠️ | 源码 3.7.0 |
+| npm 发布版 `@openlearn/plugin-sdk@3.7.4`（latest） | **桥接**（无 React）✅ 与本文一致 | 3.7.4 |
+| 平台仓库 `main`（平台 0.7.7 / HEAD 2026-10-28） | **桥接**（无 React）✅ 与 npm 逐字节一致 | 3.7.4 |
 
-- 插件作者应用 **npm 发布版**：`npx @openlearn/plugin-sdk init` 拿到的就是桥接模板。
-- 平台仓库 `main` 分支的模板可能**滞后于已发布版本**；不要以它为准来判断「官方怎么写」。
+- 两处源码 `diff -rq` 无输出，说明仓库 `main` 已追平 npm 发布版；此前「仓库仍是 React 模板」的勘误已修复。
+- **判定顺序不变**：再次出现分歧时，以 **npm 发布版**为准（`npx @openlearn/plugin-sdk init` 拿到的就是发布版模板）。
 - 平台仓库其他分支（如 `docs/*`）可能领先于 `main`，其中往往包含最新的一次性勘误与文档拆分。
+- 3.7.2 起 CLI 会在构建期拦截 `frontend.js` 的裸模块说明符（见 SKILL.md「破坏性变化」）。
 
 ---
 

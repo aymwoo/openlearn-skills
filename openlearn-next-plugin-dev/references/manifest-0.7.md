@@ -1,6 +1,6 @@
-# Manifest 规范（v0.7.4 真源）
+# Manifest 规范（v0.7.7 真源，SDK 3.7.4）
 
-> 整理自官方文档 `plugin/plugin-manifest-spec.html`（`doc-version: sdk=3.7.1`）与权威 Schema
+> 整理自官方文档 `plugin/plugin-manifest-spec.html`（`doc-version: sdk=3.7.4`）与权威 Schema
 > `packages/core/esm-loader/manifest-schema.ts`。
 > 平台仓库本地路径：`~/Develop/openlearnv2/docs/plugin/plugin-manifest-spec.md`。
 

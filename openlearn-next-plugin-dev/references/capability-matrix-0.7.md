@@ -1,6 +1,6 @@
-# 能力权限矩阵（v0.7.4 真源）
+# 能力权限矩阵（v0.7.7 真源，SDK 3.7.4）
 
-> 本文件整理自 OpenLearnV2 官方文档 `reference/plugin-capability-matrix.html`（`doc-version: sdk=3.7.1`）与源码
+> 本文件整理自 OpenLearnV2 官方文档 `reference/plugin-capability-matrix.html`（`doc-version: sdk=3.7.4`）与源码
 > `packages/core/capability/guard/capability-guard.ts`、`packages/core/registry/index.ts`。
 > 平台仓库本地路径：`~/Develop/openlearnv2/docs/reference/plugin-capability-matrix.md`。
 >

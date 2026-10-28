@@ -1,6 +1,6 @@
-# 执行模式与信任边界（v0.7.4 真源）
+# 执行模式与信任边界（v0.7.7 真源，SDK 3.7.4）
 
-> 整理自官方文档 `reference/plugin-trust-boundary.html`（`doc-version: sdk=3.7.1`）与源码
+> 整理自官方文档 `reference/plugin-trust-boundary.html`（`doc-version: sdk=3.7.4`）与源码
 > `packages/core/plugin-host/execution-policy.ts`、`packages/core/worker-runtime/plugin-net-preload.cjs`。
 > 平台仓库本地路径：`~/Develop/openlearnv2/docs/reference/plugin-trust-boundary.md`。
 >
