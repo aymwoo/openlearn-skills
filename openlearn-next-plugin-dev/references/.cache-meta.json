@@ -82,6 +82,8 @@
     ],
     "readmeMentionsTrustedInline": 0,
     "allowlistWildcard": true,
-    "whiteboardCardSupportsView": false
+    "whiteboardCardSupportsView": false,
+    "frontendGateSkips": 2,
+    "frontendFetchBeforeRegister": true
   }
 }

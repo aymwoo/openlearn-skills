@@ -171,7 +171,7 @@ if out=$(node "$CHECKER" "$VIEW_BAD" 2>&1); then
   bad "view 反例未被拦截（退出码 0）"
 else
   ok "view 反例被拦截（非零退出）"
-  for code in VIEW_PATH_UNSAFE VIEW_NOT_IN_STORAGE VIEW_FILE_MISSING VIEW_BRIDGE_MISSING VIEW_PACK_HINT; do
+  for code in VIEW_PATH_UNSAFE VIEW_NOT_IN_STORAGE VIEW_FILE_MISSING VIEW_BRIDGE_MISSING VIEW_PACK_HINT FRONTEND_ENTRY_MISSING; do
     if grep -q "\[$code\]" <<<"$out"; then ok "命中 $code"; else bad "漏报 $code"; fi
   done
 fi

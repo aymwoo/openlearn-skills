@@ -167,7 +167,29 @@ manifest 里声明 `view: "storage/xxx.html"`，宿主用 `sandbox="allow-script
 > `student.classroom.overlay` 等走 `frontendSlotEntrySchema`（passthrough），`view` 会透传并由
 > `ExtensionPointRenderer` 渲染，**能用但不承诺长期契约**（L0 会给 `VIEW_SLOT_UNSUPPORTED` 警告）；正式产品优先用上表。
 
-### 4.5.2 manifest 写法
+### 4.5.2 前置：必须提供 `src/frontend.tsx`（哪怕是空的）
+
+`view` 页面由宿主 iframe 承载，本身不需要前端逻辑，**但前端入口不能省**：
+
+- `GET /api/plugins` 的 `has_frontend` 来自 `pluginDir/frontend.js` 是否存在；
+  `useClassroomSlice` 对 `has_frontend=false` 的插件**直接跳过激活**；
+- 激活路径里 `registerManifestContributions()` 排在 `fetch(frontend.js)` **之后**；
+- CLI 只有看到 `src/frontend.tsx` 才产出 `dist/frontend.js`。
+
+所以最小入口：
+
+```ts
+// src/frontend.tsx —— 空桥接即可，不要写任何 import
+export default {
+  async activate() {},
+  async deactivate() {},
+};
+```
+
+缺它的表现：**所有 `contributes`（含 `view`/`teacher.tab`）都不出现，且日志没有 404**（请求根本没发）。
+L0 的 `FRONTEND_ENTRY_MISSING` 会拦住。
+
+### 4.5.3 manifest 写法
 
 ```jsonc
 {
@@ -186,7 +208,7 @@ manifest 里声明 `view: "storage/xxx.html"`，宿主用 `sandbox="allow-script
 - 实际 URL 是 `/plugins/<插件安装 id>/<storage/...>`，文件放在插件包的 `storage/` 下；
 - `.html` 响应带 `PLUGIN_VIEW_CSP`（允许内联脚本/样式与 https 资源，`frame-ancestors 'self'`）。
 
-### 4.5.3 页面写法（桥接 API）
+### 4.5.4 页面写法（桥接 API）
 
 ```html
 <!doctype html>
@@ -235,7 +257,7 @@ manifest 里声明 `view: "storage/xxx.html"`，宿主用 `sandbox="allow-script
 | `storage.get/set/delete(key)` | 宿主 localStorage 命名空间（`ol_pv_<pluginId>_*`） |
 | `ui.toast/showToast(msg, type)` / `ui.resize(h)` | 提示与高度自适应 |
 
-### 4.5.4 打包（必须自己补）
+### 4.5.5 打包（必须自己补）
 
 官方 CLI 的 `pack` **只打 `manifest.json` / `index.js` / `frontend.js`**，`storage/**` 不会进 ZIP。
 不补的话：本地能预览、装到宿主后 404 → 面板空白/加载失败。最小打包脚本（放 `scripts/pack.mjs`）：
@@ -263,7 +285,7 @@ console.log(`repacked ${zipPath} with storage/**`);
 
 > `jszip` 已是 `@openlearn/plugin-sdk` 的依赖，可直接 `npm i -D jszip` 显式声明。
 
-### 4.5.5 边界与安全
+### 4.5.6 边界与安全
 
 - iframe **没有** `allow-same-origin`：拿不到宿主 DOM / localStorage / Cookie，只能通过桥接；
 - **不要**在页面里直接 `fetch('/api/...')`：不透明源下 Cookie 不可靠，统一走 `api.*` / `invokeCommand`；
@@ -381,6 +403,8 @@ ctx.ui.registerExtensionPoint('student.view', { id: 'my-widget-student', compone
 | `frontend.tsx` 只有命令面板数据项 | 没有可渲染组件 | inline + `registerExtensionPoint({component})` | L0 `UI_MODE_MISMATCH` / `CONTRACT` |
 | 被强制 `process`，React 不挂载 | 不在白名单，且 `@openlearn-ext/` 前缀不算信任 | 写 `.env` 白名单 + 重启 + 重装/切档位 + 验证 `executionMode` | L0 `INLINE_TRUST_MISSING` / `INLINE_NOT_WHITELISTED`；L3 冒烟 |
 | 面板/学生页空白，或提示「非法的插件视图路径」 | ① 该用 `view` 却写了 component；② view 路径含 `..`/绝对路径；③ `storage/**` 没打进 ZIP | 改 `view` 相对路径 + 桥接脚本 + 自写打包脚本 | L0 `VIEW_PATH_UNSAFE` / `VIEW_FILE_MISSING` / `VIEW_BRIDGE_MISSING` / `VIEW_NOT_PACKED` |
+| **所有贡献都不出现，日志也没有 404** | 没有 `dist/frontend.js`：`has_frontend=false` → 前端跳过激活 → `registerManifestContributions` 不执行 | 加空 `src/frontend.tsx` | L0 `FRONTEND_ENTRY_MISSING` |
+| DB 里 `teacher.tab` 丢了 `view`，但 overlay 还留着 | 安装时平台 schema < v0.7.7，zod strip 后落库；升级不回填 | 升到 ≥0.7.7 后**重新安装**插件 | 人工：`SELECT manifest FROM plugins` |
 
 ---
 

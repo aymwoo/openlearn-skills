@@ -24,6 +24,8 @@ bridge.onInit(ctx) / invokeCommand(type, payload) / api.get|post|del / storage.*
 
 | 约束 | 说明 |
 |------|------|
+| **必须提供 `src/frontend.tsx`** | 宿主按 `has_frontend` 决定是否激活前端；`registerManifestContributions` 在 `fetch frontend.js` 之后。没有这个文件，`view` / `teacher.tab` / 其它 contributes 一律不注册（页面永远空白）。空导出 `{ activate, deactivate }` 即可 |
+| **`view` 必须 `storage/` 前缀** | 安装器只解压 `storage/**`；写 `views/...` 装上去 404 |
 | `view` 必须是相对路径 | 禁 `..`、绝对路径、`://`；宿主 `sanitizeViewPath` 会拒绝并显示「非法的插件视图路径」 |
 | 槽位 | `teacher.tab` / `teacher.panel` / `teacher.dashboard.widget` / `student.view` / `student.lesson.tool` |
 | 打包 | CLI **不打** `storage/**` → 用 `npm run pack`（本模板已带 `scripts/pack.mjs`） |
@@ -37,6 +39,7 @@ bridge.onInit(ctx) / invokeCommand(type, payload) / api.get|post|del / storage.*
 |------|------|
 | `plugin.contract.json` | `executionMode: process` + `uiChannel: sandbox-view` + `viewFiles`（L0 依此校验） |
 | `src/index.ts` | 后端命令：`add_note` / `list_notes`（页面通过桥接调用） |
+| `src/frontend.tsx` | **必须保留的空桥接入口**：只让 CLI 产出 `dist/frontend.js`。宿主激活时无条件 fetch 它，缺文件则 `has_frontend=false` → 跳过激活 → **所有 manifest 贡献（含 `view`）都不会注册** |
 | `storage/teacher.html` | 教师页（`teacher.tab`），带输入 + 列表 + 轮询 |
 | `storage/student.html` | 学生页（`student.view`），同上 |
 | `scripts/pack.mjs` | 把 `storage/**` 补进 ZIP |

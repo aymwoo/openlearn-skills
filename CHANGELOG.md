@@ -6,6 +6,46 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.6.1] - 2026-10-28
+
+补丁：修复 `sandbox-view` 模板的致命缺件，并把「前端入口 / 安装期 schema」两条隐蔽根因写进文档与检查。
+
+### 修复
+
+- **`assets/sandbox-view/` 缺少 `src/frontend.tsx`**（真实 bug）：
+  宿主按 `has_frontend` 判断是否激活前端，且 `registerManifestContributions()` 在
+  `fetch(frontend.js)` **之后**；CLI 又只在存在 `src/frontend.tsx` 时才产出 `dist/frontend.js`。
+  结果是 **view-only 插件的所有 manifest 贡献都不会注册**（页面永远空白，日志里连 404 都没有）。
+  已补空桥接入口，并在模板 README 把它列为不可删除项。
+- 新增 L0 检查 **`FRONTEND_ENTRY_MISSING`**：声明了 `contributes`/`view`（或契约要求 UI 通道）
+  却没有前端入口时直接报错。
+
+### 记录（`platform-change-watchlist.md` 新增两节）
+
+- **§7.1 `frontend.js` 不是可选文件**：`core.ts` 的 `has_frontend` → `useClassroomSlice` 跳过激活 →
+  `plugin-host.ts` fetch-before-register 的完整证据链；含「只有 classroomTools 时半残」的难查情形。
+- **§7.2 安装期 schema 决定落库**：`view` 在 v0.7.7 才进 `teacher.tab`/`teacher.panel` schema，
+  旧版本安装过的插件 manifest 已被 zod strip，**升级平台不会回填**，必须重装；
+  解释了「`teacher.tab` 丢 view、`student.classroom.overlay` 保留」的不对称现象。
+
+### 同步更新
+
+- `ui-channel-decision.md`：§4.5.2 新增「必须提供 `src/frontend.tsx`」前置（含最小代码），失败模式表补两行。
+- `troubleshooting.md` D4-UI：新增 4b（无 frontend.js）/ 4c（DB 里 view 被 strip）两条检查。
+- `frontend-bridge-0.7.md` §4.1：新增「存在性契约」——`has_frontend` 门禁、fetch-before-register、
+  CLI 产出条件、最小占位入口与 `unzip -l | grep frontend.js` 自检；
+  §5.5 开头补两个必踩前提；§5 决策树修正「id 前缀构成信任」的错误表述。
+- `SKILL.md` 构建预检清单新增 `unzip -l dist/*.zip | grep -q frontend.js`。
+- `platform-drift-check.sh`：新增第 7 项检查（`has_frontend` 门禁 2 处 + fetch-before-register 顺序），
+  期望值写入 `.cache-meta.json`；现为 10 项。
+
+### 已验证
+
+- `verify-templates-build.sh` 29/29（`sandbox-view` 现在也会产出并校验 `frontend.js`）。
+- `verify-test-harness.sh` 47/47（新增 `FRONTEND_ENTRY_MISSING` 反例）。
+- `platform-drift-check.sh` 10/10 无漂移。
+- L1/L2：`sandbox-view` 18 passed；模板 L0 0 error。
+
 ## [2.6.0] - 2026-10-28
 
 新增**平台变更观察清单**与**漂移检测**，专门记录「文档看不出来 / 文档本身写错」的高风险事实。

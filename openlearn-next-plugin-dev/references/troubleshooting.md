@@ -147,6 +147,8 @@
 | 2. 写入命令用对没有 | 元素存在但类型不对 | **插件侧** | 白板挂件必须 `whiteboard.draw` + `type:'plugin'` + `data` 为 JSON 字符串 |
 | 3. widget id 是否成对且一致 | 「组件 [x] 正在加载或未启用…」 | **插件侧** | `data.teacherWidgetId` / `data.studentWidgetId` 与扩展点 `id` 逐字符比对 |
 | 4. 是否声明了学生侧容器 | 学生端完全没有位置 | **插件侧** | 白板挂件要 `teacher.dashboard.widget` + `student.view`；页面级 UI 要 `view` |
+| 4b. 有没有 `dist/frontend.js` | **所有入口都不出现，且日志无 404** | **插件侧（打包）** | 宿主按 `has_frontend` 跳过激活，贡献注册在 fetch 之后；补空 `src/frontend.tsx`。L0 `FRONTEND_ENTRY_MISSING` |
+| 4c. DB 里声明的 `view` 是否被 strip | `teacher.tab` 丢 view、overlay 保留 | **环境（安装时 schema 旧）** | 安装时平台 < v0.7.7；升级后需**重新安装**，重启不回填 |
 | 5. 通道与执行模式是否匹配 | 注册了 component 却永不渲染 | **插件侧** | process 只能声明式或 `view`；React 组件必须 inline（白名单，且 id 前缀不算信任） |
 | 6. `view` 页面是否可达 | 面板空白 / 「非法的插件视图路径」 | **插件侧（打包/路径）** | `storage/**` 是否进 ZIP；`view` 是否相对路径且无 `..`；是否引 `/plugin-sandbox/view-bridge.js` |
 | 7. 权限是否授予 | 命令 403 / 元素写不进 | **环境与配置** | `whiteboard:write` 等是否声明 + 管理员批准（v0.7.2 起按已授予集合） |

@@ -171,6 +171,82 @@ curl -s -b cookie.txt http://localhost:3000/api/plugins | jq '.[] | {id, executi
 
 ---
 
+---
+
+## 7.1 `frontend.js` 不是可选文件：它是所有 manifest 贡献的注册开关
+
+**事实（源码）**
+
+- `packages/core/plugin-host/core.ts:613`：`has_frontend = fs.existsSync(pluginDir/frontend.js)`，随 `GET /api/plugins` 返回。
+- `src/hooks/useClassroomSlice.ts:256 / 333`：`if (!plugin.has_frontend) continue;`
+  —— **没有前端产物就整个跳过激活/停用**，连请求都不会发。
+- `src/plugin-host/plugin-host.ts:680-693`：`fetch(/plugins/<id>/frontend.js)` → `!res.ok` 直接 throw
+  → **之后**才 `registerManifestContributions()`。
+- `packages/plugin-sdk/cli.mjs:372,468`：只有存在 `src/frontend.tsx` 时才构建 `dist/frontend.js`。
+
+**后果**
+
+| 情况 | 表现 |
+|------|------|
+| 无 `frontend.js` | `has_frontend=false` → 前端跳过激活 → **所有 `contributes`（含 `view` 页面、`teacher.tab`）都不注册**；日志没有 404，因为根本没发请求 |
+| 有 `frontend.js` 但 404（文件缺失/路由未挂） | 激活抛 `Failed to fetch frontend.js ... HTTP 404`，贡献同样注册不到 |
+| 只有 `classroomTools` | 按钮可能仍出现（宿主部分消费端直读 manifest），但依赖 store 的入口不会出现 → 半残，更难查 |
+
+**判定口径**
+
+- 只要声明了 **任何 `contributes` 或 `view`**，就必须提供 `src/frontend.tsx`（空导出 `{ activate, deactivate }` 即可）。
+  `view` 页面由宿主 iframe 承载，不需要前端逻辑，但**入口文件不能省**。
+- 若某天 `has_frontend` 门禁被移除、或 `registerManifestContributions` 移到 fetch 之前，
+  本条结论才能放宽（`platform-drift-check.sh` 会报漂移）。
+
+**验证**
+
+```bash
+grep -n "if (!plugin.has_frontend)" src/hooks/useClassroomSlice.ts
+grep -n "Failed to fetch frontend.js\|registerManifestContributions" src/plugin-host/plugin-host.ts
+grep -n "const frontendEntry = join(srcDir, 'frontend.tsx')" packages/plugin-sdk/cli.mjs
+```
+
+---
+
+## 7.2 安装期 schema 决定 manifest 落库内容：升级平台不会回填被 strip 的 `view`
+
+**事实（源码）**
+
+- 安装/更新时用 `manifestSchema.parse()` 校验，校验后的对象写进 `manifest.json` 与
+  `plugins.manifest`（`install.ts` 192 / 333 / 735，`INSERT INTO plugins` 198 / 521）。
+- 激活只做 `JSON.parse(row.manifest)`（`core.ts:258-270` 等），**不会**重新用新 schema 解析。
+- `teacher.tab` / `teacher.panel` 的 `view` 字段是 `d704086`（**v0.7.7**）才补进 schema 的；
+  `student.classroom.overlay` 走 `frontendSlotEntrySchema`（`.passthrough()`），任何版本都保留。
+
+**典型症状（本次事故）**
+
+```
+DB 里 teacher.tab[0]       → { id, label, icon, position }   ← view 消失
+DB 里 student.classroom.overlay[0] → { id, label, view }     ← view 还在
+```
+
+→ 说明**安装那一刻**跑的是 v0.7.7 之前的 schema：zod 默认 strip 未声明键，`view` 被丢掉并原样落库。
+之后即使把平台升到 v0.7.7，DB 里仍是旧结果，重启也不会修复。
+
+**判定口径**
+
+- 出现上述不对称（声明式槽位丢字段、passthrough 槽位保留），先查**安装时的平台版本**，而不是当前版本。
+- 修复必须**重新安装/更新插件**（让新 schema 重新解析）或手工重写 `plugins.manifest`；
+  只升级平台/重启服务无效。
+- 新字段上线初期（如 `view` 在 v0.7.6→v0.7.7 之间）最容易踩：同一插件在旧机装、新机跑就会不一致。
+
+**验证**
+
+```sql
+-- 看落库的 manifest 里 view 是否还在
+SELECT id, version, substr(manifest, 1, 400) FROM plugins WHERE manifest LIKE '%teacher.tab%';
+```
+
+```bash
+git log --oneline -S "view: z.string" -- packages/core/esm-loader/manifest-schema.ts
+```
+
 ## 8. 期望值（`platform-drift-check.sh` 的比对基准）
 
 | 信号 | 当前期望 | 漂移时更新 |
@@ -183,5 +259,8 @@ curl -s -b cookie.txt http://localhost:3000/api/plugins | jq '.[] | {id, executi
 | README 是否含白名单变量 | `0`（已被 #343 移除） | §1 的「误判来源」 |
 | 白名单通配符支持 | 有（`endsWith('*')`） | §1 |
 | 白板卡片是否支持 view | 否 | §5 与 SKILL 第二步通道表 |
+| `has_frontend` 跳过激活 | 是（2 处） | §7.1 与 L0 `FRONTEND_ENTRY_MISSING` |
+| 前端 fetch 在贡献注册之前 | 是 | §7.1 |
+| 安装期 schema 落库、不回填 | 是 | §7.2 |
 
 > 本表与脚本里的 `EXPECT_*` 常量必须同步修改；只改一边会导致 CI 漂移检测误报。

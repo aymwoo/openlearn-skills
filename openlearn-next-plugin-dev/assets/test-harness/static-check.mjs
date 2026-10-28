@@ -546,6 +546,26 @@ if (viewPaths.size > 0) {
   const hasPack = Object.keys(pkg.scripts ?? {}).some((k) => /pack|zip|postbuild/.test(k));
   if (!hasPack) add('warn', 'VIEW_PACK_HINT', '官方 CLI 只打 manifest.json/index.js/frontend.js：storage/** 需自写打包脚本补进 ZIP（见 references/ui-channel-decision.md §4.5.4）', join(ROOT, 'package.json'));
 }
+// 前端入口：宿主按 has_frontend 决定是否激活，registerManifestContributions 在 fetch 之后。
+// 没有 frontend.js → 贡献（含 view）根本不注册。这是「页面永远空白」最隐蔽的根因之一。
+const hasFrontendEntry = existsSync(join(ROOT, 'src', 'frontend.tsx'))
+  || existsSync(join(ROOT, 'src', 'frontend.ts'))
+  || existsSync(join(ROOT, 'dist', 'frontend.js'));
+const needsFrontendEntry = viewPaths.size > 0
+  || manifestSlots.size > 0
+  || uiChannel === 'sandbox-view'
+  || uiChannel === 'inline-react';
+if (needsFrontendEntry && !hasFrontendEntry) {
+  add(
+    'error',
+    'FRONTEND_ENTRY_MISSING',
+    '声明了 contributes / view（或契约要求 UI 通道），但没有 src/frontend.tsx（也没有 dist/frontend.js）：'
+      + '宿主激活时会 fetch frontend.js，has_frontend=false 直接跳过激活 → registerManifestContributions 不执行，'
+      + '所有声明式贡献（含 view 页面）都不会注册。加一个空导出的 frontend.tsx 即可。',
+    join(ROOT, 'src'),
+  );
+}
+
 for (const slot of viewSlotsUsed) {
   if (!VIEW_SLOTS.has(slot)) {
     add('warn', 'VIEW_SLOT_UNSUPPORTED', `槽位 '${slot}' 未在 schema 中显式声明 view：可能透传但不保证长期可用，优先用 ${[...VIEW_SLOTS].join(' / ')}`, manifestPath);

@@ -93,13 +93,37 @@ export default { activate, deactivate };   // 宿主逐字检查 typeof plugin.a
 - `activate(ctx)` / `deactivate()` 均为异步，可无参。
 - 宿主在停用/卸载时会摘掉本插件运行期注册的扩展点并销毁 iframe，**无需手工反注册**。
 
+### 4.1 存在性契约（缺文件的连带后果）
+
+`frontend.js` 不只是「有前端逻辑才需要」：
+
+| 事实 | 位置 |
+|------|------|
+| `has_frontend = fs.existsSync(pluginDir/frontend.js)`，随 `GET /api/plugins` 返回 | `packages/core/plugin-host/core.ts:613` |
+| `has_frontend=false` → 前端**直接跳过激活/停用**（连请求都不发） | `src/hooks/useClassroomSlice.ts:256/333` |
+| 有文件但 404 → 抛 `Failed to fetch frontend.js ...`；`registerManifestContributions()` 在这之后 | `src/plugin-host/plugin-host.ts:680-693` |
+| CLI 只在存在 `src/frontend.tsx` 时产出 `dist/frontend.js` | `packages/plugin-sdk/cli.mjs:372/468` |
+
+**连带后果**：只要声明了任何 `contributes`（含 `view` 页面、`teacher.tab`），没有 `frontend.js` 就
+**一个都不注册**，表现为「安装成功、状态 active、所有入口不出现、日志没有 404」。
+
+最小占位入口（不要写任何 `import`）：
+
+```ts
+// src/frontend.tsx
+export default { async activate() {}, async deactivate() {} };
+```
+
+打包自检：`unzip -l dist/*.zip | grep -q frontend.js`。
+
 ---
 
 ## 5. 可见 UI 该怎么给（决策树）
 
 ```
 插件需要自定义 React UI？
-├─ 是，且是「内建插件」（manifest.id 以 @openlearn/ 开头、被列入 OPENLEARN_TRUSTED_INLINE_PLUGINS）
+├─ 是，且「文件在 packages/plugins 内置目录 或 id 在 OPENLEARN_TRUSTED_INLINE_PLUGINS」
+│   （**id 前缀不构成信任**，manifest 自述 executionMode 也不作数）
 │   └─ 可以用 inline 执行 + 命令式 registerExtensionPoint({ component })（宿主父 realm 内执行）
 └─ 否（第三方 / 社区插件）
     └─ 走「声明式」路线：
@@ -120,6 +144,14 @@ export default { activate, deactivate };   // 宿主逐字检查 typeof plugin.a
 ## 5.5 声明式可视沙箱视图（`view`）—— 第三方自定义 UI 的唯一可行通道
 
 **版本门槛**：平台 v0.7.6+（`sdk 3.7.x`）。低于此版本没有该字段，声明了也只会被静默忽略。
+
+> ⚠️ **两个必踩前提**
+> 1. **仍然必须提供 `src/frontend.tsx`**：宿主按 `has_frontend` 决定是否激活前端，
+>    而 `registerManifestContributions` 在 `fetch frontend.js` 之后 —— 没有前端产物，`view` 也不会注册
+>    （现象：所有入口消失、日志无 404）。空导出 `{ activate, deactivate }` 即可。
+> 2. **安装时 schema 决定落库**：`view` 在 v0.7.7 才补进 `teacher.tab`/`teacher.panel` 的 schema。
+>    在旧版本安装过的插件，DB 里的 manifest 已被 strip；升级平台不会回填，必须重装。
+>    详见 `references/platform-change-watchlist.md` §7.1 / §7.2。
 
 ### 链路
 
