@@ -93,50 +93,64 @@ export default { activate, deactivate };   // 宿主逐字检查 typeof plugin.a
 - `activate(ctx)` / `deactivate()` 均为异步，可无参。
 - 宿主在停用/卸载时会摘掉本插件运行期注册的扩展点并销毁 iframe，**无需手工反注册**。
 
-### 4.1 存在性契约（缺文件的连带后果）
+### 4.1 存在性契约（`frontend.js` 缺了会怎样 —— v0.7.7 + #350 起已放宽）
 
-`frontend.js` 不只是「有前端逻辑才需要」：
+`frontend.js` 只影响**隐藏前端逻辑**，不再阻断声明式贡献：
 
 | 事实 | 位置 |
 |------|------|
-| `has_frontend = fs.existsSync(pluginDir/frontend.js)`，随 `GET /api/plugins` 返回 | `packages/core/plugin-host/core.ts:613` |
-| `has_frontend=false` → 前端**直接跳过激活/停用**（连请求都不发） | `src/hooks/useClassroomSlice.ts:256/333` |
-| 有文件但 404 → 抛 `Failed to fetch frontend.js ...`；`registerManifestContributions()` 在这之后 | `src/plugin-host/plugin-host.ts:680-693` |
-| CLI 只在存在 `src/frontend.tsx` 时产出 `dist/frontend.js` | `packages/plugin-sdk/cli.mjs:372/468` |
+| `hasFrontend` 为假 → 直接置 `ACTIVE` 并 return，**不请求** `frontend.js` | `src/plugin-host/plugin-host.ts`（`activateRemotePlugin`） |
+| `registerManifestContributions()` 在 `fetch` **之前**执行 | 同上（顺序断言见 `integration-facts.json` 的 `frontend-register-before-fetch`） |
+| 有文件但 404 → 状态 `ERROR`，但贡献被 `preserveManifestContributions` 保留 | 同上 `catch` 分支 |
+| 旧门禁 `if (!plugin.has_frontend) continue;` 已从 `useClassroomSlice.ts` 移除 | `grep -c` 应为 0 |
+| CLI 只在存在 `src/frontend.tsx` 时产出 `dist/frontend.js` | `packages/plugin-sdk/cli.mjs` |
 
-**连带后果**：只要声明了任何 `contributes`（含 `view` 页面、`teacher.tab`），没有 `frontend.js` 就
-**一个都不注册**，表现为「安装成功、状态 active、所有入口不出现、日志没有 404」。
+**现在什么情况才必须有 `frontend.js`**：插件要注册**自己的命令**（`invokeCommand` 打到自家 command）、
+定时任务、或订阅宿主 store。纯 `view` / 纯声明式插件可以没有。
 
-最小占位入口（不要写任何 `import`）：
+> **⚠ 已失效的旧结论**：本节曾写「没有 `frontend.js` → 所有 `contributes` 一个都不注册，
+> 表现为安装成功、状态 active、入口全不出现、日志无 404」。该因果在 #350 之后**不再成立**。
+> 现在「入口全消失」应先查 DB manifest 里的 `view` 是否被 strip（见 §5.5），而不是先怀疑 `frontend.js`。
+
+若确实需要隐藏前端，最小占位入口（不要写任何 `import`）：
 
 ```ts
 // src/frontend.tsx
 export default { async activate() {}, async deactivate() {} };
 ```
 
-打包自检：`unzip -l dist/*.zip | grep -q frontend.js`。
+打包自检：`unzip -l dist/*.zip | grep -q frontend.js`（需要时）。
 
 ### 4.2 槽位布局契约（`student.classroom.overlay` 会挤掉白板）
 
-槽位分两类，第三方 `view` 用错类会**破坏宿主布局**，而不只是样式难看：
+槽位按**容器语义**分四类（官方定义：平台 `docs/reference/plugin-ui-extension-slots.md` §1.1.1
+的 `layoutVariant`）。第三方 `view` 用错类会**破坏宿主布局**，而不只是样式难看：
 
-| 类别 | 槽位 | 容器语义 |
+| `layoutVariant` | 槽位（示例） | 插件视图该怎么写 |
 |------|------|----------|
-| 页面级 | `teacher.tab` / `teacher.panel` / `student.view` | 铺满父容器（`w-full h-full`），是页面主体 |
-| 浮层级 | `student.classroom.overlay` | **必须固定定位**，不参与父级 flex 布局 |
+| `Panel` 页面级 | `teacher.tab` / `teacher.panel` / `admin.tab` | 铺满容器（`w-full h-full` + `flex flex-col min-h-0`） |
+| `WhiteboardWidget` 白板卡片 | `teacher.dashboard.widget` / `student.view` / `whiteboard.canvas.widget` | 尺寸由卡片图元与拖拽决定，**不要写死铺满**，要适配缩放 |
+| `FloatingOverlay` 视口浮层 | `student.classroom.overlay` / `stage.display.overlay` / `student.quick_actions.fab` | **必须 `position: fixed`**，严禁 `w-full`/`h-full`/`flex-1` |
+| `ActionItem` 行内 | `classroom.topbar.action` / `header.action` / `course.card.badge` | 紧凑内联（`h-8 px-2 flex items-center`） |
 
-**踩坑实录（平台 ≤ 0.7.7）**：`App.tsx` 根容器是 `flex h-screen`（横向 flex），
+> `student.view` 不是页面级：它在学生工作台作为 widget 渲染（`StudentPluginWidgets`），
+> 同时是白板卡片的学生侧槽位（`InteractiveWhiteboard` 按角色在 `teacher.dashboard.widget` /
+> `student.view` 之间二选一）。给它写满屏页面会出问题。
+
+**踩坑实录（平台 0.7.7 早期构建）**：`App.tsx` 根容器是 `flex h-screen`（横向 flex），
 `<ClassroomOverlays />` 与主内容区（`flex-1` 的白板）是**同级 flex item**。
-`PluginSandboxIframeView` 只提供页面级容器（`relative w-full h-full`），于是浮层视图成为
+`PluginSandboxIframeView` 当时只提供页面级容器（`relative w-full h-full`），于是浮层视图成为
 flex item 并占满整行宽 → `flex-1` 的主内容被压成 0 宽。
 
 现象：**给 `student.classroom.overlay` 加 `view` 后，课堂白板整块消失**（插件面板正常显示，
-所以很容易误判成「白板插件坏了」）。改前不存在此问题，因为此前没有第三方用过这个槽位的 `view`。
+所以很容易误判成「白板插件坏了」）。
 
-- 平台侧修复（v0.7.8+）：`PluginSandboxIframeView` 新增 `variant: 'panel' | 'floating'`，
-  渲染器按 `FLOATING_VIEW_SLOTS` 判定；`floating` 用 `fixed bottom-6 left-6 z-40 w-[300px]`。
-- 插件侧无法自救：`bridge.ui.resize()` 只传 `height`，宿主也只写 `minHeight`，改不了宽度与定位。
-  若目标平台未修，改用 `student.lesson.tool`（课堂工具按钮）而非浮层槽位。
+- 平台侧已修（v0.7.7 / commit `6e00ca3`，官方文档已把这条写成 `FloatingOverlay` 铁律）：
+  `PluginSandboxIframeView` 支持 `variant: 'panel' | 'floating'`，渲染器按 `FLOATING_VIEW_SLOTS`
+  判定；`floating` 用 `fixed` 定位。
+- 插件侧仍需自己守规矩：`bridge.ui.resize()` 只传 `height`，宿主也只写 `minHeight`，
+  **改不了宽度与定位** —— 视图自己写死 `w-full` 仍会出问题。
+- 若目标平台是更早的构建（无 `variant`），改用 `student.lesson.tool`（课堂工具按钮）而非浮层槽位。
 - 自查信号：白板/主内容区突然消失，而插件自己的面板显示正常 → 先怀疑槽位布局，不要查白板。
 
 ---
@@ -169,9 +183,9 @@ flex item 并占满整行宽 → `flex-1` 的主内容被压成 0 宽。
 **版本门槛**：平台 v0.7.6+（`sdk 3.7.x`）。低于此版本没有该字段，声明了也只会被静默忽略。
 
 > ⚠️ **两个必踩前提**
-> 1. **仍然必须提供 `src/frontend.tsx`**：宿主按 `has_frontend` 决定是否激活前端，
->    而 `registerManifestContributions` 在 `fetch frontend.js` 之后 —— 没有前端产物，`view` 也不会注册
->    （现象：所有入口消失、日志无 404）。空导出 `{ activate, deactivate }` 即可。
+> 1. **`src/frontend.tsx` 从 v0.7.7 + #350 起不再是必需**：贡献注册已前移到 fetch 之前，
+>    无前端产物的纯 `view` 插件会直接置 `ACTIVE`。只有要用**插件自身命令**时才需要它
+>    （空导出 `{ activate, deactivate }` 即可）。历史坑与现状见 §4.1。
 > 2. **安装时 schema 决定落库**：`view` 在 v0.7.7 才补进 `teacher.tab`/`teacher.panel` 的 schema。
 >    在旧版本安装过的插件，DB 里的 manifest 已被 strip；升级平台不会回填，必须重装。
 >    详见 `references/platform-change-watchlist.md` §7.1 / §7.2。
@@ -297,7 +311,7 @@ CSP 对 `.html` 是宽松的（`script-src 'self' 'unsafe-inline' 'unsafe-eval' 
 | 证据 | 位置 | 事实 |
 |------|------|------|
 | iframe 的 CSP | `server.ts`（`/plugin-sandbox/frame` 路由） | `default-src 'none'; script-src 'unsafe-inline' blob:; **connect-src 'none'**; style-src 'none'; img-src 'none'` |
-| 桥接能力清单 | `server/utils/plugin-sandbox-frame.ts` | 只有 9 个 op：`api.get/post/del`、`storage.get/set/delete`、`ui.register`、`ui.toast`、`command.invoke`、`context.get` |
+| 桥接能力清单 | `server/utils/plugin-sandbox-frame.ts` | **10 个 op**：`api.get/post/del`、`storage.get/set/delete`、`ui.register`、`ui.toast`、`command.invoke`、`context.get`（真值源：平台 `docs/agent/contracts/bridge-ops.json` 的 `frame_ops`。**view 通道是另一套 8 个**，没有 `ui.register` 与 `context.get`） |
 | 宿主→iframe 消息 | `src/plugin-host/plugin-host.ts` | 只有 `load` / `reply` / `deactivate` 三种 —— **无事件推送** |
 
 **推论**：

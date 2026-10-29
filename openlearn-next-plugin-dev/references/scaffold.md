@@ -218,7 +218,7 @@ export default { activate, deactivate };   // default export 是对象，不是�
 ### 版本（必须来自抓取内容，勿臆造）
 
 - **`@openlearn/plugin-sdk`：版本随平台 release 同步，官方明确「勿在文档中写死」。** 文档中出现过的口径：`3.5.2`（verifiable-examples 页与教程 §2.8）、`3.6.0`（`ctx.http` / 平台 v0.3.11 引入）、`3.6.1`（数据库 API 页、共享依赖页，适用平台 v0.3.15+）。旧缓存写的 `^3.2.0` 属过时信息。
-- **`@openlearn/plugin-test-kit`：文档口径为 `3.3.1`**（verifiable-examples 页与教程 §2.8 均写明）；SDK 与 test-kit 版本号各自独立演进。
+- **`@openlearn/plugin-test-kit`：真值 `3.3.3`**（npm `latest` 与仓库 `packages/plugin-test-kit/package.json` 一致，平台 `docs/agent/contracts/versions.json` 亦记 3.3.3；文档页仍写 `3.3.1` 属滞后）。SDK 与 test-kit 版本号各自独立演进。
 - **React**：宿主实际运行 `react` / `react-dom` / `react-dom/client` / `react/jsx-runtime` 均为 **19.2.7**（`package.json` 声明范围 `^19.0.1`）。`recharts` 3.8.1（声明 `^3.8.1`）、`lucide-react` 0.546.0（声明 `^0.546.0`）。
 - 但**脚手架模板本身**声明的 `peerDependencies` 仍是 `{ "react": ">=17", "react-dom": ">=17" }`（`full-stack` 与 `frontend-only` 模板）。文档明确说明这只是「插件消费宿主 React」的清单信号，**不参与 externals 计算**（externals 由 CLI 硬编码注入）。
 
@@ -409,7 +409,7 @@ grep -E 'react/jsx-runtime' dist/frontend.js
 
 ### 版本与安装
 
-- 包名：`@openlearn/plugin-test-kit`，**文档口径版本为 `3.3.1`**。测试运行器文档示例同时给出 npm 与 pnpm：
+- 包名：`@openlearn/plugin-test-kit`，**真值 `3.3.3`**（以 npm 与 `docs/agent/contracts/versions.json` 为准，文档页的 3.3.1 已滞后）。测试运行器文档示例同时给出 npm 与 pnpm：
 
 ```bash
 npm install --save-dev @openlearn/plugin-test-kit vitest
@@ -417,7 +417,8 @@ npm install --save-dev @openlearn/plugin-test-kit vitest
 pnpm add -D @openlearn/plugin-test-kit vitest
 ```
 
-> 注意：test-kit 版本号与 `@openlearn/plugin-sdk` 版本号**独立**，不要混用（SDK 文档口径为 3.5.2 / 3.6.0 / 3.6.1，test-kit 为 3.3.1）。
+> 注意：test-kit 版本号与 `@openlearn/plugin-sdk` 版本号**独立**，不要混用。
+> 当前真值：SDK 仓库 `3.7.5` / npm `3.7.4`，test-kit `3.3.3`（见 `docs/agent/contracts/versions.json`）。
 
 ### `createMockContext(options)` 能力
 

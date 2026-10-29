@@ -122,7 +122,7 @@ else → process + coerced=true（静默降档）
 | `student.lesson.tool` | 学生课中工具栏 | — | 轻量入口 |
 | `student.quick_actions.item / action / fab` | 学生快捷指令 | — | 悬浮球/菜单 |
 
-> 槽位是**封闭集合**（平台 v0.7.7 共 122 个）。完整清单与分组见
+> 槽位是**封闭集合**（数量见 `slot-registry.json` 的 `count`，勿凭记忆报数）。完整清单与分组见
 > `assets/test-harness/slot-registry.json`（由 `src/plugin-host/types.ts` 的 `ExtensionSlot` 联合类型生成）。
 > 槽位名写错宿主不会报错，只会永远不渲染；L0 的 `SLOT_UNKNOWN` 会拦住。
 
@@ -207,14 +207,15 @@ manifest 里声明 `view: "storage/xxx.html"`，宿主用 `sandbox="allow-script
 > `student.classroom.overlay` 等走 `frontendSlotEntrySchema`（passthrough），`view` 会透传并由
 > `ExtensionPointRenderer` 渲染，**能用但不承诺长期契约**（L0 会给 `VIEW_SLOT_UNSUPPORTED` 警告）；正式产品优先用上表。
 
-### 4.5.2 前置：必须提供 `src/frontend.tsx`（哪怕是空的）
+### 4.5.2 前置：`src/frontend.tsx` 还要不要？（v0.7.7 + #350 起按需）
 
-`view` 页面由宿主 iframe 承载，本身不需要前端逻辑，**但前端入口不能省**：
+`view` 页面由宿主 iframe 承载，本身不需要前端逻辑，**也不再依赖前端入口**：
 
-- `GET /api/plugins` 的 `has_frontend` 来自 `pluginDir/frontend.js` 是否存在；
-  `useClassroomSlice` 对 `has_frontend=false` 的插件**直接跳过激活**；
-- 激活路径里 `registerManifestContributions()` 排在 `fetch(frontend.js)` **之后**；
-- CLI 只有看到 `src/frontend.tsx` 才产出 `dist/frontend.js`。
+- `registerManifestContributions()` 已前移到 `fetch(frontend.js)` **之前**；
+  `hasFrontend=false` 的插件直接置 `ACTIVE` 且**不发请求**；
+- `useClassroomSlice` 中原 `if (!plugin.has_frontend) continue;` 已移除；
+- 只有要用「插件自身命令 / 定时任务 / store 订阅」时才需要 `src/frontend.tsx`；
+  CLI 只有看到它才产出 `dist/frontend.js`。
 
 所以最小入口：
 
@@ -226,8 +227,10 @@ export default {
 };
 ```
 
-缺它的表现：**所有 `contributes`（含 `view`/`teacher.tab`）都不出现，且日志没有 404**（请求根本没发）。
-L0 的 `FRONTEND_ENTRY_MISSING` 会拦住。
+缺它的表现（**v0.7.7 + #350 起**）：入口**照常显示**，只是插件的隐藏前端逻辑不存在
+（自定义命令找不到、定时任务不跑）。L0 的 `FRONTEND_ENTRY_MISSING` 只报提醒，不再拦。
+**旧结论「所有 contributes 都不出现且日志无 404」已失效** —— 那种现象现在是安装期 schema strip，
+见 `references/troubleshooting.md` 的 4c 与 `platform-change-watchlist.md` §7.2。
 
 ### 4.5.3 manifest 写法
 
@@ -443,7 +446,8 @@ ctx.ui.registerExtensionPoint('student.view', { id: 'my-widget-student', compone
 | `frontend.tsx` 只有命令面板数据项 | 没有可渲染组件 | inline + `registerExtensionPoint({component})` | L0 `UI_MODE_MISMATCH` / `CONTRACT` |
 | 被强制 `process`，React 不挂载 | 不在白名单，且 `@openlearn-ext/` 前缀不算信任 | 写 `.env` 白名单 + 重启 + 重装/切档位 + 验证 `executionMode` | L0 `INLINE_TRUST_MISSING` / `INLINE_NOT_WHITELISTED`；L3 冒烟 |
 | 面板/学生页空白，或提示「非法的插件视图路径」 | ① 该用 `view` 却写了 component；② view 路径含 `..`/绝对路径；③ `storage/**` 没打进 ZIP | 改 `view` 相对路径 + 桥接脚本 + 自写打包脚本 | L0 `VIEW_PATH_UNSAFE` / `VIEW_FILE_MISSING` / `VIEW_BRIDGE_MISSING` / `VIEW_NOT_PACKED` |
-| **所有贡献都不出现，日志也没有 404** | 没有 `dist/frontend.js`：`has_frontend=false` → 前端跳过激活 → `registerManifestContributions` 不执行 | 加空 `src/frontend.tsx` | L0 `FRONTEND_ENTRY_MISSING` |
+| **所有贡献都不出现，日志也没有 404** | DB 里 `view` 已被安装期 schema strip（#350 后不再由缺 frontend.js 引起） | 先跑 `post-install-check.sh` 确认 strip，再**重新安装** | 人工：`SELECT manifest FROM plugins` |
+| 入口都在，但插件自身命令不存在 / 定时任务没跑 | 没有 `dist/frontend.js`，隐藏前端逻辑没加载 | 需要时加空 `src/frontend.tsx`（纯 view 插件不必） | L0 `FRONTEND_ENTRY_MISSING`（提醒级） |
 | DB 里 `teacher.tab` 丢了 `view`，但 overlay 还留着 | 安装时平台 schema < v0.7.7，zod strip 后落库；升级不回填 | 升到 ≥0.7.7 后**重新安装**插件 | 人工：`SELECT manifest FROM plugins` |
 
 ---

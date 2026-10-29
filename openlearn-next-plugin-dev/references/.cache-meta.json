@@ -1,11 +1,11 @@
 {
   "source": "https://openlearn-next-v2.readthedocs.io/zh-cn/latest/",
-  "cacheDate": "2026-10-28",
-  "lastUpdated": "2026-10-28",
+  "cacheDate": "2026-10-29",
+  "lastUpdated": "2026-10-29",
   "docSiteVersion": "0.7.4",
   "platformVersion": "0.7.7",
   "sdkVersion": "3.7.4",
-  "authority": "npm 发布版 @openlearn/plugin-sdk 的 latest（2026-10-28 核对为 3.7.4）；docSiteVersion 记录的是 readthedocs 线上构建版本，滞后于仓库与 npm，仅作探活信号之一，不作事实来源。",
+  "authority": "脚手架模板/文档示例以 npm 发布版 @openlearn/plugin-sdk 为准（2026-10-29 核对为 3.7.4）；运行时行为以本地平台仓库 HEAD 为准（SDK 3.7.5）。两者会分叉：#349 的裸说明符硬拦截已进仓库、尚未发布到 npm。docSiteVersion 记录 readthedocs 线上构建版本，滞后于仓库与 npm，仅作探活信号。",
   "note": "探活需同时比对三个信号：(1) 索引页页脚『最后更新：YYYY-MM-DD』；(2) 页面标题中的构建版本『OpenLearnV2 x.y.z 文档』；(3) 本地平台仓库的 package.json version 与 packages/plugin-sdk/package.json version。页脚日期可能滞后于实际构建版本，三者任一变化即视为有更新。",
   "localSourceHint": "一手文档源在平台仓库内：~/Develop/openlearnv2/docs/（含 doc-version 标记），优先从本地仓库同步，再以 readthedocs 校验线上版本号。",
   "documents": {
@@ -62,9 +62,9 @@
   },
   "watchlist": {
     "purpose": "文档与源码不一致的高风险点；远端文档更新后先跑 scripts/platform-drift-check.sh 再逐条复核 references/platform-change-watchlist.md",
-    "checkedAt": "2026-10-28",
-    "platformCommit": "b03e216",
-    "slotCount": 122,
+    "checkedAt": "2026-10-29",
+    "platformCommit": "8295dc7",
+    "slotCount": 120,
     "viewSlots": [
       "teacher.tab",
       "teacher.panel",
@@ -83,7 +83,9 @@
     "readmeMentionsTrustedInline": 0,
     "allowlistWildcard": true,
     "whiteboardCardSupportsView": true,
-    "frontendGateSkips": 2,
-    "frontendFetchBeforeRegister": true
-  }
+    "frontendGateSkips": 0,
+    "frontendFetchBeforeRegister": false,
+    "frontendOrderNote": "PR #350（2026-10-29 合并）把 registerManifestContributions 移到 fetch 之前，并让 has_frontend=false 的插件直接 ACTIVE、不请求 frontend.js。因此期望值改为 0 / false：缺 frontend.js 不再阻断声明式贡献注册。"
+  },
+  "sdkVersionInRepo": "3.7.5"
 }

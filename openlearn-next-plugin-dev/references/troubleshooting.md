@@ -49,6 +49,7 @@
 | 命令里拿不到 `userId` / `role` | `src/components/PluginSandboxIframeView.tsx`（`command.invoke`）+ `pluginActorIdFor` | `invokeCommand` 的 actor 是插件自身；身份敏感操作走 `api.*` |
 | 隐藏前端 POST 报"需要 api:write" | `src/plugin-host/plugin-host.ts` + `packages/core/plugin-host/method-policy.ts` | `frontendApi` 写操作过策略；view 页面的 `api.*` 不过 |
 | SQL 报"not permitted to perform DDL / table not allowed" | `packages/core/plugin-host/sql-guard.ts` | 表必须 `plugin_<uuid>_*`；禁 ATTACH/PRAGMA/VACUUM/TRIGGER/VIEW；核心表黑名单 |
+| 路由 500，日志说核心表/未加前缀表被拒 | `worker-runtime/service-host.ts` 的 `assertDatabaseAccessAllowed` | `resolve(IDatabaseToken)` 拿到的 `prepare` 垫片**同样过守卫**（与用不用 `ctx.db` 无关）。`students` / `class_students` / `classroom_sessions` 一律读不到：名单改用命令 `class.get_students`（需 `management:read`），课堂上下文用槽位注入的 `lessonId`（事实 `process-db-shim-is-guarded`） |
 | `ctx.db` 返回 Promise / `undefined` | `packages/core/plugin-host/*` 的数据库代理 | process 模式是异步代理：统一 `await` |
 | 改了 manifest 但行为没变 | `packages/core/esm-loader/manifest-schema.ts` | zod 默认 strip 未声明字段；旧版本安装过的插件需重装 |
 | 提示「工具下发成功」但白板无组件 | `src/components/LiveClassroomView.tsx`（`handleExecuteTool`）+ `packages/core/plugin-host/sql-guard.ts` | `classroomTools` 的 commandType 是否为 `whiteboard.draw`；handler 是否非法直写 `whiteboard_elements` 被安全拦截 |
@@ -182,14 +183,16 @@ bash <skill>/scripts/post-install-check.sh <manifest.id> --zip <刚上传的.zip
 
 | 顺序 | 查什么 | 一条命令命中 | 为什么排这个位置 |
 |------|--------|--------------|------------------|
-| **① ** | `frontend.js` 是否在包里、`view` 是否被 strip、静态文件是否落盘 | `post-install-check.sh` | 这三件事**运行期全部静默**：无 500、无异常日志、只有「入口不出现」。先排除它们，能一次省掉后面所有层 |
-| ② | 宿主日志有无 `404 /plugins/{id}/frontend.js` | `curl -I localhost:9000/plugins/{id}/frontend.js` | 与①同源，用于确认「装了但没激活成功」 |
-| ③ | 通道与执行模式是否匹配（process 只能声明式或 `view`） | 对照 §下表第 5 层 / `static-check.mjs` | 结构对了还不显示，多半是通道选错 |
-| ④ | 权限、审批、渲染器求值 | §下表第 7–8 层 | 到这一步才需要读平台源码 |
+| **① ** | ZIP 条目是否齐全、DB 里 `view` 是否被 strip、`storage/` 文件是否落盘 | `post-install-check.sh` | 这三件事**运行期全部静默**：无 500、无异常日志、只有「入口不出现」。先排除它们，能一次省掉后面所有层 |
+| ② | `GET /api/plugins` 的 `executionMode` / `status` 是否与预期一致 | `curl -s localhost:9000/api/plugins \| jq '.[] \| select(.id=="<id>")'` | 通道与执行模式不匹配时结构再对也不渲染 |
+| ③ | 权限、审批、渲染器求值 | 下表第 7–8 层 | 到这一步才需要读平台源码 |
 
-> **判别口诀**：若「**所有**声明式入口（页签 + 浮层 + 挂件）**同时**消失，且日志无报错」→ 几乎一定是
-> ①的 `frontend.js` 缺失（宿主 `fetch` 抛错，`registerManifestContributions` 根本没执行）。
-> 若只有**某一个槽位**不显示、其它正常 → 才轮到 `view` 被 strip（④⑤层）或该槽位的渲染分支。
+> **判别口诀（v0.7.7 + #350 起）**：
+> - 「**所有**声明式入口（页签 + 浮层 + 挂件）**同时**消失、日志无报错」→ 先看 ① 的
+>   **DB manifest 里 `view` 是否还在**；不在就是安装期 schema strip（重装即可，见 4c）。
+> - 「只有**某一个槽位**不显示」→ 通道选错、槽位名写错，或该槽位的渲染分支。
+> - 「入口都在，但**点按钮没反应 / 自定义命令不存在**」→ 这才是 `frontend.js` 缺失（4b）。
+>   它**不再**导致入口消失（贡献注册已前移到 fetch 之前）。
 
 | 检查点 | 典型现象 | 归因 | 证据/动作 |
 |--------|---------|------|----------|
@@ -197,8 +200,8 @@ bash <skill>/scripts/post-install-check.sh <manifest.id> --zip <刚上传的.zip
 | 2. 写入命令用对没有 | 元素存在但类型不对 | **插件侧** | 白板挂件必须 `whiteboard.draw` + `type:'plugin'` + `data` 为 JSON 字符串（含 teacherWidgetId/studentWidgetId） |
 | 3. widget id 是否成对且一致 | 「组件 [x] 正在加载或未启用…」 | **插件侧** | `data.teacherWidgetId` / `data.studentWidgetId` 与扩展点 `id` 逐字符比对 |
 | 4. 是否声明了学生侧容器 | 学生端完全没有位置 | **插件侧** | 白板挂件要 `teacher.dashboard.widget` + `student.view`；页面级 UI 要 `view` |
-| 4b. 有没有 `dist/frontend.js` | **所有入口都不出现，且日志无 404** | **插件侧（打包）** | 宿主按 `has_frontend` 跳过激活，贡献注册在 fetch 之后；补空 `src/frontend.tsx`。L0 `FRONTEND_ENTRY_MISSING` |
-| 4c. DB 里声明的 `view` 是否被 strip | `teacher.tab` 丢 view、overlay 保留 | **环境（安装时 schema 旧）** | 安装时平台 < v0.7.7；升级后需**重新安装**，重启不回填 |
+| 4b. 有没有 `dist/frontend.js` | 入口都在，但**插件自身命令不存在 / 定时任务没跑** | **插件侧（打包）** | v0.7.7 + #350 起，缺它**不影响**贡献注册与入口显示，只缺隐藏前端逻辑；需要时补空 `src/frontend.tsx`。L0 `FRONTEND_ENTRY_MISSING` |
+| 4c. DB 里声明的 `view` 是否被 strip | `teacher.tab` 丢 view、overlay 保留 | **环境（安装时 schema 旧）** | 安装时平台 < v0.7.7；升级后需**重新安装**，重启不回填。这是「入口全消失」的第一嫌疑 |
 | 5. 通道与执行模式是否匹配 | 注册了 component 却永不渲染 | **插件侧** | process 只能声明式或 `view`（白板卡片配置 `view` 在 v0.7.7+ 亦可直接渲染）；React 组件必须 inline（白名单） |
 | 6. `view` 页面是否可达 | 面板空白 / 「非法的插件视图路径」 | **插件侧（打包/路径）** | `storage/**` 是否进 ZIP；`view` 是否相对路径且无 `..`；是否引 `/plugin-sandbox/view-bridge.js` |
 | 7. 权限是否授予 | 命令 403 / 元素写不进 | **环境与配置** | `whiteboard:write` 等是否声明 + 管理员批准（v0.7.2 起按已授予集合） |
@@ -289,8 +292,8 @@ bash <skill>/scripts/post-install-check.sh <manifest.id> --zip <刚上传的.zip
 | ≤0.7.1 | `auth: false` 的路由仍返回 401 | `auth:false` 只是**申请**公开，需管理员批准 | 0.7.0 起的**设计行为**，见 Release Notes v0.7.0 §八.2 |
 | ≤0.7.1 | 插件代码相对导入逃出插件目录 | ESM loader 边界 | 0.7.2 已收紧（Issue #218），越界导入被拒属**插件侧** |
 | ≤0.7.1 | 声明了权限但运行期仍被拒 | 能力判定改为按**已授予**集合（Issue #224） | 0.7.2 起的**设计行为**，需管理员审批 |
-| 0.7.6–0.7.7 | 无 `frontend.js` 的插件：`contributes` / `view` 全部不注册，插件状态正常、日志无 404 | 前端 `has_frontend` 门禁 + 贡献注册排在 fetch 之后 | **已提 Issue [#350](https://github.com/aymwoo/OpenLearn-Next-V2/issues/350)**；临时解法：补空 `src/frontend.tsx` |
-| 3.6.0–3.7.4（SDK） | 第三方 `import('@openlearn/plugin-sdk')` / `import { createMockContext }` 报 `ERR_MODULE_NOT_FOUND: Cannot find package 'uuid'` | SDK 打包依赖缺陷（dist 含 `from "uuid"` 但未声明） | **已提 Issue [#349](https://github.com/aymwoo/OpenLearn-Next-V2/issues/349)**；临时解法 `npm i -D uuid zod` |
+| 0.7.6–0.7.7 早期构建 | 无 `frontend.js` 的插件：`contributes` / `view` 全部不注册，插件状态正常、日志无 404 | 前端 `has_frontend` 门禁 + 贡献注册排在 fetch 之后 | **#350 已修复（2026-10-29 合入）**：注册前移到 fetch 之前，纯 `view` 插件直接 ACTIVE。旧机器上仍可补空 `src/frontend.tsx` 绕过 |
+| 3.6.0–3.7.4（SDK，npm 发布版仍为 3.7.4） | 第三方 `import('@openlearn/plugin-sdk')` / `import { createMockContext }` 报 `ERR_MODULE_NOT_FOUND: Cannot find package 'uuid'` | SDK 打包依赖缺陷（dist 含 `from "uuid"` 但未声明） | **已提 Issue [#349](https://github.com/aymwoo/OpenLearn-Next-V2/issues/349)**；临时解法 `npm i -D uuid zod` |
 | 0.7.3 | `npm i openlearn-next@0.7.3` 报 `EUNSUPPORTEDPROTOCOL workspace:*` | 制品协议缺陷 | **该版本已弃用**，升到 0.7.4 |
 
 > 该表需在每次缓存探活时对照最新 Release Notes 维护。

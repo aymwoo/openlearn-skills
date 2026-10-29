@@ -1,8 +1,8 @@
 {
   "$comment": "集成事实表：文档看不出来、但一错就整套方案跑偏的平台行为。每条都带源码锚点，用 scripts/facts-check.sh 校验锚点是否还在。改动此文件时必须同时更新 verifiedAt 并在 CHANGELOG 说明。",
   "platformVersion": "0.7.7",
-  "platformCommit": "b03e216",
-  "verifiedAt": "2026-10-28",
+  "platformCommit": "8295dc7",
+  "verifiedAt": "2026-10-29",
   "platformRepoHint": "~/Develop/openlearnv2",
   "usage": "bash scripts/facts-check.sh   # 锚点存在/消失即漂移；PLATFORM_REPO=... 可换仓库路径",
   "facts": [
@@ -200,13 +200,22 @@
       ]
     },
     {
-      "id": "frontend-fetch-before-register",
-      "claim": "激活顺序是 fetch(frontend.js) 在 registerManifestContributions 之前，且 has_frontend 为假的插件会被跳过激活",
-      "impact": "没有 src/frontend.tsx → 无 dist/frontend.js → 所有 contributes（含 view）都不注册，页面空白且日志无 404",
+      "id": "frontend-register-before-fetch",
+      "claim": "激活顺序（v0.7.7 + PR #350 起已反转）：先 registerManifestContributions，再按 has_frontend 决定是否 fetch(frontend.js)；has_frontend 为假时直接 ACTIVE 且完全不发请求",
+      "impact": "缺 frontend.js **不再**导致 contributes/view 不注册（旧结论已失效）。它只影响隐藏前端逻辑（自定义命令、定时任务、store 订阅）。若某插件入口全消失，先查 DB manifest 里的 view 是否还在（install-schema-strips-view），不要先怀疑 frontend.js",
       "sources": [
         {
           "file": "src/plugin-host/plugin-host.ts",
-          "anchor": "Failed to fetch frontend.js"
+          "anchor": "this.registerManifestContributions(pluginId, manifest);",
+          "before": "const url = `/plugins/${pluginId}/frontend.js`;"
+        },
+        {
+          "file": "src/plugin-host/plugin-host.ts",
+          "anchor": "if (!hasFrontend) {"
+        },
+        {
+          "file": "src/plugin-host/__tests__/declarative-and-view-only-activation.test.ts",
+          "anchor": "hasFrontend 为 false 的纯 view 插件成功注册声明式贡献"
         }
       ]
     },
@@ -318,6 +327,47 @@
           "anchor": "lessonId: state.selectedLesson, classId: state.liveClassSelectedClassId"
         }
       ]
+    },
+    {
+      "id": "official-contracts-doc",
+      "claim": "平台仓库内建官方架构契约文档：docs/reference/plugin-architecture-contracts.md（CTR-001..006 机器可读契约）与 docs/reference/plugin-ui-extension-slots.md（§1.1.1 四类 layoutVariant）",
+      "impact": "这两份是槽位布局、白板双轨、上下文空值、SQL 隔离、门禁、限流的第一手依据，优先级高于 skill 的二手推断。若锚点消失（文档改名/重构），skill 里指向它们的章节需同步改，否则会指到不存在的路径",
+      "sources": [
+        {
+          "file": "docs/reference/plugin-architecture-contracts.md",
+          "anchor": "CTR-001-UI-LAYOUT-RESIZE"
+        },
+        {
+          "file": "docs/reference/plugin-ui-extension-slots.md",
+          "anchor": "layoutVariant"
+        },
+        {
+          "file": "docs/reference/plugin-ui-extension-slots.md",
+          "anchor": "FloatingOverlay"
+        }
+      ]
+    },
+    {
+      "id": "process-db-shim-is-guarded",
+      "claim": "process/worker 里 resolve(IDatabaseToken) 拿到的是 prepare 垫片（run/get/all → prepareAndRun/Get/All RPC），每条语句在主侧过 assertDatabaseAccessAllowed；守卫与「用不用 ctx.db」无关",
+      "impact": "「插件直接 SQL 读 students / class_students / classroom_sessions 拼名单或找当前课堂」在 process 模式必然被拒（路由 500，日志含 SQL guard 拒绝）。班级名单改用命令 class.get_students（capability management:read），课堂上下文改用槽位注入的 lessonId，而不是查库",
+      "sources": [
+        {
+          "file": "packages/core/worker-runtime/bootstrap/sections/message-handler.ts",
+          "anchor": "prepare: function(sql) {"
+        },
+        {
+          "file": "packages/core/worker-runtime/service-host.ts",
+          "anchor": "this.assertDatabaseAccessAllowed(sql);"
+        },
+        {
+          "file": "packages/core/plugin-host/sql-guard.ts",
+          "anchor": "classroom_sessions"
+        }
+      ]
     }
-  ]
+  ],
+  "sdkVersion": "3.7.4",
+  "sdkVersionInRepo": "3.7.5",
+  "versionNote": "平台 package.json 的 version 不随每处行为变化而升号：#350 反转了激活顺序、#349 把 SDK 提到 3.7.5，而 version 仍是 0.7.7。因此判版本只能当探活信号，判行为必须看锚点或 CHANGELOG。"
 }

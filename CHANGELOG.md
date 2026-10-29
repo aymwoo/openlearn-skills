@@ -6,6 +6,102 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.11.0] - 2026-10-29
+
+平台一次跨版本变更把 skill 的几条结论**变成了错的**，另有一次「护栏假装在工作」。
+本次以平台 `584eb0e` 为基线重新裁决全部事实。
+
+### 背景
+
+- **#350**：`registerManifestContributions` 前移到 `fetch(frontend.js)` 之前，`hasFrontend=false`
+  的插件直接置 `ACTIVE` 且不发请求 —— skill 里「缺 frontend.js → 所有入口消失」的因果链**整体失效**。
+- **#349**：SDK 升到 `3.7.5`（npm 仍 `3.7.4`），新增 frontend 裸说明符硬拦截。
+- **#358**：平台自带 AI Agent 手册与**机器可读契约**（`docs/agent/contracts/*.json` +
+  `audit-tools/agent_facts.py --check`），并与本 skill 的事实表大范围重叠。
+- 平台 `version` 仍是 `0.7.7`：行为变了但没升号，**版本号不能用来判断行为**。
+
+### 新增
+
+- `scripts/facts-check.sh` 支持**顺序断言**（`sources[].before`）：锚点存在但先后关系反了也算漂移。
+  这是 `#350` 暴露的盲区——旧实现只查「字符串在不在」，顺序反转照旧全绿（已用反例验证会 ✖ 且退出码 1）。
+- `scripts/facts-check.sh` 输出 **SDK 双版本行**（仓库 vs npm），并支持 `FACTS_FILE` 覆盖。
+- `integration-facts.json`：`frontend-fetch-before-register` → **`frontend-register-before-fetch`**（带顺序断言）；
+  新增 `official-contracts-doc`（官方契约文档锚点）与 **`process-db-shim-is-guarded`**
+  （`resolve(IDatabaseToken)` 的 `prepare` 垫片同样过 sql-guard，核心表读不到）。
+  元数据补 `platformCommit` / `sdkVersionInRepo` / `versionNote`。
+- L0 `static-check.mjs` 支持**路由别名**识别：`const get = (p, h) => ctx.http.get(p, h)` 之后的
+  `get(/x, h)` 不再被判成「未注册」（真实插件上曾因此假报 9 条 404）。
+- SKILL.md 开头新增「平台已自带机器可读源」优先级表（源码 > `contracts/*.json`/facts-ledger > 平台 docs/ > 本 skill 快照）。
+- SKILL.md 第六步 **B2″**：提 Issue 前先查官方契约与 facts-ledger，避免把**设计行为**报成缺陷。
+- 探测命令补 `docs/agent/contracts/versions.json` 与 `agent_facts.py --check`。
+
+### 变更（纠正错误结论）
+
+| 原结论 | 现结论 |
+|---|---|
+| 缺 `frontend.js` → 所有 `contributes` 不注册、入口全消失 | **只影响隐藏前端逻辑**；入口照常显示。入口全消失先查安装期 schema strip |
+| `student.view` 是页面级（`w-full h-full`） | 是 `WhiteboardWidget`（白板卡片 / 学生工作台 widget），官方 §1.1.1 的 `layoutVariant` 四类为准 |
+| 槽位 122 个 | **120** 个（抽取 bug：`AnchorSlot` 的 JSDoc 里 `placement: before/after` 被当成槽位） |
+| `capabilityRequired` 20 条 | **19** 条；`ai:invoke` 属第 3 套 `runtime_permission`，不是 RBAC |
+| test-kit 3.3.1 | **3.3.3**（npm 与仓库一致，文档页滞后） |
+| frame 桥接 9 个 op | **10** 个（名单本来就全，数字数错了） |
+| 浮层修复「平台 v0.7.8+」 | **v0.7.7 已修**（commit `6e00ca3`），官方已写成 `FloatingOverlay` 铁律 |
+
+同时把 `post-install-check.sh` 的 `frontend.js` 检查与 L0 `FRONTEND_ENTRY_MISSING`
+从**失败**降为**提醒**——否则纯 `view` 插件会被自己的护栏误杀。完成定义改按 `layoutVariant`
+四类（Panel / WhiteboardWidget / FloatingOverlay / ActionItem）分别验证。
+
+### 修复
+
+- `platform-drift-check.sh` 槽位抽取**先剥注释**，并优先读平台机器抽取结果 `docs/agent/contracts/slots.json`；
+  两处不一致时以机器抽取为准并打印差异。`slot-registry.json` 随之重生成（120 个，5 个 view 槽位）。
+- CHANGELOG 中 `2.10.0` 段落排到了 `2.9.0` 下方，已按版本倒序归位。
+- L0 SQL 表名抽取把 `ON CONFLICT ... DO UPDATE SET` 的 `SET` 当成表名，已加关键字排除。
+- 移除正文里新出现的硬编码数字（槽位/权限/op 数量），改指机器可读文件。
+
+## [2.10.0] - 2026-10-29
+
+把「装上了 ≠ 贡献点注册了」变成可执行自检，并纠正两处会**主动误导**的判断。
+
+起因是一次真实交付：教师页签不出现、学生浮层挤掉白板、已进课堂却提示未进入，连续三轮才定位。
+事后复盘发现 `integration-facts.json` 全绿也拦不住这三件事——因为它们只写成了散文，没写成断言。
+
+### 新增
+
+- **`scripts/post-install-check.sh`**：安装后 60 秒自检。一次核对
+  ① `frontend.js` 是否在 ZIP 内并落盘（当时认为缺失即致命；**2.11.0 已修正**：`#350` 后只影响隐藏前端逻辑）
+  ② DB 里 `manifest` 是否保住每个 `view`（与 ZIP 内 `manifest.json` 逐槽位比对，直接检出被 strip 的字段）
+  ③ `view` 是否在 `storage/` 下且文件真实存在 ④ 状态/执行模式。
+  有 ✖ 时给出「重新上传安装（不是重新激活）+ 改过平台源码先重启」的修复指引。已在真实环境跑通正例与反例。
+- `references/integration-facts.json` 新增 2 条可断言事实：
+  `install-schema-strips-view`（落库按安装期 schema 解析、激活不重解析）、
+  `view-context-from-teacher-store`（`lessonId`/`classId` 来自教师侧 `selectedLesson`）。
+- SKILL.md 第五步新增「7. 装完立刻自检」，完成定义与交付格式同步增加自检项。
+- SKILL.md 第六步 B2′：schema / 渲染器 / 解析器类缺陷**必须在平台仓库补回归用例**，含 `it.each` 覆盖全部槽位的骨架
+  （本次给平台补 7 例，才真正防住 `view` 再次被 strip）。
+- 第一步开头「开工前 30 秒」环境前提：真实端口（**9000**，不要猜 3000/5173）、DB 路径
+  `packages/core/db/educational_os.db`、安装目录 `plugins/{安装行UUID}`、`/tmp` 小容量导致 vitest 批量假失败的
+  `TMPDIR` 处理。
+
+### 变更
+
+- `references/scaffold.md`：「热重载…**无需重启**」是本次最大的误导源，替换为**生效矩阵**——改平台源码 / 重装 ZIP /
+  改前端资源 / 换 executionMode 分别需要重启、重新安装、停用激活、强刷中的哪几项。
+- `references/troubleshooting.md` §D4-UI：表格前增加**收敛顺序**（先跑自检脚本 → 再看 404 → 才轮到通道/渲染器），
+  并给出判别口诀：全部入口同时消失且日志静默 ≈ `frontend.js` 缺失；只有单槽位不显示 ≈ `view` 被 strip。
+- SKILL.md 版本口径拆成两句：**模板/API 面以 npm 为准，运行时行为以本地 HEAD 为准**。原口径对「本地 dev 用旧 schema」
+  这类问题完全失效。
+- 完成定义中「可见入口已验证」按**页面级 / 浮层级 / 白板挂件**拆成三条；浮层单独加「宿主主内容不得被挤占」。
+- 移除正文里硬编码的事实条目数（原为 19/18 两处互相矛盾），改为以脚本输出为准，避免与 json 再次漂移。
+
+### 修复
+
+- **`verify-test-harness.sh` 与 `platform-drift-check.sh` 的进程替换 `< <(...)` 在受限环境静默失效**
+  （容器 / 沙箱不提供 `/dev/fd`）。前者使模板占位符根本没被替换 → `inline-react` 假报 L0 失败（71 通过 1 失败）；
+  后者使槽位列表为空 → 漂移检测逐条误报。改用管道 `find -print0 | while read -d ''` 与
+  命令替换 + 参数展开，自检恢复 **72 通过 0 失败**，漂移检测正常输出（当时报「槽位 122」，实为抽取 bug，2.11.0 修正为 120）。
+  这类「护栏自己坏了却假装在工作」的问题与本次主题同源，一并修掉。
+
 ## [2.9.0] - 2026-10-29
 
 补上「插件装得上、一启用就 500」的最大一类：process 隔离模式下的**空能力门禁**（ServiceHost Barrier 2）。
@@ -41,49 +137,6 @@ Mock 也不模拟这道门禁 —— 于是声明缺失在生产才炸。
   Mock 差异表标注「Mock 不模拟 Barrier 2」。
 - `references/troubleshooting.md` D3：激活期 `Capability denied … only 'get' methods allowed` 的
   插件侧 / 环境配置 / 系统侧三档归因。
-
-## [2.10.0] - 2026-10-29
-
-把「装上了 ≠ 贡献点注册了」变成可执行自检，并纠正两处会**主动误导**的判断。
-
-起因是一次真实交付：教师页签不出现、学生浮层挤掉白板、已进课堂却提示未进入，连续三轮才定位。
-事后复盘发现 `integration-facts.json` 全绿也拦不住这三件事——因为它们只写成了散文，没写成断言。
-
-### 新增
-
-- **`scripts/post-install-check.sh`**：安装后 60 秒自检。一次核对
-  ① `frontend.js` 是否在 ZIP 内并落盘（缺失 → 宿主 `fetch` 抛错、`registerManifestContributions` 根本不执行）
-  ② DB 里 `manifest` 是否保住每个 `view`（与 ZIP 内 `manifest.json` 逐槽位比对，直接检出被 strip 的字段）
-  ③ `view` 是否在 `storage/` 下且文件真实存在 ④ 状态/执行模式。
-  有 ✖ 时给出「重新上传安装（不是重新激活）+ 改过平台源码先重启」的修复指引。已在真实环境跑通正例与反例。
-- `references/integration-facts.json` 新增 2 条可断言事实：
-  `install-schema-strips-view`（落库按安装期 schema 解析、激活不重解析）、
-  `view-context-from-teacher-store`（`lessonId`/`classId` 来自教师侧 `selectedLesson`）。
-- SKILL.md 第五步新增「7. 装完立刻自检」，完成定义与交付格式同步增加自检项。
-- SKILL.md 第六步 B2′：schema / 渲染器 / 解析器类缺陷**必须在平台仓库补回归用例**，含 `it.each` 覆盖全部槽位的骨架
-  （本次给平台补 7 例，才真正防住 `view` 再次被 strip）。
-- 第一步开头「开工前 30 秒」环境前提：真实端口（**9000**，不要猜 3000/5173）、DB 路径
-  `packages/core/db/educational_os.db`、安装目录 `plugins/{安装行UUID}`、`/tmp` 小容量导致 vitest 批量假失败的
-  `TMPDIR` 处理。
-
-### 变更
-
-- `references/scaffold.md`：「热重载…**无需重启**」是本次最大的误导源，替换为**生效矩阵**——改平台源码 / 重装 ZIP /
-  改前端资源 / 换 executionMode 分别需要重启、重新安装、停用激活、强刷中的哪几项。
-- `references/troubleshooting.md` §D4-UI：表格前增加**收敛顺序**（先跑自检脚本 → 再看 404 → 才轮到通道/渲染器），
-  并给出判别口诀：全部入口同时消失且日志静默 ≈ `frontend.js` 缺失；只有单槽位不显示 ≈ `view` 被 strip。
-- SKILL.md 版本口径拆成两句：**模板/API 面以 npm 为准，运行时行为以本地 HEAD 为准**。原口径对「本地 dev 用旧 schema」
-  这类问题完全失效。
-- 完成定义中「可见入口已验证」按**页面级 / 浮层级 / 白板挂件**拆成三条；浮层单独加「宿主主内容不得被挤占」。
-- 移除正文里硬编码的事实条目数（原为 19/18 两处互相矛盾），改为以脚本输出为准，避免与 json 再次漂移。
-
-### 修复
-
-- **`verify-test-harness.sh` 与 `platform-drift-check.sh` 的进程替换 `< <(...)` 在受限环境静默失效**
-  （容器 / 沙箱不提供 `/dev/fd`）。前者使模板占位符根本没被替换 → `inline-react` 假报 L0 失败（71 通过 1 失败）；
-  后者使槽位列表为空 → 漂移检测逐条误报。改用管道 `find -print0 | while read -d ''` 与
-  命令替换 + 参数展开，自检恢复 **72 通过 0 失败**，漂移检测正常输出（槽位 122 / view 槽位 5 个）。
-  这类「护栏自己坏了却假装在工作」的问题与本次主题同源，一并修掉。
 
 ## [2.8.0] - 2026-10-28
 

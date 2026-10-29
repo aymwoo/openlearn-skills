@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # post-install-check.sh —— 安装后 60 秒自检
 #
-# 为什么需要它：插件"装上了"和"贡献点真的注册了"是两件事。宿主对下列三种失败
+# 为什么需要它：插件"装上了"和"贡献点真的注册了"是两件事。宿主对下列失败
 # **全部静默**（不报错、不写 500、日志无异常），只能靠页面肉眼等：
-#   1. ZIP 里缺 frontend.js  → 宿主 fetch 404 抛错，registerManifestContributions 根本不执行
-#   2. 安装期 schema 把 view strip 掉 → DB 里没有 view，渲染器直接 return null
-#   3. view 文件没进 ZIP / 路径不是 storage/  → 面板空白或「非法的插件视图路径」
-# 本脚本把这三种情况在"上传完就查"，而不是等用户反馈"页签不见了"。
+#   1. 安装期 schema 把 view strip 掉 → DB 里没有 view，渲染器直接 return null（「入口全消失」第一嫌疑）
+#   2. view 文件没进 ZIP / 路径不是 storage/  → 面板空白或「非法的插件视图路径」
+#   3. ZIP 条目与 DB manifest 不一致（更新包漏文件、多出未落库的槽位）
+# 注：缺 frontend.js 自 v0.7.7 + #350 起**不再是**激活门槛（纯 view 插件直接 ACTIVE），
+#     脚本仍会列出它，但只作提醒，不计失败。
 #
 # 用法：
 #   bash scripts/post-install-check.sh @ext/lab-help
@@ -159,14 +160,16 @@ for slot, entry in declared:
         else:
             add("warn", "  插件目录里没有 storage/", "说明 ZIP 根本没带静态文件")
 
-# ---------- 5. frontend.js（最容易被忽略的激活门槛） ----------
+# ---------- 5. frontend.js（v0.7.7 + #350 起不再是激活门槛） ----------
 fe = os.path.join(plugin_dir, "frontend.js")
 if os.path.isfile(fe):
     add("ok", "frontend.js 存在", f"{os.path.getsize(fe)} B")
 else:
-    add("fail", "缺少 frontend.js",
-        "宿主激活时先 fetch /plugins/{id}/frontend.js，404 会抛错，registerManifestContributions 永不执行"
-        " → 所有声明式入口同时消失且日志静默。补一个空 src/frontend.tsx 并确保打包包含它")
+    add("warn", "没有 frontend.js",
+        "v0.7.7 + #350 起：贡献注册前移到 fetch 之前，纯声明式 / 纯 view 插件不发请求即置 ACTIVE，"
+        "入口照常显示 —— 这里**不是故障**。只有用到「插件自身命令（invokeCommand 打到自家 command）、"
+        "定时任务、store 订阅」时才需要它；需要就补一个空的 src/frontend.tsx。"
+        "旧结论「缺它 → 所有入口消失」已失效，勿据此排查")
 
 # ---------- 6. 与 ZIP 对比：检出被 strip 的字段 ----------
 if zip_path:
@@ -181,7 +184,9 @@ if zip_path:
         add("ok", f"ZIP 共 {len(names)} 个条目", "")
 
         if "frontend.js" not in names:
-            add("fail", "ZIP 内缺 frontend.js", "官方 CLI 只打 3 个文件；自定义打包务必显式加入（见 pack.mjs）")
+            add("warn", "ZIP 内没有 frontend.js",
+                "纯声明式 / 纯 view 插件合法（#350 起）。若插件有自定义命令，官方 CLI 只打 3 个文件，"
+                "自定义打包需显式加入（见 pack.mjs）")
         else:
             add("ok", "ZIP 内含 frontend.js", "")
 

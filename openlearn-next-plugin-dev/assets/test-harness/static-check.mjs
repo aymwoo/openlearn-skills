@@ -579,11 +579,11 @@ const needsFrontendEntry = viewPaths.size > 0
   || uiChannel === 'inline-react';
 if (needsFrontendEntry && !hasFrontendEntry) {
   add(
-    'error',
+    'warn',
     'FRONTEND_ENTRY_MISSING',
-    '声明了 contributes / view（或契约要求 UI 通道），但没有 src/frontend.tsx（也没有 dist/frontend.js）：'
-      + '宿主激活时会 fetch frontend.js，has_frontend=false 直接跳过激活 → registerManifestContributions 不执行，'
-      + '所有声明式贡献（含 view 页面）都不会注册。加一个空导出的 frontend.tsx 即可。',
+    '没有 src/frontend.tsx（也没有 dist/frontend.js）。v0.7.7 + #350 起这不是故障：'
+      + '贡献注册已前移到 fetch 之前，纯声明式 / 纯 view 插件不发请求即置 ACTIVE，入口照常显示。'
+      + '只有用到「插件自身命令 / 定时任务 / store 订阅」时才需要一个空导出的 frontend.tsx。',
     join(ROOT, 'src'),
   );
 }
@@ -605,8 +605,25 @@ for (const r of (manifest?.api?.routes ?? [])) {
   declaredRoutes.set(`${method} ${path}`, r);
 }
 const registeredRoutes = new Set();
+// 1) 直写：ctx.http.get('/x', h)
 for (const m of scanText.matchAll(/ctx\.http\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]+)['"`]/g)) {
   registeredRoutes.add(`${m[1].toUpperCase()} ${'/' + m[2].replace(/^\/+/, '')}`);
+}
+// 2) 包装：const get = (p, h) => ctx.http.get(p, h) 之后 get('/x', h)
+//    插件为了统一 handler 类型常这么写；只认直写会把它全判成「未注册」（假报 404）。
+const httpAliases = new Map(); // 别名 -> HTTP 方法
+const ALIAS_DEFS = [
+  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>\s*ctx\.http\.(get|post|put|patch|delete)\b/g,
+  /function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{[^}]*ctx\.http\.(get|post|put|patch|delete)\s*\(/g,
+];
+for (const re of ALIAS_DEFS) {
+  for (const m of scanText.matchAll(re)) httpAliases.set(m[1], m[2].toUpperCase());
+}
+for (const [alias, method] of httpAliases) {
+  const re = new RegExp(`(?<![\\w$.])${alias}\\s*\\(\\s*['"\`]([^'"\`]+)['"\`]`, 'g');
+  for (const m of scanText.matchAll(re)) {
+    registeredRoutes.add(`${method} ${'/' + m[1].replace(/^\/+/, '')}`);
+  }
 }
 if (declaredRoutes.size > 0) {
   if (registeredRoutes.size === 0) {
@@ -648,8 +665,14 @@ for (const m of scanText.matchAll(SQL_LITERAL_RE)) {
   if (/^\s*(?:CREATE|ALTER|DROP)\s+/i.test(sql)) {
     sqlProblems.add(`SQL_DDL_BYPASS§裸 DDL 会被拦截或绕过迁移版本：改用 ctx.db.ensureTable / ctx.db.migrate：${brief}`);
   }
+  // 关键字不算表名：`ON CONFLICT ... DO UPDATE SET col = ?` 里的 SET 不是表。
+  const NOT_A_TABLE = new Set([
+    'set', 'values', 'select', 'where', 'from', 'join', 'into', 'update', 'or', 'and',
+    'if', 'exists', 'not', 'table', 'index', 'trigger', 'view', 'database', 'conflict', 'do',
+  ]);
   for (const t of sql.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+([A-Za-z_][A-Za-z0-9_]*)/gi)) {
     const name = t[1];
+    if (NOT_A_TABLE.has(name.toLowerCase())) continue;
     if (/^plugin_/i.test(name) || /^sqlite_/i.test(name) || name === 'plugin_migrations') continue;
     if (SQL_CORE_TABLES.has(name.toLowerCase())) {
       if (name.toLowerCase() === 'whiteboard_elements') {

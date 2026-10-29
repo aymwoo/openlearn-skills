@@ -46,19 +46,43 @@ head_ "2. 扩展槽位（ExtensionSlot 联合类型）"
 # 用命令替换 + 参数展开，不用 read < <(...)：受限环境（容器/沙箱无 /dev/fd）下进程替换静默失败，
 # 会得到空的槽位列表 → 后续每条都误报漂移。
 SLOT_OUT=$(python3 - "$PLATFORM" <<'PY'
-import re, json, sys
+import re, json, os, sys
 root = sys.argv[1]
-lines = open(f'{root}/src/plugin-host/types.ts', encoding='utf-8').read().splitlines()
-try:
+
+# 首选平台自带的机器抽取结果（audit-tools/agent_facts.py 生成，CI 会 --check 校验）。
+# 回退到本脚本自己扫：必须先剥注释 —— AnchorSlot 的 JSDoc 里有
+# `placement: 'before' | 'after'`，旧实现把它俩当成槽位，导致长期虚报 122（真值 120）。
+def strip_comments(code):
+    code = re.sub(r'/\*[\s\S]*?\*/', '', code)
+    return re.sub(r'(?m)^\s*//.*$', '', code)
+
+def from_types():
+    lines = open(f'{root}/src/plugin-host/types.ts', encoding='utf-8').read().splitlines()
     s = next(i for i, l in enumerate(lines) if l.startswith('export type ExtensionSlot'))
     e = next(i for i, l in enumerate(lines) if l.startswith('export type AnchorSlot'))
-except StopIteration:
-    print('0 '); raise SystemExit
-seg = '\n'.join(lines[s:e])
-slots = []
-for m in re.finditer(r"'\s*([a-zA-Z0-9_.:-]+)\s*'", seg):
-    if m.group(1) not in slots:
-        slots.append(m.group(1))
+    seg = strip_comments('\n'.join(lines[s:e]))
+    slots = []
+    for m in re.finditer(r"'\s*([a-zA-Z0-9_.:-]+)\s*'", seg):
+        if m.group(1) not in slots:
+            slots.append(m.group(1))
+    return slots
+
+auth_path = f'{root}/docs/agent/contracts/slots.json'
+if os.path.exists(auth_path):
+    slots = json.load(open(auth_path, encoding='utf-8'))['extension_slots']
+    # 交叉校验：两处不一致时以机器抽取为准，并把差异打出来（stdout 第二行）
+    try:
+        mine = from_types()
+        diff = sorted(set(mine) ^ set(slots))
+        if diff:
+            print('DIFF:' + ','.join(diff), file=sys.stderr)
+    except Exception:
+        pass
+else:
+    try:
+        slots = from_types()
+    except StopIteration:
+        print('0 '); raise SystemExit
 schema = open(f'{root}/packages/core/esm-loader/manifest-schema.ts', encoding='utf-8').read()
 # 先收集命名 schema（teacher.panel 这类 view 定义在命名 schema 里）
 named = {}
@@ -140,31 +164,44 @@ else bad "白板卡片支持 view 的结论已失效 → 更新 watchlist §5、
 
 # ── 7. 前端贡献注册门禁（view/contributes 依赖 frontend.js）──────────────────
 head_ "7. 前端贡献注册门禁（has_frontend / fetch 顺序）"
+# #350 之后的契约：has_frontend 不再阻断激活（期望 0 处 continue），
+# 且 registerManifestContributions 在 fetch 之前（期望 frontendFetchBeforeRegister=false）。
 ACTUAL_GATE=$(grep -c "if (!plugin.has_frontend)" "$PLATFORM/src/hooks/useClassroomSlice.ts" || true)
 EXP_GATE=$(python3 -c "import json;print(json.load(open('$META'))['watchlist']['frontendGateSkips'])")
-if [[ "$ACTUAL_GATE" == "$EXP_GATE" ]]; then ok "has_frontend 跳过激活 = $ACTUAL_GATE 处"
-else bad "has_frontend 门禁漂移：期望 $EXP_GATE，实际 $ACTUAL_GATE → 无 frontend.js 的插件可能已能注册贡献，复核 watchlist §7.1 与 L0 规则"; fi
+if [[ "$ACTUAL_GATE" == "$EXP_GATE" ]]; then ok "has_frontend 跳过激活 = $ACTUAL_GATE 处（#350 契约：缺前端不再阻断贡献注册）"
+else bad "has_frontend 门禁漂移：期望 $EXP_GATE，实际 $ACTUAL_GATE → 平台可能回退到「无 frontend.js 就跳过激活」，复核 watchlist §7.1 与 L0 规则"; fi
 
 FETCH_LINE=$(grep -n "Failed to fetch frontend.js" "$PLATFORM/src/plugin-host/plugin-host.ts" | head -1 | cut -d: -f1)
 REG_LINE=$(grep -n "this.registerManifestContributions(pluginId, manifest)" "$PLATFORM/src/plugin-host/plugin-host.ts" | head -1 | cut -d: -f1)
 if [[ -n "$FETCH_LINE" && -n "$REG_LINE" && "$FETCH_LINE" -lt "$REG_LINE" ]]; then ACTUAL_ORDER=1; else ACTUAL_ORDER=0; fi
 EXP_ORDER=$(python3 -c "import json;print(int(json.load(open('$META'))['watchlist']['frontendFetchBeforeRegister']))")
-if [[ "$ACTUAL_ORDER" == "$EXP_ORDER" ]]; then ok "fetch frontend.js 在贡献注册之前 = $([[ $ACTUAL_ORDER == 1 ]] && echo yes || echo no)"
-else bad "激活顺序漂移：期望 $EXP_ORDER，实际 $ACTUAL_ORDER → 404 不再阻断贡献注册，复核 watchlist §7.1 与 ui-channel-decision §4.5.2"; fi
+if [[ "$ACTUAL_ORDER" == "$EXP_ORDER" ]]; then ok "fetch frontend.js 在贡献注册之前 = $([[ $ACTUAL_ORDER == 1 ]] && echo yes || echo no)（#350 契约：注册先于 fetch）"
+else bad "激活顺序漂移：期望 $EXP_ORDER，实际 $ACTUAL_ORDER → 顺序已变，复核 watchlist §7.1 与 ui-channel-decision §4.5.2；缺 frontend.js 时入口是否仍显示以 facts-check 的 frontend-register-before-fetch 为准"; fi
 
 # ── 8. 可选：重生成 slot-registry.json ────────────────────────────────────
 if [[ "$WRITE" == "1" ]]; then
   head_ "8. 重生成 slot-registry.json"
   python3 - "$PLATFORM" "$TOOLKIT" <<'PY'
-import re, json, sys
+import re, json, os, sys
 root, out = sys.argv[1], sys.argv[2]
-lines = open(f'{root}/src/plugin-host/types.ts', encoding='utf-8').read().splitlines()
-s = next(i for i, l in enumerate(lines) if l.startswith('export type ExtensionSlot'))
-e = next(i for i, l in enumerate(lines) if l.startswith('export type AnchorSlot'))
-slots = []
-for m in re.finditer(r"'\s*([a-zA-Z0-9_.:-]+)\s*'", '\n'.join(lines[s:e])):
-    if m.group(1) not in slots:
-        slots.append(m.group(1))
+
+def strip_comments(code):
+    code = re.sub(r'/\*[\s\S]*?\*/', '', code)
+    return re.sub(r'(?m)^\s*//.*$', '', code)
+
+def from_types():
+    lines = open(f'{root}/src/plugin-host/types.ts', encoding='utf-8').read().splitlines()
+    s = next(i for i, l in enumerate(lines) if l.startswith('export type ExtensionSlot'))
+    e = next(i for i, l in enumerate(lines) if l.startswith('export type AnchorSlot'))
+    seg = strip_comments('\n'.join(lines[s:e]))
+    acc = []
+    for m in re.finditer(r"'\s*([a-zA-Z0-9_.:-]+)\s*'", seg):
+        if m.group(1) not in acc:
+            acc.append(m.group(1))
+    return acc
+
+auth_path = f'{root}/docs/agent/contracts/slots.json'
+slots = json.load(open(auth_path, encoding='utf-8'))['extension_slots'] if os.path.exists(auth_path) else from_types()
 schema = open(f'{root}/packages/core/esm-loader/manifest-schema.ts', encoding='utf-8').read()
 named = {}
 for m in re.finditer(r'const\s+(\w+Schema)\s*=\s*z\s*\.\s*object\(\{([\s\S]*?)\n\}\)', schema):

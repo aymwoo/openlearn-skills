@@ -49,7 +49,7 @@ npm test                # L1+L2：契约测试 + 冒烟测试
 | 文件 | 层 | 抓的问题 | 典型报错 |
 |------|----|---------|---------|
 | `static-check.mjs` | L0 静态 | manifest 必填项 / 权限串捏造 / **隔离模式空能力门禁** / 三件套缺失 / **UI 通道（executionMode·槽位真伪·白名单·白板挂件闭环·`view` 页面）** / **路由配对 / SQL 守卫 / view 运行时** / 裸导入 / 前端越界 / process 禁用 API / DB 契约 / 密钥泄漏 | `UI_MODE_MISMATCH` `SLOT_UNKNOWN` `CAP_EMPTY_ISOLATED` `WHITEBOARD_WIDGET_NEEDS_INLINE` `VIEW_BRIDGE_MISSING` `ROUTE_UNREGISTERED` `SQL_CORE_TABLE` |
-| `slot-registry.json` | 平台真源 | v0.7.7 的 122 个真实扩展槽位 + 5 个 `view` 槽位（由 `src/plugin-host/types.ts` 生成） | `SLOT_UNKNOWN` |
+| `slot-registry.json` | 平台真源 | v0.7.7 的真实扩展槽位全集 + 5 个 `view` 槽位（与平台 `docs/agent/contracts/slots.json` 同源） | `SLOT_UNKNOWN` |
 | `contract.test.ts` | L1 契约 | manifest 声明的 commandType 是否真有 handler + ActionDescriptor；handler 是否为 `{execute}` 对象；`capabilityRequired` 是否真实；`inputSchema` 类型名大写；**`capabilitiesProposed` 为空时 activate 是否调了非 get RPC（Proxy 录制，复现 ServiceHost Barrier 2）** | `COMMAND_NOT_REGISTERED` / `handler.execute is not a function` / `DataCloneError` / `only 'get' methods allowed` |
 | `view-smoke.test.ts` | L1 视图 | `storage/**/*.html` 能否在 jsdom 里加载并拿到 `OpenLearnPluginBridge`；`onInit` 是否注册、init 后是否真的发出 `invokeCommand` / `api.*` 调用；是否误用 `alert/confirm/fetch`；是否真的回传 `ui.resize` | `页面使用了沙箱里不可用的 API` / `init 后没有发出任何命令` / `没有真正调用 bridge.ui.resize` |
 | `smoke.test.ts` | L2 冒烟 | 重复激活的状态泄漏；命令执行期 `TypeError`；REST 路由 5xx；事件 payload 形状；停用未退订；**契约驱动：白板挂件必须真的派发 `whiteboard.draw`** | `Cannot read properties of undefined` / 订阅翻倍 / `没有派发 whiteboard.draw` |

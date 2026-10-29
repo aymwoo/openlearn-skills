@@ -141,10 +141,10 @@ grep -rn "views/.*\.html" docs/tutorials/plugin-frontend-guide.md
 
 ---
 
-## 6. 槽位注册表是版本相关的封闭集合（v0.7.7 = 122 个）
+## 6. 槽位注册表是版本相关的封闭集合（v0.7.7）
 
 **事实**：`src/plugin-host/types.ts` 的 `ExtensionSlot` 联合类型 + `AnchorSlot` 动态模式。
-`assets/test-harness/slot-registry.json` 由它生成（当前 122 个槽位 + 5 个 view 槽位）。
+`assets/test-harness/slot-registry.json` 由它生成（条数见文件内 `count`；当前 5 个 view 槽位）。
 
 **判定口径**：每次平台小版本升级都要重生成；否则 L0 的 `SLOT_UNKNOWN` 会把新槽位误报、或漏掉已删除槽位。
 
@@ -176,41 +176,43 @@ curl -s -b cookie.txt http://localhost:3000/api/plugins | jq '.[] | {id, executi
 
 ---
 
-## 7.1 `frontend.js` 不是可选文件：它是所有 manifest 贡献的注册开关
+## 7.1 `frontend.js` 的注册门禁（**v0.7.7 + PR #350 起已放宽**）
 
-**事实（源码）**
+**现状（源码，2026-10-29 / 平台 584eb0e）**
 
-- `packages/core/plugin-host/core.ts:613`：`has_frontend = fs.existsSync(pluginDir/frontend.js)`，随 `GET /api/plugins` 返回。
-- `src/hooks/useClassroomSlice.ts:256 / 333`：`if (!plugin.has_frontend) continue;`
-  —— **没有前端产物就整个跳过激活/停用**，连请求都不会发。
-- `src/plugin-host/plugin-host.ts:680-693`：`fetch(/plugins/<id>/frontend.js)` → `!res.ok` 直接 throw
-  → **之后**才 `registerManifestContributions()`。
-- `packages/plugin-sdk/cli.mjs:372,468`：只有存在 `src/frontend.tsx` 时才构建 `dist/frontend.js`。
+- `src/plugin-host/plugin-host.ts` `activateRemotePlugin()`：**先** `registerManifestContributions()`，
+  **再**判断 `hasFrontend`；`hasFrontend` 为假时直接置 `ACTIVE` 并 return，**不请求** `frontend.js`。
+- 同文件 `catch` 分支走 `unregisterPluginResources(..., { preserveManifestContributions: true })`
+  —— 即使 `frontend.js` 404，**声明式贡献仍留在 store**（#292 契约）。
+- `src/hooks/useClassroomSlice.ts` 中原有的 `if (!plugin.has_frontend) continue;` 已移除。
+- 回归用例：`src/plugin-host/__tests__/declarative-and-view-only-activation.test.ts`
+  （三条：纯 view 插件成功注册且不发请求 / 404 时贡献保留 / retry 可恢复）。
 
-**后果**
+**结论（当前口径）**
 
-| 情况 | 表现 |
-|------|------|
-| 无 `frontend.js` | `has_frontend=false` → 前端跳过激活 → **所有 `contributes`（含 `view` 页面、`teacher.tab`）都不注册**；日志没有 404，因为根本没发请求 |
-| 有 `frontend.js` 但 404（文件缺失/路由未挂） | 激活抛 `Failed to fetch frontend.js ... HTTP 404`，贡献同样注册不到 |
-| 只有 `classroomTools` | 按钮可能仍出现（宿主部分消费端直读 manifest），但依赖 store 的入口不会出现 → 半残，更难查 |
+| 情况 | 现在的表现 |
+|------|------------|
+| 无 `frontend.js` | **声明式贡献照常注册、入口照常显示**；只是没有隐藏前端逻辑（自定义命令、定时任务、store 订阅） |
+| 有 `frontend.js` 但 404 | 插件状态 `ERROR`，但 `teacher.tab` / `view` 等入口**仍然显示**（贡献被 preserve） |
+| 需要插件自身命令（`invokeCommand` 到自家 command） | **必须**有 `frontend.js`，否则命令不存在 |
 
-**已上报**：[Issue #350](https://github.com/aymwoo/OpenLearn-Next-V2/issues/350)（平台侧：贡献注册门禁 + fetch 顺序）。
-修复落地前，所有插件按下面的口径执行。
+**⚠ 已被推翻的旧结论**：本条曾写「没有前端产物 → 所有 `contributes` 都不注册 → 页面空白且日志无 404」。
+在 v0.7.7 + #350 之后该因果**不再成立**。若你看到入口全消失，请先按下面顺序查，不要先怀疑 `frontend.js`：
 
-**判定口径**
+1. `bash scripts/post-install-check.sh <pluginId> --zip <包>` → 看 DB manifest 里 `view` 是否还在；
+2. 不在 → 是安装期 schema 的问题（见 §7.2），重装即可；
+3. 在 → 再看渲染器（`renderer-hides-empty-view` 事实）与槽位是否写对（`slot-registry.json`）。
 
-- 只要声明了 **任何 `contributes` 或 `view`**，就必须提供 `src/frontend.tsx`（空导出 `{ activate, deactivate }` 即可）。
-  `view` 页面由宿主 iframe 承载，不需要前端逻辑，但**入口文件不能省**。
-- 若某天 `has_frontend` 门禁被移除、或 `registerManifestContributions` 移到 fetch 之前，
-  本条结论才能放宽（`platform-drift-check.sh` 会报漂移）。
+**历史（仅用于理解旧机器行为）**：`frontend-fetch-before-register` 曾是 skill 的一条集成事实，
+#350 合并后已替换为 `frontend-register-before-fetch`（带顺序断言，`facts-check.sh` 可检出反向）。
 
 **验证**
 
 ```bash
-grep -n "if (!plugin.has_frontend)" src/hooks/useClassroomSlice.ts
-grep -n "Failed to fetch frontend.js\|registerManifestContributions" src/plugin-host/plugin-host.ts
-grep -n "const frontendEntry = join(srcDir, 'frontend.tsx')" packages/plugin-sdk/cli.mjs
+# 顺序：注册行号必须小于 fetch 行号
+grep -n "registerManifestContributions(pluginId, manifest)\|const url = \`/plugins/" src/plugin-host/plugin-host.ts
+grep -n "if (!hasFrontend)" src/plugin-host/plugin-host.ts
+grep -c "if (!plugin.has_frontend)" src/hooks/useClassroomSlice.ts   # 应为 0
 ```
 
 ---
@@ -305,15 +307,15 @@ grep -n "whiteboard.draw" src/components/LiveClassroomView.tsx
 | 信号 | 当前期望 | 漂移时更新 |
 |------|---------|-----------|
 | 平台版本 | `0.7.7` | `references/.cache-meta.json`、SKILL.md 头部 |
-| 槽位数量 | `122` | `slot-registry.json`、`ui-channel-decision.md` §2 |
+| 槽位数量 | 见 `slot-registry.json` 的 `count`（勿写死；`platform-drift-check.sh` 会比对） | `slot-registry.json`、`ui-channel-decision.md` §2 |
 | `view` 槽位 | 上述 5 个 | `slot-registry.json.viewSlots`、§4.5.1 |
 | 安装器解压前缀 | 仅 `storage/` | §2 与 L0 规则 |
 | CLI 打包文件 | 3 个（index/manifest/frontend） | §3 与 `sandbox-view` 模板 |
 | README 是否含白名单变量 | `0`（已被 #343 移除） | §1 的「误判来源」 |
 | 白名单通配符支持 | 有（`endsWith('*')`） | §1 |
 | 白板卡片是否支持 view | 是 | §5 与 SKILL 第二步通道表 |
-| `has_frontend` 跳过激活 | 是（2 处） | §7.1 与 L0 `FRONTEND_ENTRY_MISSING` |
-| 前端 fetch 在贡献注册之前 | 是 | §7.1 |
+| `has_frontend` 跳过激活 | **否（0 处，`#350` 已移除）** | §7.1；回退会报漂移 |
+| 前端 fetch 在贡献注册之前 | **否（注册已前移）** | §7.1 与 `facts-check.sh` 的 `frontend-register-before-fetch` |
 | 安装期 schema 落库、不回填 | 是 | §7.2 |
 
 > 本表与脚本里的 `EXPECT_*` 常量必须同步修改；只改一边会导致 CI 漂移检测误报。

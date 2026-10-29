@@ -25,7 +25,9 @@
 
 ## 1. 真实权限全集（`capabilityRequired` / `capabilitiesProposed` 可用）
 
-平台实测 **20 条**：
+**19 条**（真值源：平台 `docs/agent/contracts/capabilities.json` 的 `command_required`；
+文档里流传的「20 条」是把 `quiz:write` 算进来了，而它并不在 `capabilityRequired` 里。
+校验：`python3 audit-tools/agent_facts.py --check`）：
 
 | 权限字符串 | 覆盖的主要动作 |
 |------------|----------------|
@@ -63,7 +65,7 @@
 |------------|----------|
 | `user:read` / `user:write` | 用 `management:read` / `management:write` |
 | `system:process` | 用 `process:read` / `process:write` |
-| `ai:invoke` | AI 层走 `capability_*` ID（第 3 套机制），不是 RBAC 字符串 |
+| `ai:invoke` 当作 RBAC 权限用 | 它确实存在，但属于**第 3 套注册** `runtime_permission`（连同 `lesson:control` `plugin:execute` `quiz:submit` `session:manage` `stage:navigate` `whiteboard:draw`），不是 `capabilityRequired`。写成 `capabilitiesProposed` 拿不到 RBAC 能力；AI 调用走 `capability_*` ID |
 | `network:fetch` / `net:*` | 出站网络不走 RBAC：由 `manifest.network.outbound` 申请 + `plugin_network_grants` 域名白名单管控 |
 | `courseware:*` | 用 `lesson:read` / `lesson:write`（教师侧）、`student:write`（学生提交） |
 | `classroom:*` `class:*` | `class:read` / `class:write` 仅作声明项存在 |
