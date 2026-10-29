@@ -116,7 +116,7 @@ function NoteBoard(props: { lessonId?: string; title: string; allowAnonymous?: b
               'li',
               { key: n.id, style: { background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 8px' } },
               h('div', { style: { whiteSpace: 'pre-wrap' } }, n.text),
-              h('div', { style: { color: '#a16207', fontSize: 11, marginTop: 2 } }, n.author),
+              h('div', { style: { color: '#a16207', fontSize: 13, marginTop: 2 } }, n.author),
             ),
           ),
         ),

@@ -66,7 +66,7 @@
 
 ## 4. Guardrail → 测试用例映射
 
-`SKILL.md` 第三步的 12 条编码规范，每条都有对应的自动化断言，避免「doc 上写了但没人执行」：
+`SKILL.md` 第三步的 13 条编码规范，每条都有对应的自动化断言，避免「doc 上写了但没人执行」：
 
 | Guardrail | 断言位置 | 规则 |
 |-----------|---------|------|
@@ -82,6 +82,7 @@
 | 10. 远程前端只能轮询 | L0 `FRONTEND_DOM` / `VIEW_DIRECT_FETCH` · L3 实测 | 收不到推送 |
 | 11. 迁移用 `ensureTable`/`migrate` | L0 `DB_NO_PREPARE` · L2 迁移冒烟 | 声明式迁移静默失效 |
 | 12. 隔离模式能力门禁 | L0 `CAP_EMPTY_ISOLATED` · L1 Barrier 2 用例 | 激活 500：`only 'get' methods allowed` |
+| 13. 中文字号 ≥ 13px | L0 `FONT_TOO_SMALL` · L3 投影目检 | 11/12px 中文在投影/白板上不可读 |
 
 ---
 

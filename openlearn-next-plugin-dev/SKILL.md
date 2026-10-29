@@ -2,7 +2,7 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.12.0
+version: 2.13.0
 description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.5·npm 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
@@ -346,6 +346,11 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
     > 只有「`activate` 全程只做本地注册（`ctx.http.*`、`ctx.db.table()`）+ 订阅」的纯前端桥接插件可以不声明能力；
     > `eventBus.subscribe/unsubscribe` 走独立消息类型，不受此门禁影响。
     L0 会以 `CAP_EMPTY_ISOLATED` 拦截，L1 `contract.test.ts` 会用 Proxy 录制 activate 期间的服务调用复现同一门禁。
+13. **中文文本字号 ≥ 13px**：面向师生的中文正文 / 标签 / 按钮文本，`font-size` 不得小于 **13px**
+    （`11px` / `12px` 在教室投影和白板上不可读）。覆盖 `view` 页面（`<style>`、行内 `style`、
+    `el.style.fontSize`）与 inline React（`fontSize` 数值 / 字符串、Tailwind `text-xs` / `text-[12px]`）。
+    纯图标 / 装饰可在同行注明 `font-size-ok` 豁免；`calc()` 无法静态求值时交给 L1 / 目检。
+    L0 以 `FONT_TOO_SMALL` 拦截。
 
 #### 3. Manifest 关键字段（v0.7.x）
 
@@ -552,6 +557,7 @@ npm test                # L1 + L2
       · **`WhiteboardWidget` 白板卡片**（`teacher.dashboard.widget` / `student.view`）：元素出现、
         `type:'plugin'`、师生两侧 id 成对；`student.view` **不是**页面级，别写成满屏
       · **`ActionItem` 行内**（`classroom.topbar.action` 等）：按钮出现在预期位置且不破坏工具栏高度
+- [ ] 可见 UI 的中文正文 / 标签字号 ≥ 13px（投影与白板上可读；L0 `FONT_TOO_SMALL` 无报错）
 - [ ] `engines.openlearn` 与实际用到的 API 匹配（见 `references/manifest-0.7.md` §11）
 - [ ] L0 静态契约检查 0 error（`npm run test:contract`）
 - [ ] L1/L2 契约 + 冒烟测试全绿（`npm test`）
@@ -566,7 +572,7 @@ npm test                # L1 + L2
 安装：上传 <dist 中的 zip 文件名>
 已实现：<功能点 1..N>
 测试：L0 <0 error|N error> · L1/L2 <n passed / n failed> · L3 <已跑|未跑（原因）>
-已核对：main / ActionDescriptor 配对 / 权限串 / 可见入口
+已核对：main / ActionDescriptor 配对 / 权限串 / 可见入口 / 中文字号 ≥ 13px
 自检：post-install-check <n 通过 / n 失败>（frontend.js / view 未 strip / storage 齐全）
 待办：<需要用户做的事，如"管理员批准出站域名"、"申请某权限">
 ```

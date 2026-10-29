@@ -6,6 +6,30 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.13.0] - 2026-10-29
+
+新增一条面向课堂场景的 UI 约束：**中文文本最小 13px**。11/12px 在教室投影和白板上不可读，
+但 CSS 不报错、L1 也不会失败，属于「能跑但看不清」的静默问题 —— 因此同时落成 Guardrail 与 L0 规则。
+
+### 新增
+
+- **Guardrail 13「中文文本字号 ≥ 13px」**：面向师生的正文 / 标签 / 按钮文本不得小于 13px；
+  覆盖 `view` 页面（`<style>`、行内 `style`、`el.style.fontSize`）与 inline React
+  （`fontSize` 数值 / 字符串、Tailwind `text-xs` / `text-[12px]`）。纯图标 / 装饰可用同行注释
+  `font-size-ok` 豁免；`calc()` 无法静态求值，留给 L1 / 目检。
+- **L0 `FONT_TOO_SMALL`**（`static-check.mjs` §7a）：`font-size` / `font` 简写 / JS 动态设置逐条检查，
+  `rem` / `em` / `pt` 统一换算成 px，`clamp()` 取最小值；inline React 另查 `fontSize` 与 Tailwind 字号类。
+- `verify-test-harness.sh` 新增反例 3h：同一 fixture 的 `font` 简写、`fontSize: 12`、`text-xs`
+  三处必须全部命中；给 `font-size-ok` 后必须完全静默。自检 72 → **76 通过 0 失败**。
+
+### 变更
+
+- 模板里过小的 11px 作者标签改为 13px（`sandbox-view` 学生 / 教师页、`inline-react` 组件），
+  视觉层级改由颜色承担 —— 否则模板自己就违反新规则。
+- 文档同步：SKILL.md（Guardrail 13 / 完成定义 / 交付格式「已核对」）、
+  `references/testing-strategy.md`（Guardrail→用例映射第 13 行）、
+  `references/ui-channel-decision.md`（inline 要点 + view 桥接 API 旁）、`assets/test-harness/README.md`。
+
 ## [2.12.0] - 2026-10-29
 
 用 skill 自身去修一个真实插件（`lab-help`）时，发现 skill 里有一条**把违法写法写成正解**的结论 ——

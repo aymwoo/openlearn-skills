@@ -301,6 +301,44 @@ TS
 out=$(node "$CHECKER" "$FE_EMPTY" 2>&1 || true)
 if grep -q "\[CAP_EMPTY_ISOLATED\]" <<<"$out"; then bad "纯前端空能力被误报"; else ok "纯前端空能力（零服务调用）不误报"; fi
 
+# ── 3h. 反例：中文字号 < 13px 必须被抓到 ────────────────────────────────────
+head "3h. 反例：中文字号小于 13px（view / inline React）"
+FONT_BAD="$TMP/font-bad"
+mkdir -p "$FONT_BAD/src" "$FONT_BAD/storage"
+cat > "$FONT_BAD/manifest.json" <<'JSON'
+{
+  "id": "@demo/font-bad", "name": "FB", "version": "0.1.0", "main": "index.js",
+  "engines": { "openlearn": ">=0.7.6" },
+  "contributes": { "teacher.tab": [{ "id": "fb", "label": "FB", "view": "storage/page.html" }] }
+}
+JSON
+cat > "$FONT_BAD/src/frontend.tsx" <<'TSX'
+const label = { style: { fontSize: 12 } };
+const cls = { className: 'text-xs' };
+export default { async activate() {}, async deactivate() {} };
+TSX
+cat > "$FONT_BAD/storage/page.html" <<'HTML'
+<!doctype html>
+<html lang="zh-CN"><head><style>body { font: 12px/1.5 system-ui; }</style></head>
+<body>
+  <p>中文正文</p>
+  <script src="/plugin-sandbox/view-bridge.js"></script>
+  <script>window.OpenLearnPluginBridge.ui.resize(document.body.scrollHeight);</script>
+</body></html>
+HTML
+if out=$(node "$CHECKER" "$FONT_BAD" 2>&1); then
+  bad "字号反例未被拦截（退出码 0）"
+else
+  ok "字号反例被拦截（非零退出）"
+  hits=$(grep -c "\[FONT_TOO_SMALL\]" <<<"$out" || true)
+  if [[ "$hits" -ge 3 ]]; then ok "命中 3 处 FONT_TOO_SMALL（font 简写 / fontSize / text-xs）"; else bad "FONT_TOO_SMALL 只命中 $hits 处（期望 ≥3）"; fi
+fi
+# 同行 font-size-ok 注释必须能豁免；清掉 TS 里的两处后应完全静默
+rm -f "$FONT_BAD/src/frontend.tsx"
+sed -i 's|font: 12px/1.5 system-ui;|font: 12px/1.5 system-ui; /* font-size-ok: 图标页 */|' "$FONT_BAD/storage/page.html"
+out=$(node "$CHECKER" "$FONT_BAD" 2>&1 || true)
+if grep -q "\[FONT_TOO_SMALL\]" <<<"$out"; then bad "font-size-ok 豁免失效"; else ok "font-size-ok 豁免生效"; fi
+
 # ── 4. L1/L2 骨架自检（不联网） ─────────────────────────────────────────────
 head "4. L1/L2 用例文件自检"
 for f in contract.test.ts smoke.test.ts view-smoke.test.ts vitest.config.ts README.md; do
@@ -311,6 +349,7 @@ grep -q 'describe.skipIf' "$SKILL_DIR/assets/test-harness/view-smoke.test.ts" &&
 grep -q 'REAL_CAPS' "$SKILL_DIR/assets/test-harness/contract.test.ts" && ok "契约测试含权限全集断言" || bad "契约测试缺权限全集断言"
 grep -q 'Barrier 2' "$SKILL_DIR/assets/test-harness/contract.test.ts" && ok "契约测试含 Barrier 2 空能力断言" || bad "契约测试缺 Barrier 2 断言"
 grep -q 'CAP_EMPTY_ISOLATED' "$SKILL_DIR/assets/test-harness/static-check.mjs" && ok "L0 含隔离模式能力门禁规则" || bad "L0 缺 CAP_EMPTY_ISOLATED"
+grep -q 'FONT_TOO_SMALL' "$SKILL_DIR/assets/test-harness/static-check.mjs" && ok "L0 含中文字号下限规则" || bad "L0 缺 FONT_TOO_SMALL"
 grep -q 'TypeError|ReferenceError' "$SKILL_DIR/assets/test-harness/smoke.test.ts" && ok "冒烟测试含崩溃分类断言" || bad "冒烟测试缺崩溃分类断言"
 grep -q 'inline' "$SKILL_DIR/assets/test-harness/vitest.config.ts" && ok "vitest 配置含 test-kit inline 兜底" || bad "vitest 配置缺 inline 兜底"
 grep -q 'whiteboardWidget' "$SKILL_DIR/assets/test-harness/smoke.test.ts" && ok "冒烟测试含白板挂件下发断言" || bad "冒烟测试缺白板挂件断言"

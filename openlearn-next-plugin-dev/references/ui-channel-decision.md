@@ -186,6 +186,8 @@ export default {
 - **不要** `import React from 'react'`；也不要用 JSX（`jsx: react-jsx` 会生成 `react/jsx-runtime` 导入）。
   用 `React.createElement` 或上面的 `h()` 辅助函数即可；确需 JSX 就配 `"jsx": "react"` 并确保 `React` 是全局取到的那份。
 - 组件的 hooks 依赖**宿主那份 React**；自己 bundle 一份 React 会导致 `Invalid hook call`。
+- **中文字号 ≥ 13px**：`fontSize: 11` / `text-xs`（=12px）在教室投影和白板上不可读。
+  正文与标签至少 13px；纯图标 / 装饰可在同行注明 `font-size-ok`。L0 `FONT_TOO_SMALL` 会拦。
 - `HostSharedDeps` 只有 inline 才有；process 下它是 `undefined`，激活时应显式抛错而不是静默降级。
 
 ---
@@ -291,6 +293,9 @@ export default {
 ```
 
 桥接 API（`window.OpenLearnPluginBridge`）：
+
+> 字号约束：中文正文 / 标签 ≥ **13px**（含 `font-size`、`font` 简写、行内 style 与 JS 动态设置）。
+> 11/12px 在投影和白板上不可读；纯图标可加同行注释 `font-size-ok`。L0 `FONT_TOO_SMALL` 会拦。
 
 | API | 作用 |
 |-----|------|
