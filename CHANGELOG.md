@@ -6,6 +6,39 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.12.0] - 2026-10-29
+
+用 skill 自身去修一个真实插件（`lab-help`）时，发现 skill 里有一条**把违法写法写成正解**的结论 ——
+按它写出来的代码在真实平台上必然静默失败。本次按「写代码 → 跑护栏 → 反查 skill」的顺序纠正。
+
+### 修正（错的是 skill，不是插件）
+
+- **`frontend-bridge-0.7.md` 让学生端去查 `classroom_sessions`** —— 那是 SQL 黑名单表，
+  直查被 `assertDatabaseAccessAllowed` 拒绝，`catch` 一吃掉就只剩「还没进入课堂」这种无从排查的表现。
+  已改为：课堂上下文只认宿主注入的 `lessonId` / `classId`；缺参数时明确拒绝（409 / `active:false`）。
+  平台也没有「查当前进行中课堂」的命令，**不能猜**。
+- **「`lessonId` / `classId` 在学生端常为空」是错的**（至少在浮层槽位）：
+  `PluginSandboxIframeView` 是 `propLessonId !== undefined ? propLessonId : storeLessonId`，
+  `student.classroom.overlay` 的 slotProps 显式传 `{ studentId, studentName, lessonId, classId }`
+  —— 那就是学生当前课堂，可直接信。只有走通用循环的页面级槽位才退回教师侧 store。
+- **桥接上下文不是「没有 studentId」**：init 载荷含 `studentId` / `studentName`（学生侧槽位有值）。
+  身份解析不要再假设「会话 userId === students.id」——学生用学号登录时它就是学号，
+  应按名册先比 `id`、再比 `student_number`。
+
+### 事实台账（26 → 27 条）
+
+- `view-context-from-teacher-store` → **`view-context-props-override-store`**：
+  claim/impact 全部重写，锚点换成 `PluginSandboxIframeView.tsx` + `StudentInteractiveOverlay.tsx`
+  （旧锚点是 `context.get` 的实现，本身没消失，所以只查存在性发现不了这个错）。
+- 新增 `roster-command-skips-owner-check`：`class.get_students` 的归属校验只对
+  `user:<id>:<role>` 形式的 actorId 生效，插件以 `plugin:<manifest.id>` 执行时直接放行 ——
+  **越权挡板得插件自己装**（教师限角色、学生要求在该班名册内）。
+
+### 配套
+
+- 同上一条命令的权限口径写清：`capabilitiesProposed` 要含 `management:read`，且宿主是把能力授予
+  `plugin:<manifest.id>` 这个 actorId（不是 `ctx.pluginId` 的 DB UUID）。
+
 ## [2.11.0] - 2026-10-29
 
 平台一次跨版本变更把 skill 的几条结论**变成了错的**，另有一次「护栏假装在工作」。

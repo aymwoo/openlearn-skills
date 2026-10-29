@@ -217,21 +217,28 @@ bridge.api.get/post  →  宿主父页面同源 fetch  →  /api/plugins/{id}/* 
 
 | 成员 | 说明 |
 |---|---|
-| `onInit(cb)` / `onContextUpdate(cb)` / `getContext()` | 上下文 `{ pluginId, slot, lessonId, classId, lang, theme }`，**没有 studentId**
+| `onInit(cb)` / `onContextUpdate(cb)` / `getContext()` | 上下文 `{ pluginId, slot, lessonId, classId, studentId, studentName, lang, theme }` —— `studentId` / `studentName` 只有学生侧槽位有值 |
 | `api.get(path)` / `api.post(path, body)` / `api.del(path)` | 由宿主父页面代发，带 session cookie；相对路径拼成 `/api/plugins/{pluginId}/{path}` |
 | `invokeCommand(type, payload)` | 走宿主的 `/sandbox-command`（见下方身份陷阱） |
 | `ui.toast(msg, type)` / `ui.resize(height)` | iframe 自撑高度必须调 `resize`，否则被裁切 |
 | `storage.get/set/delete` | 宿主 localStorage 命名空间化（`ol_pv_{pluginId}_*`）；iframe 自身无 `allow-same-origin`，直接访问 localStorage 会抛错 |
 
-> ⚠️ **上下文不可信：`lessonId` / `classId` 在学生端常为空**
-> 这两个值取自宿主 store 的 `selectedLesson` 与 `liveClassSelectedClassId` —— 都是**教师侧选择态**。
-> 学生被锁进课堂后，它们通常为空，于是页面只能显示「还没进入课堂，稍后再试」，
-> 而平台其实清楚当前是哪节课。
-> 正确做法：**课堂由服务端解析**，前端传参只当提示。平台用 `classroom_sessions` 记录进行中的课堂：
-> `SELECT lesson_id, class_id FROM classroom_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1`
-> （学生可再加 `AND class_id IN (SELECT class_id FROM class_students WHERE student_id = ?)` 收窄）。
-> 学生身份用 `req.actor.userId`：`server/middleware/auth.ts:61` 会把它兜底成 `session.studentId`（即 `students.id`），
-> 与 `class_students.student_id`、名册里的 `studentId` 同源。
+> ⚠️ **`lessonId` / `classId` 有两条来源，别一概而论**
+> `PluginSandboxIframeView` 取的是 `propLessonId !== undefined ? propLessonId : storeLessonId`
+> —— **显式 slotProps 优先**，缺省才退回教师侧 store（`selectedLesson` / `liveClassSelectedClassId`）。
+> - 页面级槽位（`teacher.tab` / `student.view` …）走通用循环，注入的正是那两个教师侧选择态；
+> - `student.classroom.overlay` 由 `StudentInteractiveOverlay` 显式传
+>   `slotProps={{ studentId, studentName, lessonId, classId }}`，**就是学生当前课堂**，可以直接信。
+>
+> ❌ **不要再用 `classroom_sessions` 兜底**：它在 SQL 黑名单里
+> （`docs/agent/contracts/forbidden-tables.json`），process 模式的 DB 垫片同样过
+> `assertDatabaseAccessAllowed`，直查必被拒；而 `catch` 一吃掉就只剩「还没进入课堂」这种
+> 无从排查的表现。平台也没有「查当前进行中课堂」的命令，缺参数时**明确拒绝**（409 / `active:false`），
+> 不要猜一个课堂出来。
+>
+> 学生身份：`req.actor.userId` 在 `server/middleware/auth.ts` 里兜底成 `session.studentId`
+> （通常即 `students.id`），但**不保证**——学生用学号登录时它就是学号。
+> 稳妥做法是按名册先比 `id`、再比 `student_number`（并优先用注入的 `studentId`）。
 
 > ⚠️ **返回形态不对称（最容易写错的一处）**
 > - `api.get/post/del` → **网关裸响应体**。网关是 `res.status(status).send(response.body)`，

@@ -318,13 +318,17 @@
       ]
     },
     {
-      "id": "view-context-from-teacher-store",
-      "claim": "view 的 lessonId/classId 取自教师侧选择态（selectedLesson / liveClassSelectedClassId），不代表学生当前所在课堂",
-      "impact": "学生被锁进课堂后这两个值常为空 → 按 ctx.lessonId 判「是否在课堂」恒为否，误报「还没进入课堂，稍后再试」。应以服务端 classroom_sessions(ended_at IS NULL) 为准",
+      "id": "view-context-props-override-store",
+      "claim": "view 的 lessonId/classId 优先取显式 slotProps（propLessonId !== undefined ? propLessonId : store 值）；只有未显式传的槽位才退回教师侧 store（selectedLesson / liveClassSelectedClassId）",
+      "impact": "「学生端 ctx.lessonId 恒为空」只在通用循环槽位成立。student.classroom.overlay 由 StudentInteractiveOverlay 显式传 slotProps={{ studentId, studentName, lessonId, classId }}，即学生当前课堂，可直接信。反过来也别用 classroom_sessions 兜底 —— 它在 SQL 黑名单里（见 process-db-shim-is-guarded），直查被 catch 吃掉后只表现为「还没进入课堂」",
       "sources": [
         {
-          "file": "src/plugin-host/plugin-host.ts",
-          "anchor": "lessonId: state.selectedLesson, classId: state.liveClassSelectedClassId"
+          "file": "src/components/PluginSandboxIframeView.tsx",
+          "anchor": "propLessonId !== undefined ? propLessonId : storeLessonId"
+        },
+        {
+          "file": "src/features/student/StudentInteractiveOverlay.tsx",
+          "anchor": "slotProps={{ studentId, studentName, lessonId, classId }}"
         }
       ]
     },
@@ -363,6 +367,21 @@
         {
           "file": "packages/core/plugin-host/sql-guard.ts",
           "anchor": "classroom_sessions"
+        }
+      ]
+    },
+    {
+      "id": "roster-command-skips-owner-check",
+      "claim": "class.get_students 的班级归属校验只对 `user:<id>:<role>` 形式的 actorId 生效（parseUserActor 正则）；插件以 plugin:<manifest.id> 执行时它返回 null，处理器跳过归属检查，直接返回该班全部学生（去掉 password 列）",
+      "impact": "别把越权挡板寄托在这个命令上：插件必须自己校验 —— 教师端限角色、学生端要求其确实在该班名册内。否则任何登录用户传一个 classId 就能拉到别班名单。命令闸门仍然照常：capabilitiesProposed 里要有 management:read，且授予对象是 `plugin:<manifest.id>` 而不是 ctx.pluginId（DB UUID）",
+      "sources": [
+        {
+          "file": "packages/plugins/management.ts",
+          "anchor": "const match = /^user:([^:]+):(administrator|admin|teacher|student)$/.exec(String(actorId || ''));"
+        },
+        {
+          "file": "packages/plugins/management.ts",
+          "anchor": "const classGetStudentsCmd = 'class.get_students';"
         }
       ]
     }
