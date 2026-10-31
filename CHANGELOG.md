@@ -6,6 +6,25 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.14.0] - 2026-10-31
+
+`troubleshooting.md` 补一段 L0 权限报错的**误报警示**。起因是一次真实事故：`static-check.mjs` 把真实存在
+的 `student-data:write` 判为 `CAP_UNKNOWN`，维护者按报错删掉了 5 个插件的正确声明。根因是该检查项在排障
+文档里**零记载**，而它的措辞（「声明了也不生效」）读起来像结论，于是被直接执行。
+
+### 新增
+
+- `troubleshooting.md` D3 表后新增警示段：**`CAP_UNKNOWN` / `ACTION_CAP_UNKNOWN` 可能是误报**。
+  写清平台权限的两个真源（`capability-guard.ts` 资源型 / `method-policy.ts` 能力型）、
+  处置顺序（先 grep 平台源码确认，命中就保留声明而非删除），以及误删后的真实后果
+  （运行期 `PluginCapabilityDeniedError` / 静默 403，比误报更难排查）。
+- 附带 5 个插件的已知案例，便于对号入座。
+
+### 关联
+
+- [#1](https://github.com/aymwoo/openlearn-skills/issues/1)：`REAL_CAPS` 漏能力型权限（本段是文档侧缓解，
+  根治仍需 #1 把真源改为 `capability-registry.json` 并把未知串降为 warn）。
+
 ## [2.13.0] - 2026-10-29
 
 新增一条面向课堂场景的 UI 约束：**中文文本最小 13px**。11/12px 在教室投影和白板上不可读，
