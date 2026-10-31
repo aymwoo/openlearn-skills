@@ -130,6 +130,20 @@
 | `WorkerActivateError` 且插件代码无明显错误 | **看版本** | ≤0.3.15 存在"激活期 60 秒假超时"缺陷；0.3.16+ 为 5ms 快速失败，属系统侧 |
 | 激活报 `checkPluginDependencies` / `checkCrossPluginServices` 失败 | **插件侧** | `manifest.pluginDependencies` 依赖的插件未 ACTIVE，或 `requires` 的服务无人 `provides` |
 
+> ⚠️ **L0 `CAP_UNKNOWN` / `ACTION_CAP_UNKNOWN` 可能是误报 —— 别直接删声明**
+>
+> `static-check.mjs` 的 `REAL_CAPS` 是内联 Set，历史上只收录了 `capability-guard.ts` 的**资源型**权限，
+> 漏了 `method-policy.ts` 的**能力型**权限（已知：`student-data:write`、`task:register`）。
+> 平台权限有**两个**真源，缺一个就会把真实权限报成「权限串不存在于平台真实集合（声明了也不生效）」。
+>
+> **处置顺序**：先在平台源码里 grep 该权限名确认 → 命中即 L0 误报 → 保留声明、只改 L0 或记 issue，
+> **不要按报错去删 `capabilitiesProposed`**。删掉的后果是运行期 `PluginCapabilityDeniedError` / 静默 403，
+> 比误报难查得多。
+>
+> 已知案例（2026-10-31）：据此误删 `student-data:write`，波及 attendance-record / class_manager /
+> lianyun-course / interactive-courseware / lab-seat 五个插件，全部手工回滚。
+> 根治见 [#1](https://github.com/aymwoo/openlearn-skills/issues/1)（改读 `capability-registry.json` + 未知串降 warn）。
+
 ### D4. 运行阶段
 
 | 现象 | 归因 | 依据 |
