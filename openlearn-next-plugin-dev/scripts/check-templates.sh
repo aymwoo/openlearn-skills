@@ -169,12 +169,30 @@ for p in $used; do
 done
 
 # ── 5b. 一键脚手架覆盖全部占位符 / view 冒烟存在 ──────────────────────────
-head_ "5b. 一键脚手架（new-plugin.sh）、源码同步（sync-platform-repo.sh）与 view 冒烟"
+head_ "5b. 一键脚手架（new-plugin.sh）、Grilling 向导（grill-requirements.sh）、源码同步（sync-platform-repo.sh）与 view 冒烟"
 
 if [ -x scripts/new-plugin.sh ]; then
   ok "new-plugin.sh 存在且可执行"
 else
   bad "new-plugin.sh 缺失或不可执行"
+fi
+
+if [ -x scripts/grill-requirements.sh ]; then
+  ok "grill-requirements.sh 存在且可执行"
+else
+  bad "grill-requirements.sh 缺失或不可执行"
+fi
+
+if python3 -m py_compile scripts/grill-requirements.py >/dev/null 2>&1; then
+  ok "grill-requirements.py 语法校验通过"
+else
+  bad "grill-requirements.py 语法错误"
+fi
+
+if bash scripts/grill-requirements.sh -h >/dev/null 2>&1; then
+  ok "grill-requirements.sh 帮助信息可正常打印"
+else
+  bad "grill-requirements.sh 帮助信息退出码异常"
 fi
 
 if [ -x scripts/sync-platform-repo.sh ]; then

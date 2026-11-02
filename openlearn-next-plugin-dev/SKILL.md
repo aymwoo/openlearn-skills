@@ -249,52 +249,71 @@ ls ~/Develop/openlearnv2/packages/plugin-sdk/scaffold/templates/
 
 ---
 
-### 第二步：需求讨论与预检查
+### 第二步：交互式需求梳理（Grilling 决策树协议）
 
-与开发者逐项确认：
+> 💡 **Grilling 核心交互原则**（像 `/grill-me` 一样）：
+> 1. **严禁一次性倾倒整张问题清单**：每次交互**只提 1 个核心问题**，等待用户回答后再推进；
+> 2. **选项驱动**：每题必须提供格式化单选/多选项（A / B / C / D），明确标注 `(推荐)` 项与架构后果；
+> 3. **动态分支**：前序选择决定后续分支（如纯后台插件自动跳过 UI 题；非白板插件跳过投射机制）；
+> 4. **即时规则摩擦（Guardrail Friction）**：遇违规或高危方案（如 process 下选 React 组件、直写 SQL 核心表），当场拦截并说明机制原因，给出合法替代；
+> 5. **契约自动收敛**：梳理结束后自动生成 `<插件根>/plugin.contract.json` 并推荐脚手架命令。
+> 
+> 命令行向导：`bash scripts/grill-requirements.sh`（可直接在终端中交互问答并生成契约）
 
-1. **插件用途**：面向教师还是学生？解决什么问题？
-2. **核心功能**：1-5 个核心功能点
-3. **插件类型**（三选一，判据是「要不要后端状态」）：
-   - `server-only`：**不需要**任何后端命令/存储，只要 AI 工具与后端逻辑
-   - `full-stack`：需要后端命令、数据库或 EventBus（**绝大多数课堂插件属于这类**）——
-     后端逻辑 + 前端沙箱桥接（**不是** React 组件，见「Guardrail 5」）
-   - `frontend-only`：确实不需要后端命令，且只需要存储/提示这类轻量前端能力
-4. **【P0 门禁】UI 通道可行性判定**（写代码前必须回答，答错后面全白做）：
-   1. **谁看**？教师 / 学生 / 两者（学生可见时必须有 `student.*` 槽位或白板挂件）
-   2. **要什么 UI**？宿主可渲染的列表/按钮（声明式）/ 自定义页面（沙箱 HTML `view`）/ 自定义 React 组件
-      （白板画布卡片只认这一种）
-   3. **执行模式**？第三方 ZIP 默认 `process`；自定义 React 必须 `inline`
-   4. **凭什么 inline**？只有「文件位于 `packages/plugins`」或「id 在 `OPENLEARN_TRUSTED_INLINE_PLUGINS`」
-      —— **`@openlearn/`、`@ext/` 等 id 前缀不构成信任**，manifest 自述也不参与判定
-   5. **数据怎么到学生端**？白板挂件必须派发 `whiteboard.draw(type:'plugin')`，
-      只 `return { opened: true }` 学生端永远空白
+#### 逐题提问与选项规范（按状态机依次推进）
 
-   判定结果写进 `<插件根>/plugin.contract.json`（模板见 `references/ui-channel-decision.md` §6），
-   L0/L2 会强制校验；**不要只在对话里口头约定**。
+##### 【Q1】核心受众与业务场景
+提问：*「插件主要面向谁使用？解决什么课堂业务场景？」*
+- **[A] (推荐) 师生互动型**：教师发起/控制，学生端实时接收、互动或作答（如：课堂答题、白板挂件、抢答投票）
+- **[B] 教师专属工具**：仅教师可见与操作（如：备课辅助、学情监控看板、课堂计时器控制台）
+- **[C] 学生专属工具**：仅学生可见与使用（如：随堂实验笔记、自测练习器、个人错题助手）
+- **[D] 纯后台 / 系统能力**：无师生可见界面，用于后台数据处理、定时同步或 AI Agent 调度（*自动跳过 Q3/Q4*）
 
-   通道选择（按能力从低到高）：
-   | 需要 | 通道 | 模式 |
-   |------|------|------|
-   | 教师按钮 / Tab / 命令面板条目 | `manifest.classroomTools` / `contributes` / 数据型扩展点 | process 即可 |
-   | 前端读后端数据、提示 | 桥接 `ctx.invokeCommand` / `frontendApi` 轮询 | process 即可 |
-   | **自定义界面（页面级）** | **`contributes.<slot>.view = 'storage/x.html'`（双轨制 UI，宿主沙箱 iframe + `OpenLearnPluginBridge`）** | **process 即可，无需白名单** |
-   | 白板卡片（画布内 `type:'plugin'`） | 配置 `view: 'storage/xxx.html'`（process 即可，推荐）或 `registerExtensionPoint({ component })`（React 组件） | **view 走 process；React 仅 inline** |
-   | 学生端浮层页面 | `view` 优先（调 `bridge.ui.resize()` 自适应）；确需 React 才 inline | process / inline |
+##### 【Q2】后端状态与数据持久化
+提问：*「该插件是否需要后端命令、事件总线或本地数据库存储？」*
+- **[A] (推荐) 需要独立数据库持久化**：需要新建 SQLite 表记录数据（如：题库表、作答记录、成绩），模板走向 `full-stack`
+- **[B] 仅需内存状态 / 事件总线**：需要后端服务处理业务逻辑与消息广播，但无需新建持久化数据表，模板走向 `full-stack`
+- **[C] 纯轻量前端小工具**：不需要后端命令与后台数据库，仅依赖前端本地状态或宿主公开 API，模板走向 `frontend-only`
+- **[D] 纯后端计算 / AI 工具**：无状态无界面，仅注册命令或 Action 工具，模板走向 `server-only`（*自动跳过 Q3/Q4*）
 
-   ⚠️ 常见误判：
-   - 「白板卡片不能用 HTML 沙箱」——**错**。平台 v0.7.7+ 的 `PluginCardRenderer` 已支持 `ext.view`，成对声明 `teacher.dashboard.widget` 与 `student.view` 映射到 `storage/*.html` 即可在 process 模式下展现白板卡片；只有**自定义 React inline 组件**才需要白名单。
-   - 「写 `@openlearn/` 前缀就能拿信任 / 写 `manifest.executionMode` 就能变 inline」——**都错**。
-     判定只看内置目录 + `OPENLEARN_TRUSTED_INLINE_PLUGINS`，由服务端计算。
-   - 「课堂工具下发可以在子进程用 SQL 直接插入 `whiteboard_elements`」——**大错**。子进程受 `sql-guard` 零信任保护，直写核心表会被拒绝！必须在 `manifest.classroomTools` 配置 `commandType: "whiteboard.draw"` 由平台代发，或在 handler 调 `commandBus.execute`。
-5. **权限需求 (Capabilities)**：显式核对**平台真实存在**的能力字符串（见「权限全集」一节）
-6. **AI 能力与 Action 关联**：是否需要 AI Agent 调用？（必须注册 Action 且描述清晰）
-7. **数据库需求**：需要哪些表？是否需要版本迁移？
-8. **目标版本**：声明在 `manifest.engines.openlearn` 中的**宿主版本**范围（**不是** SDK 版本）。
-   **按实际用到的 API 的最低宿主版本填写，不要一律抄 `>=0.2.5`** —— 写低了不会报错，
-   但插件会在旧版本上装着、用到新 API 时才崩。速查表见 `references/manifest-0.7.md` §11：
-   只用 `ctx.log`/`ctx.config` → `>=0.2.3`；用 `ctx.http` → `>=0.3.11`；
-   用声明式 `contributes` 或前端沙箱行为 → `>=0.7.0`。
+##### 【Q3】前端 UI 展现通道 (P0 架构门禁)
+*（仅当 Q1/Q2 判定需要界面时触发）*
+提问：*「插件打算采用哪种方式在 OpenLearnV2 宿主中呈现界面？」*
+- **[A] (推荐) 双轨制沙箱页面 (`storage/*.html`，`sandbox-view`)**：宿主以受限 iframe 呈现页面，通过 `OpenLearnPluginBridge` 桥接通信；安全且**无需白名单**，可使用纯原生 HTML/CSS/JS 或打包产物
+- **[B] 宿主原生声明式控件**：仅需要标准导航 Tab、工具栏按钮或命令面板条目，由宿主直接渲染，插件无需开发前端复杂页面
+- **[C] 白板互动卡片 (画布内挂件 `type:'plugin'`)**：投射在电子白板画布上的卡片挂件（推荐通过 `ext.view` 映射到 `storage/*.html`，process 模式即可运行）
+- **[D] 宿主内联原生 React 组件 (`inline-react`)**：直接注入宿主 React 树渲染（**前提**：必须加入 `OPENLEARN_TRUSTED_INLINE_PLUGINS` 白名单或放入平台内置目录）
+
+> ⚠️ **Q3 即时摩擦拦截**：若开发者想在第三方插件中写原生 React 组件且未入白名单，必须立即提示：
+> *「【高危/产品边界】第三方 process 插件注册 component 函数跨 postMessage 会触发 DataCloneError 导致激活失败！若未加入宿主白名单，请务必选择 A 或 C 的沙箱 view 方案！」*，引导选用 `sandbox-view`。
+
+##### 【Q4】白板/课堂数据投射机制
+*（仅当选定白板卡片挂件或师生白板互动时触发）*
+提问：*「教师触发互动后，如何将挂件或数据准确推送到学生端？」*
+- **[A] (推荐) 声明式代发**：在 `manifest.classroomTools` 配置 `commandType: "whiteboard.draw"`，由宿主代发，零权限风险且符合规范
+- **[B] 后端命令派发**：在后端 Handler 收到动作后，通过命令总线调用 `commandBus.execute("whiteboard.draw", ...)` 统一派发
+
+> ⚠️ **Q4 即时摩擦拦截**：严禁直接拼接 SQL 写入 `whiteboard_elements` 表（子进程受 `sql-guard` 零信任防护拦截拒绝），必须引导采用 A 或 B 由内核代发。
+
+##### 【Q5】所需平台特权与能力申请 (Capabilities)
+提问：*「插件需要向宿主申请哪些特权能力？(多选，输入序号如 1,2)」*
+- `[1]` **database**：本地数据库访问权限（受 `sql-guard` 插件独立前缀隔离保护）
+- `[2]` **event:emit & event:subscribe**：课堂 EventBus 事件总线广播与订阅能力
+- `[3]` **whiteboard:write**：白板元素创建与修改权限
+- `[4]` **student-data:read & student-data:write**：学生课堂作答记录与学情分析数据读写
+- `[5]` **llm:chat**：调用平台内置的大语言模型服务
+- `[6]` **零特权 (仅基础沙箱)**：不需要任何受控系统特权
+
+##### 【Q6】AI Agent 动作暴露 (ActionDescriptor)
+提问：*「是否需要将插件能力封装为 Action 暴露给课堂 AI Agent / 教学助手调用？」*
+- **[A] (推荐) 需要注册 ActionDescriptor**：提供清晰语义化描述与入参 Schema，使课堂 AI Agent 能够通过工具调用触发本插件
+- **[B] 不需要暴露给 AI**：仅供师生在 UI 界面或白板上人工点击交互
+
+#### 梳理收敛与契约自动生成
+梳理完成后，Agent 必须输出：
+1. **需求设计规格汇总表**（受众、模板、执行模式、UI 通道、能力清单）；
+2. 生成符合 L0 规范的 `<插件根>/plugin.contract.json` 内容；
+3. 给出标准脚手架生成命令（`bash scripts/new-plugin.sh <模板> <目录> --id <插件ID>`）。
 
 ---
 
@@ -1147,6 +1166,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `assets/sandbox-view/` | **process + 自定义界面模板**：`view` 沙箱 HTML 页面 + `OpenLearnPluginBridge` + `pack.mjs` 补 `storage/**` |
 | `assets/inline-react/` | **inline + React 模板**（需宿主白名单）：白板挂件「下发→学生可见」全链路 + `HostSharedDeps` 写法 |
 | `scripts/sync-platform-repo.sh` | **平台源码管理与更新检查**：初次运行引导下载平台源码（支持 `--bg` 空闲/后台浅克隆与快照模式降级）；更新检查（比对本地与远端 origin/main 提交）；联动 `facts-check.sh` |
+| `scripts/grill-requirements.sh` | **需求梳理 Grilling 向导**（用户/Agent 侧）：像 `/grill-me` 一样单步推进提问，选项驱动、动态分支与即时摩擦拦截，梳理完成后自动输出 `plugin.contract.json` |
 | `scripts/new-plugin.sh` | **一键生成插件**（用户侧）：`bash scripts/new-plugin.sh <模板> <目录> --id @scope/name [--name/--prefix/...]`，复制模板并替换全部占位符；拒绝非空目录（`--force` 覆盖）；不执行 `npm i` / build |
 | `scripts/check-templates.sh` | **自检脚本**：校验模板的 `main` / `engines` / ActionDescriptor 配对 / 远程前端无 React / 占位符与 SKILL.md 对齐 / 废弃 API 残留。修改模板后必跑 |
 | `scripts/verify-templates-build.sh` | **构建验证**：三套模板用官方 SDK CLI 真实构建 + `tsc --noEmit` + 产物体检（manifest 字段 / 裸导入 / React 残留）。支持 npm 安装的 SDK 或本地平台仓库 |
@@ -1158,7 +1178,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 
 > **谁该跑 `scripts/*`**：`platform-drift-check.sh` / `check-templates.sh` / `verify-*.sh` / `diff-official-scaffold.sh`
 > 是**维护本 skill** 用的（改模板、改 SKILL.md、升级平台基线时跑），CI 也会自动跑，**给用户开发插件时不要跑**。
-> 例外是开发侧工具：`new-plugin.sh`（生成插件目录）、`sync-platform-repo.sh`（源码就绪与更新检查）与 `facts-check.sh`（开工前探活）。
+> 例外是开发侧工具：`grill-requirements.sh`（需求梳理向导）、`new-plugin.sh`（生成插件目录）、`sync-platform-repo.sh`（源码就绪与更新检查）与 `facts-check.sh`（开工前探活）。
 > 用户侧只需要第四步里的构建命令与预检清单。
 
 ### 在线文档地址（线上校验用）

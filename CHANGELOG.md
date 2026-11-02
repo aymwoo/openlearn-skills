@@ -8,10 +8,19 @@
 
 ## [2.15.0] - 2026-11-02
 
-初次运行引导下载平台源码与更新检查机制。针对「一手平台源码缺失或长期未更新导致契约校验偏差」的痛点，新增 `sync-platform-repo.sh` 管理工具并在工作流开头（第零步）设立门禁，兼顾「一手源码真理」与「无源码快速开发（快照降级模式）」。
+初次运行引导下载平台源码、更新检查机制与交互式需求梳理 Grilling 向导。针对「一手平台源码缺失或长期未更新导致契约校验偏差」及「初期需求梳理长清单倾倒过载」两大痛点，新增 `sync-platform-repo.sh`、`grill-requirements.sh` 工具并在工作流中设立交互门禁。
 
 ### 新增
 
+- **`scripts/grill-requirements.sh` 与 `grill-requirements.py` 需求梳理 Grilling 向导**：
+  - 像 `/grill-me` 一样采用「单步一问、选项驱动、动态分支、即时摩擦」交互模型，涵盖受众场景、数据持久化、UI 通道可行性、白板挂件通信、平台特权与 AI Action；
+  - 遇到违规架构（如第三方 process 插件选原生 React 组件、直写 SQL 核心表）即时触发摩擦干预；
+  - 梳理完成后自动输出需求设计表与符合 L0 规范的 `plugin.contract.json`，并推荐 `new-plugin.sh` 脚手架创建命令；
+  - 支持交互式终端问答、`--dump-questions` 导出题库 JSON 以及 `--answers` 非交互模式。
+- **`SKILL.md` 重塑「第二步：交互式需求梳理（Grilling 决策树协议）」**：
+  - 明确 Grilling 交互红线：严禁一次性倾倒长清单，单步单题推进；
+  - 明确各题题干、推荐选项及即时摩擦规则；
+  - 梳理结束后自动生成 `plugin.contract.json` 契约文件供 L0 强制校验。
 - **`scripts/sync-platform-repo.sh` 平台源码管理工具**：
   - `check`：轻量检测本地是否存在平台仓库、比对本地 HEAD 与远端 `origin/main` 差异，支持 `--json` 机读输出；
   - `clone`：支持 `--bg` / `--idle` 异步后台空闲下载，默认采用 `--depth 1` 极速浅克隆（极大缩减体积与耗时），并在下载完成前自动以「快照模式」继续当前会话；
@@ -24,7 +33,7 @@
 - **`scripts/facts-check.sh` 支持 `--graceful`**：
   - 当缺少平台仓库时优雅提示处于快照模式并退出码为 0，不再硬性报出错误中断 CI 或离线流程。
 - **`scripts/check-templates.sh`**：
-  - 纳入 `sync-platform-repo.sh` 及其可执行性与帮助命令自检。
+  - 纳入 `grill-requirements.sh` 与 `sync-platform-repo.sh` 及其语法、可执行性与帮助命令自检。
 
 ## [2.14.0] - 2026-10-31
 
