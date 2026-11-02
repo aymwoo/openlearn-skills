@@ -2,7 +2,7 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.14.0
+version: 2.15.0
 description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.5·npm 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
@@ -114,6 +114,49 @@ description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.
 
 ## 工作流程
 
+### 第零步：平台源码就绪与更新检查（初次运行 / 探活门禁）
+
+> 💡 **平台一手源优先，源码是最终真理**。但在初次运行、无网络或未克隆平台源码时，不得硬阻断开发者开发。
+> 开工前先运行状态检查：
+> ```bash
+> bash scripts/sync-platform-repo.sh check
+> ```
+
+#### 0a. 初次运行（本地尚未下载平台源码）
+当脚本提示 `未检测到本地平台源码仓库`（退出码 1）时，**必须主动向用户出具提示并提供选择**：
+
+```markdown
+💡 检测到本地尚未配置/下载 OpenLearnV2 平台源代码（推荐用于一手 API 与真实行为核对）。
+请选择您的处置方式：
+1. **[推荐] 空闲/后台下载**：在后台异步浅克隆（几秒启动，约数 MB），当前会话立刻以「快照模式」（依赖 references/ 快照与 npm latest）继续开发，不阻断当前会话。
+   → 运行：`bash scripts/sync-platform-repo.sh clone --bg`
+2. **立即前台浅克隆**：快速同步下载当前主干后再继续。
+   → 运行：`bash scripts/sync-platform-repo.sh clone --depth 1`
+3. **指定已有源码路径**：若已在其他目录存在仓库，配置环境变量。
+   → 运行：`export PLATFORM_REPO=/your/custom/path`
+4. **暂不下载（快照模式）**：仅依赖 references/ 离线快照与 npm latest 规则开发，跳过源码级锚点检查。
+   → 运行：`bash scripts/sync-platform-repo.sh skip`
+```
+
+- 若用户选择 **[1] 后台下载** 或 **[4] 暂不下载**：进入**快照模式（Snapshot Mode）**，使用 `references/` 下的架构/契约文档与 `npm view @openlearn/plugin-sdk` 继续进行，后续脚本加 `--graceful` 跳过源码锚点报错，无需等待下载完成。
+
+#### 0b. 源码更新提示（本地落后远端）
+当 `bash scripts/sync-platform-repo.sh check` 提示 `检测到平台源码有更新！`（本地 HEAD 落后于远端 origin/main）时：
+
+**必须主动提示用户是否需要同步**：
+```markdown
+🔄 检测到 OpenLearnV2 平台源码有更新（本地 HEAD: <local_head>，远端 origin/main: <remote_head>）。
+是否需要更新本地平台代码？
+1. **[推荐] 立即更新并复核契约**：安全拉取更新（支持开发分支无冲突 fetch）并自动运行 facts-check.sh 检查契约漂移。
+   → 运行：`bash scripts/sync-platform-repo.sh update`
+2. **稍后更新 / 本次跳过**：继续使用当前本地源码版本进行开发。
+```
+
+- 若用户选择更新：执行 `bash scripts/sync-platform-repo.sh update`；若工作区 dirty，脚本会自动拒绝强制覆盖并提示安全暂存。
+- 若用户选择跳过：继续执行第一步探活。
+
+---
+
 ### 第一步：探活 + 版本比对
 
 > **开工前 30 秒：先摸清宿主环境。** 端口、数据库路径、插件目录这三样，缺任何一样都会让后续排查变成猜测
@@ -121,7 +164,11 @@ description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.
 >
 > ```bash
 > PLATFORM="${PLATFORM_REPO:-$HOME/Develop/openlearnv2}"
-> node -p "require('$PLATFORM/package.json').version"          # 平台版本
+> if [ -d "$PLATFORM" ]; then
+>   node -p "require('$PLATFORM/package.json').version"          # 平台版本（本地仓库存在时）
+> else
+>   echo "（快照模式：本地平台仓库未就绪，以 references/ 与 npm latest 为准）"
+> fi
 > ss -ltnp 2>/dev/null | grep -E ':(9000|3000|5173)\b'         # 真实端口，不要猜
 > ls -1 "$PLATFORM"/packages/core/db/*.db 2>/dev/null          # educational_os.db（装过插件才有）
 > ls -d "$PLATFORM"/plugins/*/ 2>/dev/null | head              # 安装目录 plugins/{安装行UUID}/
@@ -1099,6 +1146,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `assets/frontend-only/` | frontend-only 插件模板（桥接上下文与提示通道示范） |
 | `assets/sandbox-view/` | **process + 自定义界面模板**：`view` 沙箱 HTML 页面 + `OpenLearnPluginBridge` + `pack.mjs` 补 `storage/**` |
 | `assets/inline-react/` | **inline + React 模板**（需宿主白名单）：白板挂件「下发→学生可见」全链路 + `HostSharedDeps` 写法 |
+| `scripts/sync-platform-repo.sh` | **平台源码管理与更新检查**：初次运行引导下载平台源码（支持 `--bg` 空闲/后台浅克隆与快照模式降级）；更新检查（比对本地与远端 origin/main 提交）；联动 `facts-check.sh` |
 | `scripts/new-plugin.sh` | **一键生成插件**（用户侧）：`bash scripts/new-plugin.sh <模板> <目录> --id @scope/name [--name/--prefix/...]`，复制模板并替换全部占位符；拒绝非空目录（`--force` 覆盖）；不执行 `npm i` / build |
 | `scripts/check-templates.sh` | **自检脚本**：校验模板的 `main` / `engines` / ActionDescriptor 配对 / 远程前端无 React / 占位符与 SKILL.md 对齐 / 废弃 API 残留。修改模板后必跑 |
 | `scripts/verify-templates-build.sh` | **构建验证**：三套模板用官方 SDK CLI 真实构建 + `tsc --noEmit` + 产物体检（manifest 字段 / 裸导入 / React 残留）。支持 npm 安装的 SDK 或本地平台仓库 |
@@ -1110,7 +1158,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 
 > **谁该跑 `scripts/*`**：`platform-drift-check.sh` / `check-templates.sh` / `verify-*.sh` / `diff-official-scaffold.sh`
 > 是**维护本 skill** 用的（改模板、改 SKILL.md、升级平台基线时跑），CI 也会自动跑，**给用户开发插件时不要跑**。
-> 例外是开发侧工具：`new-plugin.sh`（生成插件目录）与 `facts-check.sh`（开工前探活）。
+> 例外是开发侧工具：`new-plugin.sh`（生成插件目录）、`sync-platform-repo.sh`（源码就绪与更新检查）与 `facts-check.sh`（开工前探活）。
 > 用户侧只需要第四步里的构建命令与预检清单。
 
 ### 在线文档地址（线上校验用）

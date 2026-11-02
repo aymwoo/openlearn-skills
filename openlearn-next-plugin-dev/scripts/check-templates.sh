@@ -169,12 +169,24 @@ for p in $used; do
 done
 
 # ── 5b. 一键脚手架覆盖全部占位符 / view 冒烟存在 ──────────────────────────
-head_ "5b. 一键脚手架（new-plugin.sh）与 view 冒烟"
+head_ "5b. 一键脚手架（new-plugin.sh）、源码同步（sync-platform-repo.sh）与 view 冒烟"
 
 if [ -x scripts/new-plugin.sh ]; then
   ok "new-plugin.sh 存在且可执行"
 else
   bad "new-plugin.sh 缺失或不可执行"
+fi
+
+if [ -x scripts/sync-platform-repo.sh ]; then
+  ok "sync-platform-repo.sh 存在且可执行"
+else
+  bad "sync-platform-repo.sh 缺失或不可执行"
+fi
+
+if bash scripts/sync-platform-repo.sh -h >/dev/null 2>&1; then
+  ok "sync-platform-repo.sh 帮助信息可正常打印"
+else
+  bad "sync-platform-repo.sh 帮助信息退出码异常"
 fi
 
 missing_keys=""

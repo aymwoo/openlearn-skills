@@ -12,6 +12,7 @@
 # 用法：
 #   bash scripts/facts-check.sh
 #   PLATFORM_REPO=/path/to/openlearnv2 bash scripts/facts-check.sh
+#   bash scripts/facts-check.sh --graceful    # 快照模式：若仓库不存在则友好提示跳过
 #   bash scripts/facts-check.sh --json        # 机器可读
 set -uo pipefail
 
@@ -19,7 +20,15 @@ SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="${PLATFORM_REPO:-$HOME/Develop/openlearnv2}"
 FACTS="${FACTS_FILE:-$SKILL_DIR/references/integration-facts.json}"
 
-[[ -d "$PLATFORM" ]] || { echo "找不到平台仓库：$PLATFORM（用 PLATFORM_REPO=... 指定）"; exit 2; }
+if [[ ! -d "$PLATFORM" ]]; then
+  if [[ "${GRACEFUL:-0}" == "1" || " $* " =~ " --graceful " ]]; then
+    printf '\033[33mℹ [快照模式]\033[0m 未检测到本地平台源码仓库（%s），已跳过源码级锚点校验。\n' "$PLATFORM"
+    printf '  提示：可运行 bash scripts/sync-platform-repo.sh clone --bg 后台下载；当前以 references/ 快照为准。\n'
+    exit 0
+  else
+    echo "找不到平台仓库：$PLATFORM（用 PLATFORM_REPO=... 指定，或加 --graceful 走快照模式）"; exit 2
+  fi
+fi
 [[ -f "$FACTS" ]] || { echo "找不到 $FACTS"; exit 2; }
 
 python3 - "$PLATFORM" "$FACTS" <<'PY'
