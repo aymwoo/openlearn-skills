@@ -169,7 +169,7 @@ for p in $used; do
 done
 
 # ── 5b. 一键脚手架覆盖全部占位符 / view 冒烟存在 ──────────────────────────
-head_ "5b. 一键脚手架（new-plugin.sh）、Grilling 向导（grill-requirements.sh）、源码同步（sync-platform-repo.sh）与 view 冒烟"
+head_ "5b. 一键脚手架（new-plugin.sh）、Grilling 向导（grill-requirements.sh）、契约水合（hydrate-contracts.sh）、源码同步（sync-platform-repo.sh）与 view 冒烟"
 
 if [ -x scripts/new-plugin.sh ]; then
   ok "new-plugin.sh 存在且可执行"
@@ -193,6 +193,18 @@ if bash scripts/grill-requirements.sh -h >/dev/null 2>&1; then
   ok "grill-requirements.sh 帮助信息可正常打印"
 else
   bad "grill-requirements.sh 帮助信息退出码异常"
+fi
+
+if [ -x scripts/hydrate-contracts.sh ]; then
+  ok "hydrate-contracts.sh 存在且可执行"
+else
+  bad "hydrate-contracts.sh 缺失或不可执行"
+fi
+
+if bash scripts/hydrate-contracts.sh --check >/dev/null 2>&1; then
+  ok "hydrate-contracts.sh 契约校验通过（与平台源码一致）"
+else
+  bad "hydrate-contracts.sh 检出契约漂移"
 fi
 
 if [ -x scripts/sync-platform-repo.sh ]; then

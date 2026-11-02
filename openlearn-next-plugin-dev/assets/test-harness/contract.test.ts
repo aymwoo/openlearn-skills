@@ -32,17 +32,22 @@ function readJson(rel: string): any {
   }
 }
 const CONTRACT = readJson('../plugin.contract.json');
+const SLOTS_CONTRACT = readJson('./contracts/slots.json');
 const SLOT_REGISTRY = readJson('./slot-registry.json');
-const REAL_SLOTS = new Set<string>(SLOT_REGISTRY?.slots ?? []);
+const REAL_SLOTS = new Set<string>(SLOTS_CONTRACT?.extension_slots ?? SLOT_REGISTRY?.slots ?? []);
 
-/** 平台真实权限全集（20 条 RBAC + 3 条仅声明项），见 references/capability-matrix-0.7.md */
-const REAL_CAPS = new Set([
+/** 平台真实权限全集（RBAC + method_policy 能力型 + runtime_permission），支持 contracts 动态水合 */
+const CAP_CONTRACT = readJson('./contracts/capabilities.json');
+const REAL_CAPS = new Set<string>([
   'management:write', 'lesson:write', 'whiteboard:write', 'management:read',
   'plugin:write', 'lesson:read', 'vfs:write', 'process:write',
   'assignment:manage', 'whiteboard:read', 'vfs:read', 'process:read',
   'assignment:read', 'lesson:delete', 'plugin:read', 'student:write',
   'assignment:write', 'assignment:submit', 'assignment:review',
-  'class:read', 'class:write', 'student:read',
+  'class:read', 'class:write', 'student:read', 'database',
+  ...(CAP_CONTRACT?.command_required ?? []),
+  ...Object.values(CAP_CONTRACT?.method_policy ?? {}),
+  ...(CAP_CONTRACT?.runtime_permission ?? []),
 ]);
 
 const CAPS = ['OBJECT', 'STRING', 'NUMBER', 'INTEGER', 'BOOLEAN', 'ARRAY'];

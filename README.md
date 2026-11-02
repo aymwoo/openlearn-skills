@@ -21,6 +21,7 @@ npx skills add aymwoo/openlearn-skills/openlearn-next-plugin-dev
 ```bash
 cd openlearn-next-plugin-dev
 bash scripts/check-templates.sh          # 模板与文档一致性自检（零依赖）
+bash scripts/hydrate-contracts.sh        # 契约水合与对齐（直连 docs/agent/contracts/）
 bash scripts/grill-requirements.sh -h   # 需求梳理 Grilling 决策向导
 bash scripts/sync-platform-repo.sh check # 平台源码与更新状态检查
 bash scripts/verify-templates-build.sh   # 三套模板真实构建 + tsc 校验（需 SDK 与 typescript）

@@ -20,15 +20,44 @@ import { fileURLToPath } from 'node:url';
 const ROOT = process.argv.find((a) => !a.startsWith('-') && a !== process.argv[0] && a !== process.argv[1]) ?? process.cwd();
 const JSON_OUT = process.argv.includes('--json');
 
-// ── 平台真源：20 条 RBAC 权限 + 3 条仅可声明项 ────────────────────────────
+const results = [];
+const add = (level, code, message, file) => results.push({ level, code, message, file });
+
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'test-harness', 'tests', 'test', '__tests__', 'coverage', '.cache']);
+const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
+
+// ── 平台契约动态水合与降级加载 ──────────────────────────────────────────────
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+const PLATFORM_DIR = process.env.PLATFORM_REPO || join(process.env.HOME || '', 'Develop', 'openlearnv2');
+const PLATFORM_CONTRACTS = join(PLATFORM_DIR, 'docs', 'agent', 'contracts');
+const LOCAL_CONTRACTS = join(HERE, 'contracts');
+
+function loadContractJson(fileName) {
+  // 1. 优先平台源码一手源
+  const live = read(join(PLATFORM_CONTRACTS, fileName));
+  if (live) {
+    try { return JSON.parse(live); } catch {}
+  }
+  // 2. 降级本地快照
+  const snap = read(join(LOCAL_CONTRACTS, fileName));
+  if (snap) {
+    try { return JSON.parse(snap); } catch {}
+  }
+  return null;
+}
+
+// ── 平台真源：RBAC 权限 + 能力型权限 (method_policy) + 运行时权限全集 ──────
+const CAP_DATA = loadContractJson('capabilities.json');
 const REAL_CAPS = new Set([
   'management:write', 'lesson:write', 'whiteboard:write', 'management:read',
   'plugin:write', 'lesson:read', 'vfs:write', 'process:write',
   'assignment:manage', 'whiteboard:read', 'vfs:read', 'process:read',
   'assignment:read', 'lesson:delete', 'plugin:read', 'student:write',
   'assignment:write', 'assignment:submit', 'assignment:review',
-  // 仅出现在 capabilitiesProposed、从未作为 capabilityRequired（声明无害）
-  'class:read', 'class:write', 'student:read',
+  'class:read', 'class:write', 'student:read', 'database',
+  ...(CAP_DATA?.command_required ?? []),
+  ...Object.values(CAP_DATA?.method_policy ?? {}),
+  ...(CAP_DATA?.runtime_permission ?? []),
 ]);
 
 // 3.7.2 起仅 type-only 导出的宿主内部类
@@ -38,15 +67,12 @@ const TYPE_ONLY = [
   'UnifiedExtensionRegistry',
 ];
 
-const results = [];
-const add = (level, code, message, file) => results.push({ level, code, message, file });
-
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'test-harness', 'tests', 'test', '__tests__', 'coverage', '.cache']);
-const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
-
-// ── 平台真源：扩展槽位注册表（由 assets/test-harness/slot-registry.json 提供）──
-const HERE = fileURLToPath(new URL('.', import.meta.url));
+// ── 平台真源：扩展槽位注册表（动态直连 slots.json，或读取本地 slot-registry.json）──
+const SLOTS_DATA = loadContractJson('slots.json');
 const REGISTRY = (() => {
+  if (SLOTS_DATA?.extension_slots) {
+    return { slots: SLOTS_DATA.extension_slots };
+  }
   const raw = read(join(HERE, 'slot-registry.json'));
   try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
 })();
@@ -770,7 +796,12 @@ if (declaredRoutes.size > 0) {
 // ── 7d. SQL 守卫预检（sql-guard.ts 是运行期硬拒绝，这里提前抓）────────────
 // 只检查「字面量」表名：模板拼接 ${T().xxx} 静态无法解析，不在本规则覆盖范围内。
 const SQL_LITERAL_RE = /`([^`]{20,})`|'((?:[^'\\\n]|\\.){20,})'|"((?:[^"\\\n]|\\.){20,})"/g;
-const SQL_CORE_TABLES = new Set(['users', 'students', 'teachers', 'classes', 'lessons', 'whiteboard_elements', 'assignments', 'plugin_storage']);
+const FORBIDDEN_DATA = loadContractJson('forbidden-tables.json');
+const SQL_CORE_TABLES = new Set(
+  (FORBIDDEN_DATA?.tables ?? []).concat([
+    'users', 'students', 'teachers', 'classes', 'lessons', 'whiteboard_elements', 'assignments', 'plugin_storage'
+  ]).map(t => t.toLowerCase())
+);
 const sqlProblems = new Set();
 for (const m of scanText.matchAll(SQL_LITERAL_RE)) {
   const sql = m[1] ?? m[2] ?? m[3] ?? '';

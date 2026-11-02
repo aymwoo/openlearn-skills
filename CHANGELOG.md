@@ -8,10 +8,15 @@
 
 ## [2.15.0] - 2026-11-02
 
-初次运行引导下载平台源码、更新检查机制与交互式需求梳理 Grilling 向导。针对「一手平台源码缺失或长期未更新导致契约校验偏差」及「初期需求梳理长清单倾倒过载」两大痛点，新增 `sync-platform-repo.sh`、`grill-requirements.sh` 工具并在工作流中设立交互门禁。
+初次运行引导下载平台源码、更新检查机制、交互式需求梳理 Grilling 向导与平台契约元数据动态直连水合。针对「一手平台源码缺失或长期未更新导致契约校验偏差」、「初期需求梳理长清单倾倒过载」及「权限集合不全误报 (Issue #1)」三大痛点，新增 `sync-platform-repo.sh`、`grill-requirements.sh` 与 `hydrate-contracts.sh` 工具并在工作流中设立交互门禁。
 
 ### 新增
 
+- **平台契约元数据动态直连与水合 (`scripts/hydrate-contracts.sh`)**：
+  - `static-check.mjs` 与 `contract.test.ts` 动态优先直连平台源码 `$PLATFORM/docs/agent/contracts/` 下的 `capabilities.json`、`slots.json` 与 `forbidden-tables.json`，无源码时自动降级使用内置快照；
+  - **权限全集扩充与误报根治（Issue #1）**：动态合并 `command_required`、`method_policy`（能力型权限如 `student-data:read/write`、`api:write`）与 `runtime_permission`，彻底消除合法声明被误判为 `CAP_UNKNOWN` 的问题；
+  - **SQL 核心表黑名单扩充**：将静态检查拦截的核心表从原有 8 张扩充至平台真实的全部 40 张核心表，进一步提高安全护栏严密度；
+  - `sync-platform-repo.sh update` 更新平台源码后自动联动水合，保持快照与主干同源。
 - **`scripts/grill-requirements.sh` 与 `grill-requirements.py` 需求梳理 Grilling 向导**：
   - 像 `/grill-me` 一样采用「单步一问、选项驱动、动态分支、即时摩擦」交互模型，涵盖受众场景、数据持久化、UI 通道可行性、白板挂件通信、平台特权与 AI Action；
   - 遇到违规架构（如第三方 process 插件选原生 React 组件、直写 SQL 核心表）即时触发摩擦干预；

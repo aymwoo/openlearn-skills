@@ -1166,6 +1166,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `assets/sandbox-view/` | **process + 自定义界面模板**：`view` 沙箱 HTML 页面 + `OpenLearnPluginBridge` + `pack.mjs` 补 `storage/**` |
 | `assets/inline-react/` | **inline + React 模板**（需宿主白名单）：白板挂件「下发→学生可见」全链路 + `HostSharedDeps` 写法 |
 | `scripts/sync-platform-repo.sh` | **平台源码管理与更新检查**：初次运行引导下载平台源码（支持 `--bg` 空闲/后台浅克隆与快照模式降级）；更新检查（比对本地与远端 origin/main 提交）；联动 `facts-check.sh` |
+| `scripts/hydrate-contracts.sh` | **平台契约水合与对齐**：从平台 `docs/agent/contracts/` 同步 `capabilities`/`slots`/`forbidden-tables` 机器可读契约，支持 `--check` 漂移检测 |
 | `scripts/grill-requirements.sh` | **需求梳理 Grilling 向导**（用户/Agent 侧）：像 `/grill-me` 一样单步推进提问，选项驱动、动态分支与即时摩擦拦截，梳理完成后自动输出 `plugin.contract.json` |
 | `scripts/new-plugin.sh` | **一键生成插件**（用户侧）：`bash scripts/new-plugin.sh <模板> <目录> --id @scope/name [--name/--prefix/...]`，复制模板并替换全部占位符；拒绝非空目录（`--force` 覆盖）；不执行 `npm i` / build |
 | `scripts/check-templates.sh` | **自检脚本**：校验模板的 `main` / `engines` / ActionDescriptor 配对 / 远程前端无 React / 占位符与 SKILL.md 对齐 / 废弃 API 残留。修改模板后必跑 |
@@ -1178,7 +1179,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 
 > **谁该跑 `scripts/*`**：`platform-drift-check.sh` / `check-templates.sh` / `verify-*.sh` / `diff-official-scaffold.sh`
 > 是**维护本 skill** 用的（改模板、改 SKILL.md、升级平台基线时跑），CI 也会自动跑，**给用户开发插件时不要跑**。
-> 例外是开发侧工具：`grill-requirements.sh`（需求梳理向导）、`new-plugin.sh`（生成插件目录）、`sync-platform-repo.sh`（源码就绪与更新检查）与 `facts-check.sh`（开工前探活）。
+> 例外是开发侧工具：`grill-requirements.sh`（需求梳理向导）、`new-plugin.sh`（生成插件目录）、`sync-platform-repo.sh`（源码就绪与更新检查）、`hydrate-contracts.sh`（契约水合）与 `facts-check.sh`（开工前探活）。
 > 用户侧只需要第四步里的构建命令与预检清单。
 
 ### 在线文档地址（线上校验用）

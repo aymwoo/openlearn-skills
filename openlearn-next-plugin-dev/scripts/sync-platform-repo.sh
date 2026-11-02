@@ -442,6 +442,11 @@ cmd_update() {
     fi
   fi
 
+  if [[ -f "$SCRIPT_DIR/hydrate-contracts.sh" ]]; then
+    head_ "【联动水合平台契约元数据】"
+    PLATFORM_REPO="$target" bash "$SCRIPT_DIR/hydrate-contracts.sh" || true
+  fi
+
   if [[ $run_facts -eq 1 && -f "$SCRIPT_DIR/facts-check.sh" ]]; then
     head_ "【联动运行集成事实校验】"
     PLATFORM_REPO="$target" bash "$SCRIPT_DIR/facts-check.sh" || true

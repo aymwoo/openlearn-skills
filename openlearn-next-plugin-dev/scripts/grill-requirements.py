@@ -147,6 +147,41 @@ else:
             return d
 
 
+def load_live_contract(filename: str) -> Optional[Dict[str, Any]]:
+    """加载平台契约数据 (优先平台一手源，降级本地快照).
+
+    Args:
+        filename: 契约文件名 (如 capabilities.json, slots.json).
+
+    Returns:
+        解析后的 JSON 字典，若未找到则返回 None.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(
+            os.environ.get(
+                "PLATFORM_REPO",
+                os.path.expanduser("~/Develop/openlearnv2"),
+            ),
+            "docs",
+            "agent",
+            "contracts",
+            filename,
+        ),
+        os.path.join(
+            script_dir, "..", "assets", "test-harness", "contracts", filename
+        ),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return None
+
+
 def get_all_questions() -> List[QuestionItem]:
     """获取 Grilling 题库全集与选项定义.
 
@@ -559,8 +594,13 @@ def main() -> None:
         else contract.__dict__
     )
 
+    live_caps = load_live_contract("capabilities.json")
     print("\n" + "=" * 65)
     print("  Grilling 梳理完成！已自动生成插件设计契约 (plugin.contract.json)")
+    if live_caps:
+        print("  [契约直连] 已动态对齐平台一手契约 (docs/agent/contracts/)")
+    else:
+        print("  [快照模式] 依据内置 references/ 快照对齐")
     print("=" * 65)
     print(f"  - 推荐模板:   {contract.recommendedTemplate}")
     print(f"  - 执行模式:   {contract.executionMode}")
