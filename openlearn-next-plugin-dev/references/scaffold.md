@@ -418,7 +418,7 @@ pnpm add -D @openlearn/plugin-test-kit vitest
 ```
 
 > 注意：test-kit 版本号与 `@openlearn/plugin-sdk` 版本号**独立**，不要混用。
-> 当前真值：SDK 仓库 `3.7.5` / npm `3.7.4`，test-kit `3.3.3`（见 `docs/agent/contracts/versions.json`）。
+> 当前真值：SDK 仓库 `3.8.0` / npm `3.8.0`，test-kit `3.3.3`（见 `docs/agent/contracts/versions.json`）。
 
 ### `createMockContext(options)` 能力
 

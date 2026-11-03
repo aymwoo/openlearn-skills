@@ -6,6 +6,31 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.17.0] - 2026-11-03
+
+把 skill 的版本基线从「平台 0.7.7 / SDK 3.7.5·npm 3.7.4」校准到「平台 0.7.11 / SDK 3.8.0·npm 3.8.0」，并**根治**权限真值表误报（技能仓 Issue #1）。
+
+起因：这些数字写在 `SKILL.md` 的 frontmatter `description` 里 —— 也就是**每次 Agent 激活 skill 时第一眼读到的基线**，它直接决定 AI 判断「这段 API 能不能用」「这个权限存不存在」。平台从 0.7.7 走到 0.7.11 期间发生了 #368（权限清单收敛为单一权威来源）、#366（受管名册服务）等契约级变更，而 skill 还在按 3.7.4 给建议。
+
+### 修复
+
+- **权限真值表根治（Issue #1）**：`assets/test-harness/static-check.mjs` 与 `contract.test.ts` 的 `REAL_CAPS` 改为**直接读平台契约的 `declarable` 字段**（= `catalog.ts` 的 `CAP` 全量 / SDK 的 `CAPABILITIES`，31 条），并**删掉陈旧硬编码兜底表**。此前硬编码表只覆盖资源型权限，导致 `student-data:write` / `task:register` / `grades:write` 等真实的方法型权限被判 `CAP_UNKNOWN`——一个 error 级结论会诱导维护者删掉正确声明，而删掉后运行期是静默 403 / `PluginCapabilityDeniedError`（真实事故：5 个插件被删错声明后手工回滚）。
+  - **契约缺失时不再误报**：改为跳过权限真伪校验并给 `CAP_CONTRACT_MISSING` 警告。宁可漏报，不可错杀。
+  - **同时收紧**：旧实现把 `runtime_permission` 的 6 条（`lesson:control` 等）也并进了权限集，导致这些**不可声明**的运行时开关能蒙混过关；现在它们会被正确判为未知串。
+- **`SKILL.md` 的 Capabilities 段落**：由「20 条」改为 **31 条并分四组**（资源型 19 / 方法型 8 / 仅可声明 3 / 平台内部 1），并修正 `ai:invoke` 的口径——它**是**真实权限串（方法型），同时也属于第 2 套 `RuntimePermission`，此前被写成「不是 RBAC 字符串」。
+- **基线口径全面对齐**：frontmatter `description`、基线口径表、`references/.cache-meta.json`（`platformVersion` / `sdkVersion` / `sdkVersionInRepo` / `docSiteVersion` / `authority`）、`README.md`、`skills.sh.json`，以及 6 份 `references/*.md` 的版本头与 `doc-version` 标注。
+- **`uuid` 依赖口径修正**：SDK 3.7.5 起已修（平台 Issue #349 补了 `dependencies`），当前基线 3.8.0 **不需要**手动补 `uuid`（只需 peerDep `zod`）。
+
+### 新增
+
+- **`SKILL.md` 新增「SDK 3.8.0 新增」速查**：打包期权限自检 `assertValidManifestCapabilities` / `validateManifestCapabilities` / `CAPABILITIES`（平台 #368）、`ctx.services.roster` 受管名册服务（平台 #366，需 `management:read`，注意可能为 `null`）、`IActionRegistryService.listRegisteredCommandTypes()` / `listMissingDescriptors()`（平台 #369）。
+- **`references/capability-matrix-0.7.md` 重写 §1**：拆成 §1.1 资源型 / §1.2 方法型 / §1.3 平台内部，并补 §1.4「打包期自检」代码示例。
+
+### 注意
+
+- **历史锚点保留不动**：「v0.7.7 + #350 起」「平台 0.7.7 早期构建」这类描述**行为何时变更**的锚点全部保留原样，只更新「当前基线 / 真源」口径。
+- 契约快照已用 `scripts/hydrate-contracts.sh` 重新水合（带 `declarable` 字段），CI 的 `contract-drift` 预警 job 会盯住它与平台的一致性。
+
 ## [2.16.2] - 2026-11-03
 
 把「平台契约漂移」从**阻塞门禁**降为**预警**，与仓库既有策略对齐：平台 HEAD 比对一律是预警（`platform-head-diff`），发布版 API 面才由阻塞 job 把关。上一版（2.16.1）把契约校验接进 `self-check` 且用平台 `main` HEAD 作为数据源，结果是**平台改一次契约就会卡住所有与契约无关的 skill PR**（实测平台 `docs/agent/contracts/` 近一个月变动 7 次，其中 `capabilities.json` 1 次）。

@@ -1,8 +1,8 @@
 {
   "$comment": "集成事实表：文档看不出来、但一错就整套方案跑偏的平台行为。每条都带源码锚点，用 scripts/facts-check.sh 校验锚点是否还在。改动此文件时必须同时更新 verifiedAt 并在 CHANGELOG 说明。",
-  "platformVersion": "0.7.7",
-  "platformCommit": "8295dc7",
-  "verifiedAt": "2026-10-29",
+  "platformVersion": "0.7.11",
+  "platformCommit": "260addb",
+  "verifiedAt": "2026-11-03",
   "platformRepoHint": "~/Develop/openlearnv2",
   "usage": "bash scripts/facts-check.sh   # 锚点存在/消失即漂移；PLATFORM_REPO=... 可换仓库路径",
   "facts": [
@@ -58,11 +58,11 @@
           "anchor": "checkMethodPolicy(FRONTEND_API_TOKEN, method, args, ctx.caps)"
         },
         {
-          "file": "packages/core/plugin-host/method-policy.ts",
+          "file": "packages/core/capability/catalog.ts",
           "anchor": "export const CAP_API_WRITE = 'api:write';"
         },
         {
-          "file": "packages/core/plugin-host/method-policy.ts",
+          "file": "packages/core/capability/catalog.ts",
           "anchor": "export const CAP_API_ADMIN = 'api:admin';"
         }
       ]
@@ -386,7 +386,7 @@
       ]
     }
   ],
-  "sdkVersion": "3.7.4",
-  "sdkVersionInRepo": "3.7.5",
-  "versionNote": "平台 package.json 的 version 不随每处行为变化而升号：#350 反转了激活顺序、#349 把 SDK 提到 3.7.5，而 version 仍是 0.7.7。因此判版本只能当探活信号，判行为必须看锚点或 CHANGELOG。"
+  "sdkVersion": "3.8.0",
+  "sdkVersionInRepo": "3.8.0",
+  "versionNote": "平台 package.json 的 version 不随每处行为变化而升号：#350 反转了激活顺序、#375 把权限清单收敛为单一真源（catalog.ts），而 version 只从 0.7.7 走到 0.7.11。因此判版本只能当探活信号，判行为必须看锚点或 CHANGELOG。"
 }

@@ -1,6 +1,6 @@
 # 平台变更观察清单（文档看不出、但很容易写错的点）
 
-> 适用基线：平台 **v0.7.7** / HEAD `b03e216`（2026-10-28 核对） / SDK 3.7.4。
+> 适用基线：平台 **v0.7.11** / HEAD `260addb`（2026-11-03 核对） / SDK 3.8.0。
 >
 > 存在意义：平台的**文档、README、甚至相邻两页文档之间**并不总是一致；有些行为只有一个提交记录或
 > 一行源码能证明。这里记录「最容易误判 + 一错就整套方案跑偏」的条目。
@@ -148,7 +148,7 @@ grep -rn "views/.*\.html" docs/tutorials/plugin-frontend-guide.md
 
 ---
 
-## 6. 槽位注册表是版本相关的封闭集合（v0.7.7）
+## 6. 槽位注册表是版本相关的封闭集合（v0.7.11）
 
 **事实**：`src/plugin-host/types.ts` 的 `ExtensionSlot` 联合类型 + `AnchorSlot` 动态模式。
 `assets/test-harness/slot-registry.json` 由它生成（条数见文件内 `count`；当前 5 个 view 槽位）。
