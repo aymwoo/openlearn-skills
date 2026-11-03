@@ -206,13 +206,16 @@ fi
 if bash scripts/hydrate-contracts.sh --check >/dev/null 2>&1; then
   ok "hydrate-contracts.sh 契约校验通过（与平台源码一致）"
 else
-  # 退出码 2 = 找不到本地平台仓库（契约真源）。CI / 新机器默认没有平台源码，
-  # 此时不能报「漂移」（那是误报，会让 self-check 永远红）；显式降级为跳过。
+  # 退出码 2 = 找不到本地平台仓库（契约真源）；1 = 检出漂移。
+  # 两者都只作预警、不阻塞：契约快照直连平台 docs/agent/contracts/，
+  # 平台改一次契约不应卡住与契约无关的 PR——发布版 API 面由 CI 的
+  # scaffold-diff / build-verify 两个阻塞 job 把关。
+  # 漂移的真正处理：bash scripts/hydrate-contracts.sh（重新水合）。
   hydrate_rc=$?
   if [ "$hydrate_rc" -eq 2 ]; then
     warn "跳过契约校验：未找到本地平台仓库（设置 PLATFORM_REPO 或克隆平台源码后重跑）"
   else
-    bad "hydrate-contracts.sh 检出契约漂移（退出码 $hydrate_rc）"
+    warn "平台契约有漂移（不影响发布）：运行 bash scripts/hydrate-contracts.sh 水合"
   fi
 fi
 

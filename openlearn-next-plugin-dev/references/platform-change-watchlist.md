@@ -24,7 +24,14 @@ bash <skill>/scripts/platform-drift-check.sh
 
 # 3) 改完跑维护者自检
 bash scripts/check-templates.sh && bash scripts/verify-test-harness.sh
+
+# 4) 契约水合（CI 的 contract-drift 预警提示漂移时执行）
+bash scripts/hydrate-contracts.sh          # 水合 + 提交快照
+bash scripts/hydrate-contracts.sh --check  # 复核无漂移
 ```
+
+> **契约漂移是预警不是阻塞**：CI 的 `contract-drift` job 只发 warning，不阻断 PR
+> （平台改一次契约就会漂移，但那只说明「可以水合一次」，不代表 skill 产物有错）。
 
 ---
 

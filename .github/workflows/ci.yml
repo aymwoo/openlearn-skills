@@ -17,11 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: 拉取平台仓库（契约真源，供 hydrate-contracts.sh --check 使用）
-        run: git clone --depth 1 https://github.com/aymwoo/OpenLearn-Next-V2.git "$RUNNER_TEMP/platform"
       - name: check-templates.sh
-        env:
-          PLATFORM_REPO: ${{ runner.temp }}/platform
         run: bash openlearn-next-plugin-dev/scripts/check-templates.sh
 
   # ── 2. 与官方 CLI 脚手架比对（发布版 SDK 为基线）─────────────────────
@@ -74,3 +70,28 @@ jobs:
         run: |
           bash openlearn-next-plugin-dev/scripts/diff-official-scaffold.sh \
             "$(pwd)/openlearn-next-plugin-dev" /tmp/platform
+
+  # ── 5. 平台契约漂移预警（不阻塞）─────────────────────────────────────
+  #     契约快照直连平台 docs/agent/contracts/。平台契约会随源码演进而变，
+  #     漂移只说明「可以水合一次」，不代表 skill 产物有错（发布版 API 面
+  #     由 scaffold-diff / build-verify 两个阻塞 job 把关）。
+  #     故与 platform-head-diff 同为预警：平台改一次契约不应卡住与契约无关的 PR。
+  contract-drift:
+    name: 平台契约漂移预警
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: 拉取平台仓库（契约真源）
+        run: git clone --depth 1 https://github.com/aymwoo/OpenLearn-Next-V2.git "$RUNNER_TEMP/platform"
+      - name: hydrate-contracts.sh --check（预警模式，不阻塞）
+        env:
+          PLATFORM_REPO: ${{ runner.temp }}/platform
+        run: |
+          set +e
+          bash openlearn-next-plugin-dev/scripts/hydrate-contracts.sh --check
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning title=平台契约漂移::平台 docs/agent/contracts/ 与 skill 快照存在漂移（不影响发布）。请运行 bash scripts/hydrate-contracts.sh 水合。"
+          fi
+          exit 0

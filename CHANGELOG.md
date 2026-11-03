@@ -6,6 +6,17 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.16.2] - 2026-11-03
+
+把「平台契约漂移」从**阻塞门禁**降为**预警**，与仓库既有策略对齐：平台 HEAD 比对一律是预警（`platform-head-diff`），发布版 API 面才由阻塞 job 把关。上一版（2.16.1）把契约校验接进 `self-check` 且用平台 `main` HEAD 作为数据源，结果是**平台改一次契约就会卡住所有与契约无关的 skill PR**（实测平台 `docs/agent/contracts/` 近一个月变动 7 次，其中 `capabilities.json` 1 次）。
+
+### 变更
+
+- **`scripts/check-templates.sh`**：契约校验的两种异常都不再失败——退出码 2（无本地平台仓库）→ `⊘ 跳过`，退出码 1（检出漂移）→ `⊘ 预警（不影响发布）`，并给出水合命令；汇总里的「跳过」计数同时覆盖这两类。
+- **`.github/workflows/ci.yml`**：`self-check` 恢复为**零依赖**（不再克隆平台仓库）；新增 `contract-drift` job（`continue-on-error`），克隆平台仓库后跑 `hydrate-contracts.sh --check`，漂移时发 `::warning::` 注解而非失败。
+- **`README.md`**：CI job 表新增 `contract-drift` 行，并说明「为什么契约漂移不阻塞」。
+- **`references/platform-change-watchlist.md` §0**：复核 SOP 补第 4 步（契约水合）与「预警不阻塞」说明。
+
 ## [2.16.1] - 2026-11-03
 
 补齐面向国内开发者的**安装入口**：上一版（2.16.0）已让 issue / PR / push 流程支持 Gitee 回退，但「怎么装到这个 skill」仍只写了 GitHub 简写——GitHub 不可达时连安装都迈不出第一步。`skills.sh` 注册表只索引 GitHub 仓库，所以 Gitee 侧必须用**完整仓库 URL**（skills CLI 对非 GitHub 地址退化为 `git clone`）。

@@ -55,3 +55,9 @@ bash scripts/facts-check.sh              # 集成事实的源码锚点校验（�
 | `scaffold-diff` | 与 **npm 发布版 SDK** 的脚手架比对 | ✅ |
 | `build-verify` | 三套模板真实构建 + `tsc --noEmit` | ✅ |
 | `platform-head-diff` | 与**平台仓库 HEAD** 比对（提前预警下一次发版的变化） | ❌ 仅预警 |
+| `contract-drift` | 与**平台契约真源**（`docs/agent/contracts/`）比对（漂移预警，提示水合） | ❌ 仅预警 |
+
+> **为什么契约漂移不阻塞**：契约快照直连平台 `docs/agent/contracts/`，平台改一次契约就会漂移，
+> 但那只意味着「可以水合一次」，不代表 skill 产物有错——发布版 API 面由 `scaffold-diff` /
+> `build-verify` 两个阻塞 job 把关。因此契约漂移与平台 HEAD 比对一样只作预警，
+> 避免平台改契约时卡住与契约无关的 PR。处理方式：`bash scripts/hydrate-contracts.sh`。
