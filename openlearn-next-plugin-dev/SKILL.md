@@ -65,7 +65,7 @@ npx skills add aymwoo/openlearn-skills/openlearn-next-plugin-dev
 # owner/repo 简写会被拼成 https://github.com/...）
 npx skills add https://gitee.com/aymwoo/openlearn-skills.git
 
-# 完全离线兑底：克隆后把 openlearn-next-plugin-dev/ 拷进 Agent 的 skills 目录
+# 完全离线兜底：克隆后把 openlearn-next-plugin-dev/ 拷进 Agent 的 skills 目录
 # （Claude Code ~/.claude/skills/；pi ~/.pi/agent/skills/）
 ```
 

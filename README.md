@@ -22,7 +22,7 @@ npx skills add https://gitee.com/aymwoo/openlearn-skills.git
 > **镜像策略**：镜像由 GitHub → Gitee **单向同步**，与 `main` 保持一致，但 **CI 与 Release 只在 GitHub 侧运行**。
 > 提 Issue / PR 请**只在一个平台开一份**；合并后把 `main` 快进到另一侧（绝不 force-push、不开自动双向镜像）。
 >
-> 完全离线也可以兑底：`git clone https://gitee.com/aymwoo/openlearn-skills.git` 后，把 `openlearn-next-plugin-dev/` 拷进 Agent 的 skills 目录
+> 完全离线也可以兜底：`git clone https://gitee.com/aymwoo/openlearn-skills.git` 后，把 `openlearn-next-plugin-dev/` 拷进 Agent 的 skills 目录
 > （Claude Code `~/.claude/skills/`、pi `~/.pi/agent/skills/`，Codex / Antigravity 同理）。
 
 ## 已有技能

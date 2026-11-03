@@ -12,7 +12,7 @@
 
 ### 新增
 
-- **`SKILL.md`《获取与更新（GitHub 主仓 / Gitee 镜像）》**：双平台地址表 + GitHub 简写 / Gitee 全 URL 两条安装命令 + 离线拷目录兑底；明确「镜像不跑 CI 不等于镜像过期，先 `sync-mirror.sh status`」「提 Issue / PR 只在一个平台开一份」两条判定与红线。
+- **`SKILL.md`《获取与更新（GitHub 主仓 / Gitee 镜像）》**：双平台地址表 + GitHub 简写 / Gitee 全 URL 两条安装命令 + 离线拷目录兜底；明确「镜像不跑 CI 不等于镜像过期，先 `sync-mirror.sh status`」「提 Issue / PR 只在一个平台开一份」两条判定与红线。
 - **`README.md` 安装段**：补 Gitee 安装命令与镜像策略说明（单向同步、不发 Release、同一个变更只开一份 Issue / PR）。
 - **`references/plugin-development-tutorial.md`**：快照的安装段与平台教程 §2.8 同步为 GitHub / Gitee 双入口。
 
