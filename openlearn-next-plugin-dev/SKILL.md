@@ -2,8 +2,8 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.15.0
-description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.5·npm 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub 仓库的 issue 与 PR。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；GitHub 协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
+version: 2.16.0
+description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.5·npm 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub / Gitee 仓库的 issue 与 PR（GitHub 优先，GitHub 不可达时回退 Gitee 镜像）。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；双平台协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并、合并后 main 镜像同步。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
 > ✅ **版本基线口径（2026-10-29 核对）**
@@ -91,15 +91,18 @@ description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.
 | 用户意图 | 模式 | 入口 |
 |----------|------|------|
 | **粘贴插件运行报错 / 堆栈 / 白屏 / 日志**，或说「插件不工作」「装不上」「点了没反应」 | **A′：故障归因与上报** | 直接进「第六步」（先归因，后决定是否提 Issue） |
-| 处理某个 GitHub issue / PR；给出编号、URL，或说「接手这个 issue」「审查/合并 PR」 | **B：仓库协作** | 下方「模式 B」+ `references/github-collaboration.md` |
+| 处理某个 GitHub / Gitee issue / PR；给出编号、URL，或说「接手这个 issue」「审查/合并 PR」 | **B：仓库协作** | 先跑 `scripts/platform-probe.sh`，再走下方「模式 B」+ `references/github-collaboration.md` |
 | 开发 / 修改 / 排查 OpenLearn 插件 | **A：插件开发** | 「第一步 ~ 第六步」 |
 | 两者都不明确 | — | 先问清楚，不要猜 |
 
 > **A′ 的硬要求**：用户一贴报错，**不要先改代码，也不要先甩锅平台**。必须先给出
 > 「这是插件自己代码的问题，还是平台插件系统的问题」的明确结论 + 缘由（机制层面的解释），
-> 再决定动作。判为平台侧 → 按「第六步 B」向 `aymwoo/OpenLearn-Next-V2` 提 Issue。
+> 再决定动作。判为平台侧 → 按「第六步 B」向 GitHub 主仓 `aymwoo/OpenLearn-Next-V2` 提 Issue；
+> 仅当 GitHub 不可达且 `references/repo-mirrors.json` 登记了镜像时，才回退 Gitee `aymwoo/openlearn-next`。
 
 - 模式 B **不需要**执行第一步的文档探活，只需读取目标仓库的 `AGENTS.md` / `CLAUDE.md` / `README.md` / `package.json`。
+- 模式 B 开始前先跑 `bash scripts/platform-probe.sh --json`，按 `preferred.issuePr` / `preferred.push` 选平台；
+  探测失败不要猜，按 `references/github-collaboration.md` §0 处理。
 - 模式 B 遵守「两次主确认 + 不可逆动作单独确认」。
 - 两种模式可在同一会话切换；切换时先说明当前模式。
 
@@ -141,13 +144,13 @@ description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.
 - 若用户选择 **[1] 后台下载** 或 **[4] 暂不下载**：进入**快照模式（Snapshot Mode）**，使用 `references/` 下的架构/契约文档与 `npm view @openlearn/plugin-sdk` 继续进行，后续脚本加 `--graceful` 跳过源码锚点报错，无需等待下载完成。
 
 #### 0b. 源码更新提示（本地落后远端）
-当 `bash scripts/sync-platform-repo.sh check` 提示 `检测到平台源码有更新！`（本地 HEAD 落后于远端 origin/main）时：
+当 `bash scripts/sync-platform-repo.sh check` 提示 `检测到平台源码有更新！`（本地 HEAD 落后于远端 `main`；GitHub 优先，GitHub 不可达时比对 Gitee 镜像）时：
 
 **必须主动提示用户是否需要同步**：
 ```markdown
-🔄 检测到 OpenLearnV2 平台源码有更新（本地 HEAD: <local_head>，远端 origin/main: <remote_head>）。
+🔄 检测到 OpenLearnV2 平台源码有更新（本地 HEAD: <local_head>，远端 main: <remote_head>，来源: GitHub/Gitee）。
 是否需要更新本地平台代码？
-1. **[推荐] 立即更新并复核契约**：安全拉取更新（支持开发分支无冲突 fetch）并自动运行 facts-check.sh 检查契约漂移。
+1. **[推荐] 立即更新并复核契约**：安全拉取更新（支持开发分支无冲突 fetch；GitHub 不可达时自动回退 Gitee 镜像）并自动运行 facts-check.sh 检查契约漂移。
    → 运行：`bash scripts/sync-platform-repo.sh update`
 2. **稍后更新 / 本次跳过**：继续使用当前本地源码版本进行开发。
 ```
@@ -746,7 +749,9 @@ npm test                # L1 + L2
 > 仅在第六步结论为 **系统侧** 时执行。这是「问题缘由 → 影响 → 修复建议」的正式上行通道。
 > 完整命令与异常处理见 `references/github-collaboration.md` §1A；正文模板：`assets/platform-issue-template.md`。
 
-**固定仓库**：`aymwoo/OpenLearn-Next-V2`（缺陷模板前缀 `[缺陷] `，标签用仓库已有的 `bug` / `needs-triage`）
+**目标仓库**：优先 GitHub `aymwoo/OpenLearn-Next-V2`；仅当 GitHub issue 能力不可用且
+`references/repo-mirrors.json` 登记了镜像时，回退 Gitee `aymwoo/openlearn-next`。
+缺陷模板前缀 `[缺陷] `，标签只用仓库已有的（GitHub：`bug` / `needs-triage`；Gitee：`bug`）。
 
 #### B1. 三项前置门禁（缺一即不提）
 
@@ -754,14 +759,17 @@ npm test                # L1 + L2
 2. **去重门禁**：先查平台仓库既有 issue（含已关闭）与 `docs/beta/known-issues.md`。
    - 命中已修复版本 → 建议升级，不提新 Issue（升级后仍复现 → 属回归，提 Issue 并在正文注明「回归」与原 Issue 号）。
    - 命中开放 issue → **改为在该 issue 补充评论**（需用户确认），不重复开单。
-3. **同意门禁**：把最终标题 + 正文完整展示给用户，明确确认后才 `gh issue create`。
+3. **同意门禁**：把最终标题 + 正文完整展示给用户，明确确认后才执行 `gh issue create` 或 `gitee issue create`。
    **绝不静默提交**（Issue 对仓库可读者公开可见）。
 
 ```bash
-REPO=aymwoo/OpenLearn-Next-V2
-# 去重：关键词 <错误号/错误文案/模块名>，含已关闭
-gh issue list -R "$REPO" --state all --limit 50 \
+# 去重：关键词 <错误号/错误文案/模块名>，含已关闭；两个平台都查（issue 不自动互同步）
+gh issue list -R aymwoo/OpenLearn-Next-V2 --state all --limit 50 \
   --search "<关键词> in:title,body" --json number,title,state,url,closedAt
+
+gitee issue list -R aymwoo/openlearn-next -s all -l 50 --query "<关键词>" \
+  --json=number,title,state,html_url
+
 # 同时对照仓库内的已知问题清单
 rg -n "<关键词>" ~/Develop/openlearnv2/docs/beta/known-issues.md
 ```
@@ -825,19 +833,24 @@ it.each([
 #### B3. 执行
 
 ```bash
-REPO=aymwoo/OpenLearn-Next-V2
 BODY=/tmp/openlearn-issue-<slug>.md   # 由 assets/platform-issue-template.md 渲染
 
-gh issue create -R "$REPO" \
+# GitHub（首选）
+gh issue create -R aymwoo/OpenLearn-Next-V2 \
   --title "[缺陷] <模块/组件>：<一句话现象>" \
   --body-file "$BODY" \
   --label bug --label needs-triage
+
+# Gitee（仅 GitHub issue 能力不可用且已登记镜像时；无 --body-file）
+gitee issue create -R aymwoo/openlearn-next \
+  -t "[缺陷] <模块/组件>：<一句话现象>" \
+  -b "$(cat "$BODY")" --labels bug
 ```
 
 - 标题：`[缺陷] <模块/组件>：<现象>`，如 `[缺陷] plugin-host/worker：ctx.db.migrate 首启被 DDL 白名单拦截`。一句话说清「哪里 + 什么现象」。
   仓库既有 issue 里也有 `fix(plugin-host): …` 与 `[P1][文档] …` 写法，**沿用近期同类风格即可**，但模块 + 现象两者必须齐。
 - 标签只用仓库已有 `bug` / `needs-triage`；**不自创标签、不 assign 他人、不在正文 @ 维护者**。
-- 正文以自由格式提交（`gh issue create` 无法填写 yml 表单），所以把表单必填字段以纯文本列进「环境信息」。
+- 正文以自由格式提交（GitHub / Gitee 的 CLI 创建都无法填写 yml 表单），所以把表单必填字段以纯文本列进「环境信息」。
 - 最小复现插件体积小就把源码贴进正文；否则说明「可提供 zip，需要时提供」。
 
 #### B4. 脱敏红线（仓库 issue 公开可见）
@@ -850,17 +863,20 @@ AI API Key（**连首尾几位掩码也不行**）· `.env`、`ENCRYPTION_KEY`�
 
 | 情况 | 动作 |
 |------|------|
-| 已提过同问题（自己的 issue 仍在开放） | 不再新开，改为补充评论（需确认） |
+| 已提过同问题（自己的 issue 仍在开放，任一平台） | 不再新开，改为补充评论（需确认） |
 | 同关键词有他人开放 issue | 不重复开单，建议在其下评论或订阅 |
 | `gh` 未登录 / 无权限 | 不重试刷屏；保留本地 `BUG-REPORT-*.md`，并给出 `https://github.com/aymwoo/OpenLearn-Next-V2/issues/new` 手动提交指引 |
+| `gitee` 未登录 / 无权限 | 保留本地报告；给出 `https://gitee.com/aymwoo/openlearn-next/issues/new` 手动提交指引 |
+| 首选平台失败但另一平台可用 | 先报告失败原因，**经用户确认**后才换平台；不静默改投 |
 | 网络失败 / 429 | 报告原文错误，保留已渲染的正文文件路径，不自动循环重试 |
-| 提交成功 | 输出 issue 号与 URL，并提示用户把本地报告的附件（zip / 日志）按需补到 issue |
+| 提交成功 | 输出平台、issue 编号（GitHub `#<n>` / Gitee `#I...`）与 URL，并提示用户把本地报告的附件（zip / 日志）按需补到 issue |
 
 #### B6. 上报后的输出（≤8 行）
 
 ```
 【系统侧缺陷已上报】
-Issue：#<n> <url>
+平台：GitHub / Gitee
+Issue：#<n> 或 #I... <url>
 原因：<一句话机制层原因（哪个包/哪处逻辑）>
 影响：<影响面 + 阻塞程度 + 规避方案>
 建议：<修复方向>
@@ -877,7 +893,7 @@ Issue：#<n> <url>
 4. 权限字符串、宿主版本、槽位名等**不确定时不猜**：先查 `references/`，仍不确定就问用户。
 5. 需求有歧义时先问，不擅自扩大范围（尤其"要不要建表""要不要申请高危权限""要不要占新槽位"）。
 6. 归因未达「系统侧」证据门槛时，**不生成 bug 报告、不提 Issue**，只给结论与取证命令。
-7. 提 Issue 是**公开可见动作**：必须先把标题 + 正文全文给用户看并得到明确同意，绝不静默 `gh issue create`。
+7. 提 Issue 是**公开可见动作**：必须先把标题 + 正文全文给用户看并得到明确同意，绝不静默执行 `gh issue create` / `gitee issue create`。
 8. 不代替用户编造证据：缺版本号、缺完整堆栈、缺最小复现时，先要证据，不拿猜测填进 Issue。
 9. **交付前必须给出测试结果**：L0 0 error + L1/L2 全绿；没跑就是没跑，不许写「应该没问题」。
 10. **测试失败不改宽断言**：先按「第四步 B」第 6 节归因，是插件问题就改实现，是 Mock 差异就补 L3。
@@ -891,38 +907,60 @@ Issue：#<n> <url>
 
 ---
 
-## 模式 B：GitHub Issue / PR 协作工作流
+## 模式 B：GitHub / Gitee Issue / PR 协作工作流
 
-> 详细命令、异常处理与输出模板见 `references/github-collaboration.md`。本节只给流程骨架与不可跳过的门禁。
+> 详细命令、平台差异、异常处理与输出模板见 `references/github-collaboration.md`。本节只给流程骨架与不可跳过的门禁。
+>
+> **平台策略**：GitHub 主仓 `aymwoo/OpenLearn-Next-V2` 优先；仅当 GitHub 网络/鉴权不可用、
+> 且 `references/repo-mirrors.json` 登记了镜像时，才回退 Gitee `aymwoo/openlearn-next`。
+> 一个变更只在一个平台开 PR；合并后必须把 `main` 同步到另一个平台，绝不 force-push。
 
-### B0. 适用范围与仓库定位
+### B0. 平台探测与仓库定位
 
-- 默认仓库：`aymwoo/OpenLearn-Next-V2`（平台）与 `openlearn-next/*`（插件）。
-- 定位顺序：issue/PR URL → 当前目录 git remote → 已知本地路径 → 询问。
+```bash
+bash scripts/platform-probe.sh --repo aymwoo/OpenLearn-Next-V2 \
+  --local "$HOME/Develop/openlearnv2" --json
+```
+
+- `preferred.issuePr`：`github` → 全程 GitHub；`gitee` → 只在 Gitee 开 issue/PR；`none` → 停止并报告。
+- `preferred.push`：推分支时用；实际推送统一走 `sync-mirror.sh push`（GitHub 优先，成功后镜像 Gitee）。
+- 未登记镜像的仓库（如 `openlearn-next/*` 插件）只走 GitHub，不尝试 Gitee。
+- 默认仓库：平台 GitHub `aymwoo/OpenLearn-Next-V2` / Gitee `aymwoo/openlearn-next`；插件 `openlearn-next/*`。
 - 本地路径：平台 `~/Develop/openlearnv2`；插件 `~/Develop/openlearn-plugins/<repo>`。
 - 本地不存在时先问是否 clone；绝不跨到无关仓库。
-- 无 `project` scope：不要尝试更新 Projects 看板，统一用 assignee + `in-progress` 标签表达状态。
+- 无 GitHub `project` scope：不要更新 Projects 看板，用 assignee + `in-progress` 标签表达状态；
+  Gitee 没有等价看板，用 assignee + 评论。
 
 ### B1. 接管 issue：先占位，再开发
 
 预检（任一不满足就停）：issue 仍 OPEN；未 assign 给其他人（已 assign 给自己则幂等继续）；
-没有引用该 issue 的开放 PR 或他人远程分支；正文有可验证的验收标准。
+没有引用该 issue 的开放 PR 或他人远程分支（**两个平台都查**）；正文有可验证的验收标准。
 
 ```bash
+# GitHub
 gh issue edit <n> -R <repo> --add-assignee @me
 gh issue edit <n> -R <repo> --add-label in-progress   # 缺失时先创建
 gh issue comment <n> -R <repo> --body-file <占位评论>
+
+# Gitee（issue 编号是 I... 字符串；没有 in-progress / needs-triage 标签）
+gitee issue assign "<I...>" aymwoo -R aymwoo/openlearn-next
+gitee issue comment "<I...>" -R aymwoo/openlearn-next -b "$(cat <占位评论>)"
 ```
 
 ### B2. 创建 worktree
 
 - 平台：`~/Develop/openlearn-issue-<n>`；插件：`~/Develop/openlearn-plugins/<repo>-issue-<n>`
-- 分支：`<type>/issue-<n>-<slug>`，从 `origin/main` 创建
+- 分支：`<type>/issue-<n>-<slug>`，从主平台 `main` 创建
 - 路径已存在时：同分支且干净 → 复用；否则停止，绝不覆盖
 
 ```bash
+# GitHub 优先
 git -C <local> fetch origin --prune
 git -C <local> worktree add -b <branch> <worktree> origin/main
+
+# GitHub 不可达、且已登记镜像时
+# git -C <local> fetch gitee --prune
+# git -C <local> worktree add -b <branch> <worktree> gitee/main
 ```
 
 ### B3. 开发与本地验证
@@ -935,20 +973,30 @@ git -C <local> worktree add -b <branch> <worktree> origin/main
 
 ### B4. 提交 PR（确认门 2）
 
-push 前展示 diff stat、提交列表、测试命令与结果、PR 标题/正文，确认后：
+push 前展示 diff stat、提交列表、测试命令与结果、PR 标题/正文、目标平台，确认后：
 
 ```bash
-git -C <worktree> push -u origin <branch>
+# 统一推送：GitHub 优先，成功后镜像 Gitee；GitHub 网络/鉴权失败才回退 Gitee
+bash scripts/sync-mirror.sh push <branch> --repo aymwoo/OpenLearn-Next-V2 --local <local>
+
+# 在首选平台开 PR
 gh pr create -R <repo> --base main --head <branch> --title "<title>" --body-file <body>
+# 或 Gitee：
+gitee pr create -R aymwoo/openlearn-next --base main --head <branch> \
+  -t "<title>" -b "$(cat <body>)"
 ```
 
-PR 正文必须包含：`## 变更内容`、`## 关联 Issue`（`Closes #<n>`）、`## 测试计划`（真实命令与结果）、
-UI 改动的 `## 截图`、`## 风险与回滚`。一个 issue 一个 PR。
+PR 正文必须包含：`## 变更内容`、`## 关联 Issue`（GitHub `Closes #<n>` / Gitee `Closes #I...`）、
+`## 测试计划`（真实命令与结果）、UI 改动的 `## 截图`、`## 风险与回滚`。一个 issue 一个 PR。
 
 ### B5. CI
 
 ```bash
+# GitHub
 timeout 600 gh pr checks <pr> -R <repo> --watch --interval 30
+
+# Gitee（未接 Gitee Go 时改用人工验证，不伪造结论）
+gitee pipeline build list -R aymwoo/openlearn-next --ref <branch> --json=id,buildNumber,status
 ```
 
 本次改动导致的失败 → 自动修 1 轮并重推；环境/flaky/基线失败 → 停止汇报，不反复重跑；CI 未绿不合并。
@@ -956,43 +1004,59 @@ timeout 600 gh pr checks <pr> -R <repo> --watch --interval 30
 ### B6. 审查 PR
 
 先输出只读状态卡（作者、CI、评审、可合并、改动量、关联 issue、未解决评论），再让用户选动作：
-审查 / 修评论 / 合并 / 仅解释。评审意见先在对话里出草稿，确认后才 `gh pr review`。
+审查 / 修评论 / 合并 / 仅解释。评审意见先在对话里出草稿，确认后才发布。
+GitHub 用 `gh pr review`；Gitee 只有 approve / comment，有阻塞项时用 `gitee pr comment` 明确写「请求修改」。
 自己的 PR 不能 approve，只能 comment；有阻塞项不得 approve；不替别人 resolve 讨论串。
 
 ### B7. 返工
 
-按 review thread 逐条修复，回复 commit hash；普通 push 优先。
+按 review thread 逐条修复，回复 commit hash；普通 push 优先，返工推送同样走 `sync-mirror.sh push`。
 `--force-with-lease` 仅限自己的 PR 分支 + 确认；永不 force-push main。
 意见要求扩大范围时先汇报，等用户决定。
 
-### B8. 合并
+### B8. 合并与 main 同步
 
-仅在用户明确说「合并」时执行，且满足：CI 全绿、mergeable、无 changes-requested、评论已处理、用户再次确认最终 commit message。
+仅在用户明确说「合并」时执行，且满足：CI 全绿、mergeable、无未处理的「请求修改」、评论已处理、用户再次确认最终 commit message。
+**只在开 PR 的平台合并**。
 
 ```bash
+# GitHub
 HEAD_SHA=$(gh pr view <pr> -R <repo> --json headRefOid --jq .headRefOid)
-gh pr merge <pr> -R <repo> --squash --match-head-commit "$HEAD_SHA" --subject "<title>" --body "<summary + Closes #n>"
+gh pr merge <pr> -R <repo> --squash --match-head-commit "$HEAD_SHA" \
+  --subject "<title>" --body "<summary + Closes #n>"
+
+# Gitee（无 --match-head-commit，合并前用 ls-remote 人工核对头指针）
+gitee pr merge <pr> -R aymwoo/openlearn-next --method squash
+
+# 合并后必做：把合并平台的 main 快进到另一个平台
+bash scripts/sync-mirror.sh sync-main --from github --repo aymwoo/OpenLearn-Next-V2 --local <local>
+# 或：--from gitee
 ```
 
-> 不使用 `--delete-branch`（分支正被 worktree 占用时，gh 删除本地分支会失败）。
+> 不使用 `--delete-branch`（分支正被 worktree 占用时，CLI 删除本地分支会失败）。
 > `--match-head-commit` 防止确认后 PR 又追加提交；被拒绝说明头指针已变，重新审查后再合并。
-> 合并后校验 PR 状态与 issue 是否自动关闭；不加 `--admin` / `--auto`。
+> 合并后校验 PR 状态、issue 是否自动关闭、两边 `main` 是否一致；不加 `--admin` / `--auto`。
+> 两边 `main` 分叉时停止自动同步，人工合并后再跑，绝不 force-push。
 
 ### B9. 清理
 
-合并后先删远程分支（若仍存在），再移除 worktree、删除本地分支；每一步都先询问。
-有未提交改动时永不删除。PR 关闭未合并：保留 worktree，移除 `in-progress`，留言先确认。
+合并后先删远程分支（GitHub / Gitee 两边都查，存在的才删），再移除 worktree、删除本地分支；每一步都先询问。
+有未提交改动时永不删除。PR 关闭未合并：保留 worktree，移除可移除的标签，留言先确认。
 开工前巡检陈旧 worktree，只列出、不自动删。
 
 ### 模式 B 红线
 
-1. 绝不直接 push `main`；所有变更走分支 + PR。
-2. 绝不未经明确指令合并 PR。
-3. 绝不 force-push main 或共享分支。
-4. 绝不自动删除 worktree / 分支；清理必须确认。
-5. 绝不覆盖已存在的目录或分支。
-6. 绝不未经确认发布公开内容（assign、评论、review、approve、合并）。
-7. 不确定就停：仓库、权限、归属、验收标准任一不清楚，先问用户。
+1. **GitHub 优先**：只有 GitHub 网络/鉴权不可用时才回退 Gitee；回退仅限 `repo-mirrors.json` 登记的仓库。
+2. 绝不直接 push `main`；所有变更走分支 + PR。
+3. 绝不未经明确指令合并 PR；不 `--admin` / `--auto`。
+4. 绝不 force-push main 或共享分支。
+5. **绝不开启 Gitee 自动双向镜像**（会覆盖分支/标签/提交）；统一用 `sync-mirror.sh`。
+6. **同一个变更不在两个平台各开一个 PR**；合并后必须 `sync-main`。
+7. 绝不自动删除 worktree / 分支；清理必须确认。
+8. 绝不覆盖已存在的目录或分支。
+9. 绝不未经确认发布公开内容（assign、评论、review、approve、合并）。
+10. issue/PR 编号不跨平台复用：GitHub 整数、Gitee `I...`；不确定就回读，不猜。
+11. 不确定就停：平台、仓库、权限、归属、验收标准任一不清楚，先问用户。
 
 ---
 
@@ -1157,7 +1221,8 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `references/integration-facts.json` | **集成事实表**（条目见文件，勿照抄数字：view 桥接返回形态 / 方法策略差异 / 网关 1MB·5s·roles / 安装只解压 `storage/` / CLI 三件套 / 渲染器隐藏 / SQL 守卫前缀与禁用语句 / **注册先于 fetch、缺 frontend.js 不阻断入口** / `@openlearn/*` 外部化与 SDK 软链 / ServiceHost Barrier 2 空能力门禁 / 浮层隔离 / 学生端上下文来源）。每条带**源码锚点**（支持 `before` **顺序断言**）与「写错会怎样」的 `impact` |
 | `assets/test-harness/` | **插件测试护栏（用户侧）**：`static-check.mjs`（零依赖 L0，含 UI 通道/槽位/白板/`view` 检查）+ `slot-registry.json`（真实槽位全集，与平台 `docs/agent/contracts/slots.json` 同源）+ `contract.test.ts`（L1）+ `view-smoke.test.ts`（L1，jsdom 加载 `storage/*.html` 并接假桥接）+ `smoke.test.ts`（L2，含白板下发断言）+ `vitest.config.ts` + `README.md` |
 | `references/troubleshooting.md` | **故障归因 SOP**（受理报错的五要素、证据清单、归因决策树、系统侧证据门槛、最小复现实验、已知系统问题索引、输出规范、上报 issue 衔接） |
-| `references/github-collaboration.md` | **GitHub Issue/PR 协作 SOP**（仓库定位、**§1A 缺陷 Issue 创建**、issue 预检与占位、worktree、PR 模板、CI、审查、返工、合并、清理、异常表、输出模板、红线） |
+| `references/github-collaboration.md` | **GitHub / Gitee Issue/PR 协作 SOP**（平台探测与回退、双平台命令对照、**§1A 缺陷 Issue 创建**、issue 预检与占位、worktree、PR 模板、CI、审查、返工、合并后 main 同步、清理、异常表、输出模板、红线） |
+| `references/repo-mirrors.json` | **平台仓库镜像登记表**（GitHub ↔ Gitee 映射、默认分支与回退策略；未登记的仓库不启用 Gitee 回退） |
 | `assets/bug-report-template.md` | **系统侧 Bug 报告模板**（本地留存版：环境信息、复现步骤、完整堆栈、最小复现插件、对照实验、已排除项） |
 | `assets/platform-issue-template.md` | **平台仓库 Issue 正文模板**（三段必备：问题原因 / 影响 / 建议解决方式，附环境、堆栈、最小复现、去重与脱敏清单） |
 | `assets/server-only/` | server-only 插件模板（含 ActionDescriptor 配对、清理 SOP） |
@@ -1165,7 +1230,9 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `assets/frontend-only/` | frontend-only 插件模板（桥接上下文与提示通道示范） |
 | `assets/sandbox-view/` | **process + 自定义界面模板**：`view` 沙箱 HTML 页面 + `OpenLearnPluginBridge` + `pack.mjs` 补 `storage/**` |
 | `assets/inline-react/` | **inline + React 模板**（需宿主白名单）：白板挂件「下发→学生可见」全链路 + `HostSharedDeps` 写法 |
-| `scripts/sync-platform-repo.sh` | **平台源码管理与更新检查**：初次运行引导下载平台源码（支持 `--bg` 空闲/后台浅克隆与快照模式降级）；更新检查（比对本地与远端 origin/main 提交）；联动 `facts-check.sh` |
+| `scripts/sync-platform-repo.sh` | **平台源码管理与更新检查**：初次运行引导下载平台源码（支持 `--bg` 空闲/后台浅克隆与快照模式降级）；更新检查（GitHub `origin/main` 优先，不可达时比对 Gitee 镜像）；克隆后统一 `origin`=GitHub / `gitee`=Gitee；联动 `facts-check.sh` |
+| `scripts/platform-probe.sh` | **双平台连通性与权限探测**：分别报告 GitHub / Gitee 的 git 连通、CLI 登录与 push 权限，输出 `preferred.fetch` / `preferred.issuePr` / `preferred.push` / `fallback`；仅对 `repo-mirrors.json` 登记的仓库启用 Gitee |
+| `scripts/sync-mirror.sh` | **双远端同步**：`status` 比对两边 main；`fetch` GitHub 优先、失败回退 Gitee；`push <branch>` GitHub 优先并镜像 Gitee（仅网络/鉴权失败回退，`rejected` 不回退）；`sync-main --from github|gitee` 合并后快进另一边 main |
 | `scripts/hydrate-contracts.sh` | **平台契约水合与对齐**：从平台 `docs/agent/contracts/` 同步 `capabilities`/`slots`/`forbidden-tables` 机器可读契约，支持 `--check` 漂移检测 |
 | `scripts/grill-requirements.sh` | **需求梳理 Grilling 向导**（用户/Agent 侧）：像 `/grill-me` 一样单步推进提问，选项驱动、动态分支与即时摩擦拦截，梳理完成后自动输出 `plugin.contract.json` |
 | `scripts/new-plugin.sh` | **一键生成插件**（用户侧）：`bash scripts/new-plugin.sh <模板> <目录> --id @scope/name [--name/--prefix/...]`，复制模板并替换全部占位符；拒绝非空目录（`--force` 覆盖）；不执行 `npm i` / build |
@@ -1179,7 +1246,8 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 
 > **谁该跑 `scripts/*`**：`platform-drift-check.sh` / `check-templates.sh` / `verify-*.sh` / `diff-official-scaffold.sh`
 > 是**维护本 skill** 用的（改模板、改 SKILL.md、升级平台基线时跑），CI 也会自动跑，**给用户开发插件时不要跑**。
-> 例外是开发侧工具：`grill-requirements.sh`（需求梳理向导）、`new-plugin.sh`（生成插件目录）、`sync-platform-repo.sh`（源码就绪与更新检查）、`hydrate-contracts.sh`（契约水合）与 `facts-check.sh`（开工前探活）。
+> 例外是开发侧工具：`grill-requirements.sh`（需求梳理向导）、`new-plugin.sh`（生成插件目录）、`sync-platform-repo.sh`（源码就绪与更新检查）、`hydrate-contracts.sh`（契约水合）与 `facts-check.sh`（开工前探活）；
+> 模式 B 协作另用 `platform-probe.sh`（选平台）与 `sync-mirror.sh`（双远端 fetch/push/sync-main）。
 > 用户侧只需要第四步里的构建命令与预检清单。
 
 ### 在线文档地址（线上校验用）

@@ -169,7 +169,7 @@ for p in $used; do
 done
 
 # ── 5b. 一键脚手架覆盖全部占位符 / view 冒烟存在 ──────────────────────────
-head_ "5b. 一键脚手架（new-plugin.sh）、Grilling 向导（grill-requirements.sh）、契约水合（hydrate-contracts.sh）、源码同步（sync-platform-repo.sh）与 view 冒烟"
+head_ "5b. 一键脚手架、Grilling 向导、契约水合、源码同步、双平台探测/同步与 view 冒烟"
 
 if [ -x scripts/new-plugin.sh ]; then
   ok "new-plugin.sh 存在且可执行"
@@ -217,6 +217,49 @@ if bash scripts/sync-platform-repo.sh -h >/dev/null 2>&1; then
   ok "sync-platform-repo.sh 帮助信息可正常打印"
 else
   bad "sync-platform-repo.sh 帮助信息退出码异常"
+fi
+
+if [ -x scripts/platform-probe.sh ]; then
+  ok "platform-probe.sh 存在且可执行"
+else
+  bad "platform-probe.sh 缺失或不可执行"
+fi
+
+if bash scripts/platform-probe.sh -h >/dev/null 2>&1; then
+  ok "platform-probe.sh 帮助信息可正常打印"
+else
+  bad "platform-probe.sh 帮助信息退出码异常"
+fi
+
+if [ -x scripts/sync-mirror.sh ]; then
+  ok "sync-mirror.sh 存在且可执行"
+else
+  bad "sync-mirror.sh 缺失或不可执行"
+fi
+
+if bash scripts/sync-mirror.sh -h >/dev/null 2>&1; then
+  ok "sync-mirror.sh 帮助信息可正常打印"
+else
+  bad "sync-mirror.sh 帮助信息退出码异常"
+fi
+
+if python3 - <<'PY' >/dev/null 2>&1
+import json, pathlib, sys
+p = pathlib.Path("references/repo-mirrors.json")
+data = json.loads(p.read_text(encoding="utf-8"))
+assert data.get("policy", {}).get("preferred") == "github"
+assert data.get("policy", {}).get("fallback") == "gitee"
+repos = data.get("repos")
+assert isinstance(repos, dict) and repos
+for gh, entry in repos.items():
+    assert "/" in gh, gh
+    assert (entry or {}).get("gitee"), gh
+    assert (entry or {}).get("defaultBranch"), gh
+PY
+then
+  ok "repo-mirrors.json 结构合法（policy + repos 映射齐全）"
+else
+  bad "repo-mirrors.json 缺失或结构非法（需 policy.preferred/fallback 与每个仓库的 gitee/defaultBranch）"
 fi
 
 missing_keys=""

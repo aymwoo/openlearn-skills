@@ -16,7 +16,7 @@
 | 结论 | 含义 | 后续动作 |
 |------|------|---------|
 | **插件侧** | 插件自身代码/配置/manifest 违规 | 直接修插件（配合 SKILL.md 第四步预检清单）；**不提 Issue** |
-| **系统侧** | 宿主 / 内核 / SDK / 官方文档缺陷 | ① 生成本地 bug 报告；② 去重后向 `aymwoo/OpenLearn-Next-V2` 提 Issue（见 SKILL.md 第六步 B） |
+| **系统侧** | 宿主 / 内核 / SDK / 官方文档缺陷 | ① 生成本地 bug 报告；② 去重后向 GitHub `aymwoo/OpenLearn-Next-V2` 提 Issue；GitHub 不可达且已登记镜像时回退 Gitee `aymwoo/openlearn-next`（见 SKILL.md 第六步 B） |
 | **插件间冲突** | 两个插件命名空间/事件名/表名/槽位撞车 | 定位冲突双方，按命名空间规范改名；**不提 Issue** |
 | **环境与配置** | 版本不匹配、未重新构建、缓存、权限未审批 | 给出修复步骤，不算缺陷；**不提 Issue** |
 | **产品边界 / 设计行为** | 文档已写明的限制（remote 无 UI、熔断停用、`auth:false` 需审批） | 改插件写法或告知操作路径；**绝不提 Issue** |
@@ -346,26 +346,55 @@ bash <skill>/scripts/post-install-check.sh <manifest.id> --zip <刚上传的.zip
 
 ### 7.3 系统侧 → ② 向平台仓库提交 Issue（推荐，与①并行）
 
-仓库：`aymwoo/OpenLearn-Next-V2`（缺陷 Issue 用前缀 `[缺陷] `，标签 `bug` + `needs-triage`）
+**目标仓库（GitHub 优先，Gitee 回退）**
+
+| 平台 | 仓库 | 何时使用 |
+|------|------|---------|
+| GitHub（主） | `aymwoo/OpenLearn-Next-V2` | 默认；`gh` 已登录且有权限 |
+| Gitee（镜像） | `aymwoo/openlearn-next` | 仅 GitHub issue 能力不可用，且 `references/repo-mirrors.json` 已登记 |
+
+先探测再决定，不要凭感觉切换：
+
+```bash
+bash scripts/platform-probe.sh --repo aymwoo/OpenLearn-Next-V2 \
+  --local "$HOME/Develop/openlearnv2" --json
+# 看 preferred.issuePr：github / gitee / none
+```
+
+缺陷 Issue 用前缀 `[缺陷] `；标签只用仓库已有的（GitHub：`bug` + `needs-triage`；Gitee：`bug`）。
 
 **提交前三个门禁（缺一不提）**
 
 1. 已满足第 4 节的 4 条「系统侧」证据门槛（尤其最小复现稳定复现）；
-2. 已去重：仓库既有 issue（**含已关闭**）+ `docs/beta/known-issues.md`；命中已修复版本 → 建议升级；命中开放 issue → 改为补充评论；
+2. 已去重：**两个平台**的既有 issue（**含已关闭**）+ `docs/beta/known-issues.md`；命中已修复版本 → 建议升级；命中开放 issue → 改为补充评论；
 3. 用户已看过完整标题与正文并**明确同意**——Issue 对仓库可读者公开可见，**不得静默提交**。
 
 ```bash
-REPO=aymwoo/OpenLearn-Next-V2
-gh issue list -R "$REPO" --state all --limit 50 \
+# 去重（GitHub）
+gh issue list -R aymwoo/OpenLearn-Next-V2 --state all --limit 50 \
   --search "<错误号/错误文案/模块名> in:title,body" --json number,title,state,url
+
+# 去重（Gitee；issue 编号是 I... 字符串）
+gitee issue list -R aymwoo/openlearn-next -s all -l 50 --query "<关键词>" \
+  --json=number,title,state,html_url
+
 rg -n "<关键词>" ~/Develop/openlearnv2/docs/beta/known-issues.md
 
-gh auth status   # 确认 gh 已登录且对该仓库有权限
+# 权限确认
+gh auth status
+gitee auth status
 
-gh issue create -R "$REPO" \
+# GitHub 提交（首选）
+gh issue create -R aymwoo/OpenLearn-Next-V2 \
   --title "[缺陷] <模块/组件>：<一句话现象>" \
   --body-file /tmp/openlearn-issue-<slug>.md \
   --label bug --label needs-triage
+
+# Gitee 提交（回退；无 --body-file）
+gitee issue create -R aymwoo/openlearn-next \
+  -t "[缺陷] <模块/组件>：<一句话现象>" \
+  -b "$(cat /tmp/openlearn-issue-<slug>.md)" \
+  --labels bug
 ```
 
 **正文三段必备**（模板 `assets/platform-issue-template.md`）
@@ -383,13 +412,16 @@ gh issue create -R "$REPO" \
 AI API Key（含首尾掩码）/ `.env` · `ENCRYPTION_KEY` · `bootstrap-credentials.txt` / 身份证 · 住址 · 电话 · 健康信息。
 定位请求只写 `x-request-id`；指代学生用「3 班第 2 次作业」。
 
-**幂等与失败**：同问题已有自己的开放 issue → 补充评论不开新单；`gh` 未登录/无权限/429 → 不重试刷屏，保留已渲染的正文文件，
-给出手动入口 `https://github.com/aymwoo/OpenLearn-Next-V2/issues/new`。
+**幂等与失败**：同问题已有自己的开放 issue（任一平台）→ 补充评论不开新单；CLI 未登录/无权限/429 → 不重试刷屏，
+保留已渲染的正文文件，给出手动入口：
+GitHub `https://github.com/aymwoo/OpenLearn-Next-V2/issues/new`；
+Gitee `https://gitee.com/aymwoo/openlearn-next/issues/new`。
+首选平台失败但另一个平台可用时，先报告失败原因，**经用户确认**后才换平台，不静默改投。
 
 **上报后输出**：
 
 ```
-【系统侧缺陷已上报】Issue #<n> <url>
+【系统侧缺陷已上报】<GitHub/Gitee> #<n> 或 #I... <url>
 原因：<机制层一句话>
 影响：<影响面 + 阻塞程度 + 规避>
 建议：<修复方向>

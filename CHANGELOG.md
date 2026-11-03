@@ -6,6 +6,40 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.16.0] - 2026-11-03
+
+仓库协作从 GitHub 单平台扩展为 **GitHub 主仓 + Gitee 镜像** 双平台：GitHub 优先，只有网络/鉴权不可用时才回退 Gitee；一个变更只在一个平台开 PR，合并后把 `main` 快进到另一个平台，绝不 force-push。起因是平台仓库同时托管在 GitHub 与 Gitee，但 skill 的 issue/PR/push 流程只认 GitHub，GitHub 不可达时协作会中断。
+
+### 新增
+
+- **`references/repo-mirrors.json` 镜像登记表**：登记 GitHub ↔ Gitee 仓库映射、默认分支与回退策略。**只有登记过的仓库才允许 Gitee 回退**，未登记的插件仓库继续只走 GitHub。当前登记 `aymwoo/OpenLearn-Next-V2` ↔ `aymwoo/openlearn-next` 与本技能仓库 `aymwoo/openlearn-skills` ↔ `aymwoo/openlearn-skills`。
+- **`scripts/platform-probe.sh` 双平台探测**：分别检查 GitHub / Gitee 的 git 连通、CLI 登录与 push 权限，输出 `preferred.fetch` / `preferred.issuePr` / `preferred.push` / `fallback`；支持 `--json` 与 `--timeout`。
+- **`scripts/sync-mirror.sh` 双远端同步**：
+  - `status`：比对两边 `main` 是否一致；
+  - `fetch`：GitHub 优先，失败回退 Gitee；
+  - `push <branch>`：GitHub 优先，成功后镜像 Gitee；仅网络/鉴权失败回退，`rejected`（非 fast-forward/保护分支）不回退，避免把分叉带到另一边；
+  - `sync-main --from github|gitee`：在一个平台合并 PR 后，把该平台 `main` 快进到另一个平台；分叉时停止，绝不 force-push。
+
+### 变更
+
+- **`scripts/sync-platform-repo.sh` 双远端化**：
+  - `clone`：GitHub 不可达时自动改用 Gitee 镜像克隆；克隆后统一 `origin`=GitHub、`gitee`=Gitee；后台克隆由内部 worker 在完成后配置远端；
+  - `update`：主干 `pull` 与开发分支 `fetch main` 均支持 GitHub → Gitee 回退；开发分支回退时只更新 `gitee/main`，不改 `origin/main`；
+  - `check` / `status`：输出远端来源与 `origin` / `gitee` 配置；`check --json` 新增 `mirror` 字段；
+  - usage 文案明确「GitHub 优先，Gitee 回退」。
+- **`SKILL.md` 模式 B 重写为 GitHub / Gitee 双平台流程**：新增平台探测门禁、双平台命令对照、Gitee issue 编号（`I...`）与标签差异、`sync-mirror.sh push` 统一推送、合并后 `sync-main`、双平台清理与红线。
+- **`references/github-collaboration.md` 重写为双平台 SOP**：新增平台选择、镜像登记、命令差异表、Gitee issue/PR/CI/review/merge 命令、跨平台去重、issue/PR 编号不复用、Gitee 自动镜像风险警告与异常处理表。
+- **`references/troubleshooting.md` §7.3**：系统侧缺陷上报改为「GitHub 优先，Gitee 回退」；去重要求同时查两个平台；补充 Gitee 提交命令、手动入口与输出格式。
+- **`assets/platform-issue-template.md`**：头部提交命令双平台化，环境信息新增「提交平台」，明确不要两边各提一份。
+- **`README.md` / `skills.sh.json`**：技能说明补充双平台协作与合并后镜像同步。
+- **`scripts/check-templates.sh`**：新增 `platform-probe.sh` / `sync-mirror.sh` 可执行性、帮助命令与 `repo-mirrors.json` 合法性自检。
+
+### 注意
+
+- **不要开启 Gitee 自动双向镜像**：它会覆盖分支、标签和提交，可能冲掉 GitHub 上的 PR 合并结果。统一用 `sync-mirror.sh` 手动同步。
+- **issue/PR 编号不跨平台复用**：GitHub 是整数，Gitee issue 是 `I...` 字符串、PR 是整数；不确定就回读，不猜。
+- **Gitee CLI 能力差异**：issue 创建无 `--body-file`（用 `-b "$(cat file)"`）；无 `gh pr checks` 等价命令；review 只有 approve/comment，没有 request-changes；merge 无 `--match-head-commit`。
+
 ## [2.15.0] - 2026-11-02
 
 初次运行引导下载平台源码、更新检查机制、交互式需求梳理 Grilling 向导与平台契约元数据动态直连水合。针对「一手平台源码缺失或长期未更新导致契约校验偏差」、「初期需求梳理长清单倾倒过载」及「权限集合不全误报 (Issue #1)」三大痛点，新增 `sync-platform-repo.sh`、`grill-requirements.sh` 与 `hydrate-contracts.sh` 工具并在工作流中设立交互门禁。

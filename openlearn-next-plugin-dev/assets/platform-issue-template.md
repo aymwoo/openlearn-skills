@@ -1,10 +1,19 @@
 # 平台仓库 Issue 正文模板（系统侧缺陷）
 
-> 用途：归因结论为 **系统侧** 时，向 `aymwoo/OpenLearn-Next-V2` 提交缺陷 Issue 的正文。
-> 提交命令：`gh issue create -R aymwoo/OpenLearn-Next-V2 --title "[缺陷] <模块>：<现象>" --body-file <本文件渲染结果> --label bug --label needs-triage`
+> 用途：归因结论为 **系统侧** 时，向平台仓库提交缺陷 Issue 的正文。
+> 平台策略：**GitHub 优先**（`aymwoo/OpenLearn-Next-V2`）；仅当 GitHub issue 能力不可用、
+> 且 `references/repo-mirrors.json` 登记了镜像时，回退 Gitee（`aymwoo/openlearn-next`）。
+> 先跑 `bash scripts/platform-probe.sh --json`，看 `preferred.issuePr` 再选命令。
+>
+> GitHub 提交：
+> `gh issue create -R aymwoo/OpenLearn-Next-V2 --title "[缺陷] <模块>：<现象>" --body-file <本文件渲染结果> --label bug --label needs-triage`
+>
+> Gitee 提交（无 `--body-file`）：
+> `gitee issue create -R aymwoo/openlearn-next -t "[缺陷] <模块>：<现象>" -b "$(cat <本文件渲染结果>)" --labels bug`
 >
 > 三段必备：**问题原因 / 影响 / 建议解决方式**。缺任一段视为不合格，会被作者以「信息不足」退回。
-> 提交前必须：① 过完第六步「系统侧」4 条证据门槛；② 去过重（仓库 issue 含已关闭 + `docs/beta/known-issues.md`）；③ 用户已确认标题与正文全文。
+> 提交前必须：① 过完第六步「系统侧」4 条证据门槛；② 去过重（**两个平台**的 issue 含已关闭 + `docs/beta/known-issues.md`）；
+> ③ 用户已确认标题与正文全文。**不要在两个平台各提一份。**
 
 ---
 
@@ -80,6 +89,7 @@
 
 | 项 | 值 |
 |----|----|
+| 提交平台 | GitHub / Gitee（按 `preferred.issuePr`；不要两边各提一份） |
 | 报告人角色 | 开发者（仓库缺陷表单要求项） |
 | 对上课的影响 | <停课 / 出错但能上课 / 不确定（表单要求项）> |
 | OpenLearnV2 版本 | `<GET /health 的 version，或 npx openlearn-next@<ver> doctor 输出>` |

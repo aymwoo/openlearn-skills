@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "updatedAt": "2026-11-03",
+  "policy": {
+    "preferred": "github",
+    "fallback": "gitee",
+    "push": "github-first-then-gitee-mirror",
+    "issuePr": "github-first-fallback-gitee",
+    "note": "只有在本表登记了 gitee 镜像的仓库才允许回退到 Gitee；未登记的仓库仅使用 GitHub。issue/PR 编号不跨平台复用。"
+  },
+  "repos": {
+    "aymwoo/OpenLearn-Next-V2": {
+      "gitee": "aymwoo/openlearn-next",
+      "local": "~/Develop/openlearnv2",
+      "defaultBranch": "main"
+    },
+    "aymwoo/openlearn-skills": {
+      "gitee": "aymwoo/openlearn-skills",
+      "local": "~/Develop/openlearn-skills",
+      "defaultBranch": "main"
+    }
+  }
+}
