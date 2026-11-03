@@ -15,8 +15,10 @@ cd "$ROOT" || exit 1
 
 PASS=0
 FAIL=0
+SKIP=0
 ok()   { printf '  \033[32m✔\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31m✘\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
+warn() { printf '  \033[33m⊘\033[0m %s\n' "$1"; SKIP=$((SKIP+1)); }
 head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 # ── 1. 模板必备字段 ────────────────────────────────────────────────────────
@@ -204,7 +206,14 @@ fi
 if bash scripts/hydrate-contracts.sh --check >/dev/null 2>&1; then
   ok "hydrate-contracts.sh 契约校验通过（与平台源码一致）"
 else
-  bad "hydrate-contracts.sh 检出契约漂移"
+  # 退出码 2 = 找不到本地平台仓库（契约真源）。CI / 新机器默认没有平台源码，
+  # 此时不能报「漂移」（那是误报，会让 self-check 永远红）；显式降级为跳过。
+  hydrate_rc=$?
+  if [ "$hydrate_rc" -eq 2 ]; then
+    warn "跳过契约校验：未找到本地平台仓库（设置 PLATFORM_REPO 或克隆平台源码后重跑）"
+  else
+    bad "hydrate-contracts.sh 检出契约漂移（退出码 $hydrate_rc）"
+  fi
 fi
 
 if [ -x scripts/sync-platform-repo.sh ]; then
@@ -328,6 +337,6 @@ for pat in 'COMMAND_NOT_REGISTERED' 'COMMAND_CAPABILITY_DENIED' 'manifest\.main'
 done
 
 # ── 汇总 ──────────────────────────────────────────────────────────────────
-printf '\n\033[1m结果\033[0m：通过 %d，失败 %d\n' "$PASS" "$FAIL"
+printf '\n\033[1m结果\033[0m：通过 %d，失败 %d，跳过 %d\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

@@ -17,7 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: 拉取平台仓库（契约真源，供 hydrate-contracts.sh --check 使用）
+        run: git clone --depth 1 https://github.com/aymwoo/OpenLearn-Next-V2.git "$RUNNER_TEMP/platform"
       - name: check-templates.sh
+        env:
+          PLATFORM_REPO: ${{ runner.temp }}/platform
         run: bash openlearn-next-plugin-dev/scripts/check-templates.sh
 
   # ── 2. 与官方 CLI 脚手架比对（发布版 SDK 为基线）─────────────────────

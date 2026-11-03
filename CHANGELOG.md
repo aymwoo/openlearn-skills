@@ -16,6 +16,12 @@
 - **`README.md` 安装段**：补 Gitee 安装命令与镜像策略说明（单向同步、不发 Release、同一个变更只开一份 Issue / PR）。
 - **`references/plugin-development-tutorial.md`**：快照的安装段与平台教程 §2.8 同步为 GitHub / Gitee 双入口。
 
+### 修复
+
+- **`self-check` 在 CI 上永久误报「契约漂移」**：`check-templates.sh` 调 `hydrate-contracts.sh --check`，而后者在找不到本地平台源码时以**退出码 2**表示「缺少平台仓库」，却被当成漂移上报——CI 从来不克隆平台仓库，于是该 job 从 2.15.0（#1dd6f13）起连续 4 次失败。现分两条路修正：
+  - `check-templates.sh` 把退出码 2 降级为 `⊘ 跳过契约校验` 并在汇总里单独计数（新机器 / 纯本地开发不再因未克隆平台而红）；
+  - `.github/workflows/ci.yml` 的 `self-check` job 先 `git clone --depth 1` 平台仓库并设 `PLATFORM_REPO`，让契约校验**真的跑起来**而不是被跳过。
+
 ### 注意
 
 - **不要让用户用 `owner/repo` 简写装 Gitee**：简写会被 CLI 固定拼成 `https://github.com/...`，在国内网络下直接失败。
