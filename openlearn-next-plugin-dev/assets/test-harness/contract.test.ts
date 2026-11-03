@@ -36,19 +36,17 @@ const SLOTS_CONTRACT = readJson('./contracts/slots.json');
 const SLOT_REGISTRY = readJson('./slot-registry.json');
 const REAL_SLOTS = new Set<string>(SLOTS_CONTRACT?.extension_slots ?? SLOT_REGISTRY?.slots ?? []);
 
-/** 平台真实权限全集（RBAC + method_policy 能力型 + runtime_permission），支持 contracts 动态水合 */
+/**
+ * 平台可声明权限全集（catalog.ts 的 CAP 全量 = SDK 的 CAPABILITIES），读 contracts 动态水合。
+ *
+ * ⚠️ 契约缺失时**不**退回陈旧硬编码表（技能仓 Issue #1 的根因）：
+ * 硬编码表会漏掉方法型权限，把 `student-data:write` 这类真实权限判成「不存在」，
+ * 而一个 error 级结论会诱导维护者删掉正确声明（删掉后运行期是静默 403）。
+ * 宁可漏报，不可错杀——契约缺失时下面的断言自动跳过。
+ */
 const CAP_CONTRACT = readJson('./contracts/capabilities.json');
-const REAL_CAPS = new Set<string>([
-  'management:write', 'lesson:write', 'whiteboard:write', 'management:read',
-  'plugin:write', 'lesson:read', 'vfs:write', 'process:write',
-  'assignment:manage', 'whiteboard:read', 'vfs:read', 'process:read',
-  'assignment:read', 'lesson:delete', 'plugin:read', 'student:write',
-  'assignment:write', 'assignment:submit', 'assignment:review',
-  'class:read', 'class:write', 'student:read', 'database',
-  ...(CAP_CONTRACT?.command_required ?? []),
-  ...Object.values(CAP_CONTRACT?.method_policy ?? {}),
-  ...(CAP_CONTRACT?.runtime_permission ?? []),
-]);
+const DECLARABLE: string[] | null = Array.isArray(CAP_CONTRACT?.declarable) ? CAP_CONTRACT.declarable : null;
+const REAL_CAPS = new Set<string>(DECLARABLE ?? []);
 
 const CAPS = ['OBJECT', 'STRING', 'NUMBER', 'INTEGER', 'BOOLEAN', 'ARRAY'];
 
@@ -96,6 +94,11 @@ describe('manifest 契约', () => {
 
   it('capabilitiesProposed 只包含平台真实权限串', () => {
     const caps = (PLUGIN.manifest.capabilitiesProposed as string[]) ?? [];
+    if (!DECLARABLE) {
+      // 契约快照缺失：无法判定真伪，跳过而不误报（见 REAL_CAPS 注释）
+      expect(typeof caps).toBe('object');
+      return;
+    }
     const bogus = caps.filter((c) => !REAL_CAPS.has(c));
     expect(bogus, `捏造的权限串会静默失效：${bogus.join(', ')}`).toEqual([]);
   });
@@ -189,6 +192,7 @@ describe('命令三件套配对（default-deny 的必测项）', () => {
 
 describe('ActionDescriptor 质量（决定 AI 能否选对 + 授权是否通过）', () => {
   it('capabilityRequired 必须是真实权限串', async () => {
+    if (!DECLARABLE) return; // 契约快照缺失 → 跳过（避免误报）
     const { actions } = await activateOnMock();
     const bad = [...actions.values()]
       .filter((a: any) => !a.capabilityRequired || !REAL_CAPS.has(a.capabilityRequired))

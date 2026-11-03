@@ -1,6 +1,6 @@
-# 前端插件：沙箱桥接模型（v0.7.7 真源，SDK 3.7.4）
+# 前端插件：沙箱桥接模型（v0.7.11 真源，SDK 3.8.0）
 
-> 整理自官方文档 `plugin/frontend-sandbox-capability-boundary.html`（`doc-version: sdk=3.7.4`）与
+> 整理自官方文档 `plugin/frontend-sandbox-capability-boundary.html`（`doc-version: sdk=3.8.0`）与
 > `reference/plugin-host-shared-deps.html` 的 v0.7.0 勘误；源码见 `src/plugin-host/plugin-host.ts`
 > （`mountSandboxFrame` / `activateRemotePlugin`）与 `src/plugin-host/sandbox-frame.ts`。
 > 平台仓库本地路径：`~/Develop/openlearnv2/docs/plugin/frontend-sandbox-capability-boundary.md`。
@@ -361,7 +361,7 @@ CSP 对 `.html` 是宽松的（`script-src 'self' 'unsafe-inline' 'unsafe-eval' 
 
 | 位置 | 脚手架模板 | SDK 版本 |
 |------|-----------|---------|
-| npm 发布版 `@openlearn/plugin-sdk@3.7.4`（latest） | **桥接**（无 React）✅ 与本文一致 | 3.7.4 |
+| npm 发布版 `@openlearn/plugin-sdk@3.8.0`（latest） | **桥接**（无 React）✅ 与本文一致 | 3.8.0 |
 | 平台仓库 `main`（平台 0.7.7 / HEAD 2026-10-28） | **桥接**（无 React）✅ 与 npm 逐字节一致 | 3.7.4 |
 
 - 两处源码 `diff -rq` 无输出，说明仓库 `main` 已追平 npm 发布版；此前「仓库仍是 React 模板」的勘误已修复。

@@ -1,10 +1,15 @@
-# 能力权限矩阵（v0.7.7 真源，SDK 3.7.4）
+# 能力权限矩阵（v0.7.11 真源，SDK 3.8.0）
 
-> 本文件整理自 OpenLearnV2 官方文档 `reference/plugin-capability-matrix.html`（`doc-version: sdk=3.7.4`）与源码
-> `packages/core/capability/guard/capability-guard.ts`、`packages/core/registry/index.ts`。
+> 本文件整理自 OpenLearnV2 官方文档 `reference/plugin-capability-matrix.html`（`doc-version: sdk=3.8.0`）与源码
+> `packages/core/capability/catalog.ts`（Issue #368 之后的**唯一权威清单**）。
 > 平台仓库本地路径：`~/Develop/openlearnv2/docs/reference/plugin-capability-matrix.md`。
 >
 > **权限字符串是「平台真实存在」的封闭集合，捏造会静默失效。**
+>
+> 📌 **不要只看 §1.1 就下结论**：只查到 `ActionDescriptor.capabilityRequired` 会把方法级权限
+> （`student-data:write` / `task:register` / `grades:write` …）误判成「捏造串」并删掉——
+> 真实事故：4 个插件的 `pointsLedger.addPoints` 全部失效（平台 Issue #368）。
+> 下面 §1.1 ~ §1.2.2 是**全部 31 条**，分成四组。
 
 ---
 
@@ -25,9 +30,13 @@
 
 ## 1. 真实权限全集（`capabilityRequired` / `capabilitiesProposed` 可用）
 
-**19 条**（真值源：平台 `docs/agent/contracts/capabilities.json` 的 `command_required`；
-文档里流传的「20 条」是把 `quiz:write` 算进来了，而它并不在 `capabilityRequired` 里。
-校验：`python3 audit-tools/agent_facts.py --check`）：
+**共 31 条**，与 SDK 的 `CAPABILITIES` 逐字一致（真源 `packages/core/capability/catalog.ts`）。
+校验：`python3 audit-tools/agent_facts.py --check`（契约 `docs/agent/contracts/capabilities.json` 的 `declarable` 字段）。
+
+### 1.1 资源型 19 条（`ActionDescriptor.capabilityRequired` 闸门）
+
+（真值源：平台 `docs/agent/contracts/capabilities.json` 的 `command_required`；
+文档里流传的「20 条」是把只在 SDK 注释里出现的 `segment:gate_eval` 也算进去了，它**不是**真声明）：
 
 | 权限字符串 | 覆盖的主要动作 |
 |------------|----------------|
@@ -55,6 +64,47 @@
 
 `class:read` `class:write` `student:read`
 
+### 1.2 方法型 8 条（`method-policy` 闸门 · Security Barrier 3）
+
+这 8 条**不是** `ActionDescriptor.capabilityRequired`，而是 `packages/core/plugin-host/method-policy.ts`
+的方法级常量（真源：`catalog.ts` 的 `method_policy` 登记）。它们**同样能写进 `capabilitiesProposed`**，
+不写则调用对应 `ctx` 方法会被拒：
+
+| 权限                 | 常量                     | 含义与典型消费点                                            |
+| -------------------- | ------------------------ | ----------------------------------------------------------- |
+| `api:write`          | `CAP_API_WRITE`          | 授予「写操作」所需                                          |
+| `api:admin`          | `CAP_API_ADMIN`          | 授予高危路径 / 不可逆操作所需                              |
+| `grades:write`       | `CAP_GRADES_WRITE`       | 授予学期成绩**写入**所需（`grades:read` 不足）              |
+| `agent:tool`         | `CAP_AGENT_TOOL`         | 授予「注册对外暴露给 AI Agent 的 action」所需              |
+| `ai:invoke`          | `CAP_AI_INVOKE`          | 授予「驱动 AI 生成」所需                                    |
+| `task:register`      | `CAP_TASK_REGISTER`      | 授予「注册后台常驻任务」所需                               |
+| `student-data:read`  | `CAP_STUDENT_DATA_READ`  | 授予读取学生个人敏感数据（积分流水、维度汇总等）所需        |
+| `student-data:write` | `CAP_STUDENT_DATA_WRITE` | 授予写入 / 变更学生个人敏感数据（积分变动等）所需          |
+
+> ⚠️ `ai:invoke` **同时**是第 2 套 `RuntimePermission` 的成员。两个登记互不相干、但字符串同名：
+> 写进 `capabilitiesProposed` = 声明「插件可驱动 AI 生成」（方法级闸门）；
+> 活动生态的 `permissions: ['ai:invoke']` = 运行时开关。**两处都要写才都有权限。**
+
+### 1.3 平台内部可声明 1 条
+
+| 权限                | 位置                                                    | 用途                                       |
+| ------------------- | ------------------------------------------------------- | ------------------------------------------ |
+| `segment:gate_eval` | `server/services/segment-gate-service.ts` 的 `GATE_CAPABILITY` | 片段命令的 gate 校验；SDK 注释建议片段命令同时声明它 |
+
+### 1.4 打包期自检（SDK 3.8.0 新增 · 平台 Issue #368）
+
+```ts
+import { assertValidManifestCapabilities, validateManifestCapabilities } from '@openlearn/plugin-sdk';
+
+// 不抛错版本：返回 { valid, unknown }
+const { unknown } = validateManifestCapabilities(manifest.capabilitiesProposed ?? []);
+
+// 抛错版本：拼错 / 捏造的权限串在构建期就拦住
+assertValidManifestCapabilities(manifest.capabilitiesProposed ?? []);
+```
+
+**别再手抄权限名**——构建期调一次 `assertValidManifestCapabilities`，就不会出现「声明了但被当未知串」的情况。
+
 ---
 
 ## 2. ⚠️ 不存在的权限（切勿捏造）
@@ -65,7 +115,7 @@
 |------------|----------|
 | `user:read` / `user:write` | 用 `management:read` / `management:write` |
 | `system:process` | 用 `process:read` / `process:write` |
-| `ai:invoke` 当作 RBAC 权限用 | 它确实存在，但属于**第 3 套注册** `runtime_permission`（连同 `lesson:control` `plugin:execute` `quiz:submit` `session:manage` `stage:navigate` `whiteboard:draw`），不是 `capabilityRequired`。写成 `capabilitiesProposed` 拿不到 RBAC 能力；AI 调用走 `capability_*` ID |
+| `ai:invoke` | ⚠️ **它确实存在**，是方法型权限（§1.2），写进 `capabilitiesProposed` = 「插件可驱动 AI 生成」；同时它也是第 2 套 `RuntimePermission` 成员（§0 第 2 行）。其余 `ai:*`（`ai:read` / `ai:write`）不存在——AI 层用 `capability_*` ID |
 | `network:fetch` / `net:*` | 出站网络不走 RBAC：由 `manifest.network.outbound` 申请 + `plugin_network_grants` 域名白名单管控 |
 | `courseware:*` | 用 `lesson:read` / `lesson:write`（教师侧）、`student:write`（学生提交） |
 | `classroom:*` `class:*` | `class:read` / `class:write` 仅作声明项存在 |

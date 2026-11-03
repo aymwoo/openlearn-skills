@@ -29,7 +29,7 @@ npx skills add https://gitee.com/aymwoo/openlearn-skills.git
 
 | 技能 | 说明 |
 |------|------|
-| [openlearn-next-plugin-dev](./openlearn-next-plugin-dev/SKILL.md) | OpenLearnV2 插件开发与仓库协作助手（基线：平台 v0.7.7 / SDK 3.7.4）：五套模板（server-only / full-stack / frontend-only / sandbox-view / inline-react）+ `new-plugin.sh` 一键生成、交互式需求梳理 Grilling 向导（`grill-requirements.sh`）、平台源码后台空闲同步与更新检查（`sync-platform-repo.sh`）、远程前端沙箱桥接范式、manifest 与能力权限规范、构建与安装验证；L0–L3 测试护栏（含 jsdom view 冒烟、process 隔离模式空能力门禁）+ 集成事实源码锚点校验；内置插件侧/系统侧故障归因与 Bug 报告；支持接手 GitHub / Gitee issue（assign + 占位评论）、独立 worktree 开发、PR 提交/审查/返工/合并，以及合并后 `main` 镜像同步（GitHub 优先，GitHub 不可达时回退 Gitee 镜像；一个变更只在一个平台开 PR） |
+| [openlearn-next-plugin-dev](./openlearn-next-plugin-dev/SKILL.md) | OpenLearnV2 插件开发与仓库协作助手（基线：平台 v0.7.11 / SDK 3.8.0）：五套模板（server-only / full-stack / frontend-only / sandbox-view / inline-react）+ `new-plugin.sh` 一键生成、交互式需求梳理 Grilling 向导（`grill-requirements.sh`）、平台源码后台空闲同步与更新检查（`sync-platform-repo.sh`）、远程前端沙箱桥接范式、manifest 与能力权限规范、构建与安装验证；L0–L3 测试护栏（含 jsdom view 冒烟、process 隔离模式空能力门禁）+ 集成事实源码锚点校验；内置插件侧/系统侧故障归因与 Bug 报告；支持接手 GitHub / Gitee issue（assign + 占位评论）、独立 worktree 开发、PR 提交/审查/返工/合并，以及合并后 `main` 镜像同步（GitHub 优先，GitHub 不可达时回退 Gitee 镜像；一个变更只在一个平台开 PR） |
 
 ## 开发
 

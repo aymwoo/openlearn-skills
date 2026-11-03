@@ -2,31 +2,44 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.16.2
-description: 为 OpenLearnV2 教学平台（当前平台 0.7.7 / SDK 仓库 3.7.5·npm 3.7.4）开发插件，并协作处理 OpenLearn 相关 GitHub / Gitee 仓库的 issue 与 PR（GitHub 优先，GitHub 不可达时回退 Gitee 镜像）。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；双平台协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并、合并后 main 镜像同步。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
+version: 2.17.0
+description: 为 OpenLearnV2 教学平台（当前平台 0.7.11 / SDK 仓库 3.8.0·npm 3.8.0）开发插件，并协作处理 OpenLearn 相关 GitHub / Gitee 仓库的 issue 与 PR（GitHub 优先，GitHub 不可达时回退 Gitee 镜像）。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；双平台协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并、合并后 main 镜像同步。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
-> ✅ **版本基线口径（2026-10-29 核对）**
+> ✅ **版本基线口径（2026-11-03 核对）**
 >
 > | 信号 | 值 | 用途 |
 > |------|----|------|
-> | 平台 `package.json` version | **0.7.7** | 仅探活；**不随每处行为变化升号** |
-> | SDK（本地仓库） | **3.7.5** | 运行时真实行为 |
-> | SDK（npm `latest`） | **3.7.4** | 脚手架模板与示例代码 |
+> | 平台 `package.json` version | **0.7.11** | 仅探活；**不随每处行为变化升号** |
+> | SDK（本地仓库） | **3.8.0** | 运行时真实行为 |
+> | SDK（npm `latest`） | **3.8.0** | 脚手架模板与示例代码 |
 > | plugin-test-kit | 3.3.3 | 契约/冒烟测试 |
 >
 > 平台自带的机器可读基线在仓库里：`docs/agent/contracts/versions.json`
-> （`python3 audit-tools/agent_facts.py --check` 会校验它与源码是否漂移）。
+> （`python3 audit-tools/agent_facts.py --check` 会校验它与源码是否漂移，
+> 并一并校验 `docs/agent/agent-handbook.md` 顶部的版本表与源码一致）。
 >
-> ⚠️ **别用版本号判断行为变化**：#350 反转了激活顺序、#349 把 SDK 提到 3.7.5，
-> 而平台 version 仍是 `0.7.7`。判行为只能看**锚点**（`facts-check.sh`）或 CHANGELOG。
-> 仓库 `main` 与 npm 已**分叉**：3.7.5 的裸说明符硬拦截进了仓库、尚未发布到 npm；
-> 用 npm 装脚手架不会触发它，但在新宿主上产物仍要守这条规则。
+> ⚠️ **别用版本号判断行为变化**：#350 反转了激活顺序、#375 把权限清单收敛到单一真源，
+> 而平台 version 只从 `0.7.7` 走到 `0.7.11`。判行为只能看**锚点**（`facts-check.sh`）或 CHANGELOG。
+> 仓库 `main` 与 npm 目前**已对齐**（均 3.8.0）；若后续仓库先行、npm 未发，
+> 则：**生成代码看 npm、判运行时看仓库**，并在交付时当场指出差异。
 >
 > **判定顺序**：
 > - 生成代码 / 选 API / 抄模板 → **npm 发布版**（用户装的就是它）
 > - 判断「平台实际会怎么处理」 → **本地仓库 HEAD**（跑起来的是本地代码）
 > - 两者冲突且无法判断 → 以**平台源码**为准，并当场指出差异
+
+> 🆕 **SDK 3.8.0 新增（写插件时可直接用）**：
+>
+> | 能力 | 用法 |
+> |---|---|
+> | `assertValidManifestCapabilities(manifest.capabilitiesProposed)` | 打包期拦住拼错 / 捏造的权限串（平台 Issue #368） |
+> | `validateManifestCapabilities(caps)` | 同上但不抛错，返回 `{ valid, unknown }` |
+> | `CAPABILITIES` / `isKnownCapability(cap)` | 可声明权限全集（31 条）的权威查询 |
+> | `ctx.services.roster` | 受管名册读取服务（`listClasses` / `listClassStudents` / `getStudent`），需声明 `management:read`（平台 Issue #366） |
+> | `IActionRegistryService.listRegisteredCommandTypes()` / `listMissingDescriptors(types)` | 自检「注册了 handler 但忘了登记 ActionDescriptor」（平台 Issue #369） |
+>
+> ⚠️ `ctx.services.roster` 与其余服务一致，运行时可能为 `null`（D-12 降级），消费前先判空。
 
 > 📌 **平台已自带 AI Agent 机器可读源，优先用它，别自己推**（2026-10-29 起）：
 >
@@ -84,16 +97,16 @@ npx skills add https://gitee.com/aymwoo/openlearn-skills.git
   「文档看不出、一错就整套方案跑偏」的条目；**远端文档一有更新，先跑 `bash scripts/platform-drift-check.sh`
   逐条复核，再改 skill**（例：白名单变量被 README 删表但代码仍在；教程写 `views/index.html` 但安装器只解压 `storage/`）。
 
-> ⚠️ **当前基线：平台 0.7.7（commit 8295dc7→584eb0e）/ SDK 仓库 3.7.5 · npm 3.7.4**。
+> ⚠️ **当前基线：平台 0.7.11（commit 260addb）/ SDK 仓库 3.8.0 · npm 3.8.0**。
 > 模板与权限字典以 npm 为准，运行时行为以本地 HEAD 为准。
 >
-> **时效规则**：本文事实截至 **2026-10-29**。若你遇到的平台 commit 新于此：
+> **时效规则**：本文事实截至 **2026-11-03**。若你遇到的平台 commit 新于此：
 > 1. 先跑第一步探活，比对 `platformVersion` / `sdkVersion` / `docSiteVersion`；
 > 2. 仍不确定时，以**平台源码**为准（`~/Develop/openlearnv2/packages/core/`、`packages/plugin-sdk/`）——
 >    源码是最终真理，文档与官方模板都可能滞后；
 > 3. 发现本文与源码不一致时，**以源码为准**并当场指出差异，不要沿用本文的旧结论。
 
-> 🔴 **SDK 3.7.2 起的两处破坏性变化（3.7.4 仍在）**，写代码前先记住：
+> 🔴 **SDK 3.7.2 起的两处破坏性变化（3.8.0 仍在）**，写代码前先记住：
 >
 > 1. **宿主内部类改为 type-only 导出**。`PluginRuntimeComposition` / `PluginCapabilityGateway` /
 >    `PluginContextAdapter` / `PluginDistributionManager` / `PluginLifecycleManager` /
@@ -554,9 +567,9 @@ npm pkg set scripts.test:contract="node test-harness/static-check.mjs ." \
 > 同时把第二步判定结果落成 `plugin.contract.json`。没有它，L0 无法判断「process 里写 React」
 > 「studentVisible 却只有 teacher.tab」「whiteboardWidget 却没派发 whiteboard.draw」这类错配。
 
-> `uuid` / `zod` 不是可选项：SDK 3.7.4 的 `dist/index.js` 引用了**未声明**的 `uuid`（`zod` 是 peerDep），
-> 不装会在 `import('@openlearn/plugin-sdk')` 时直接 `Cannot find package 'uuid'`。属平台打包缺陷，已记入
-> `references/testing-strategy.md` §6。
+> `zod` 是 peerDep，**必须**装（`npm i -D zod`）；`uuid` 自 SDK **3.7.5 起已修**（平台 Issue #349：补了 `dependencies` 里的 `uuid`），
+> 但 **3.7.4 及更早**的 SDK `dist/index.js` 引用了**未声明**的 `uuid`，不装会在 `import('@openlearn/plugin-sdk')` 时
+> 直接 `Cannot find package 'uuid'`。当前基线（3.8.0）不需要手动补 `uuid`，只需 `zod`。
 
 #### 3. 跑
 
@@ -1104,14 +1117,29 @@ bash scripts/sync-mirror.sh sync-main --from github --repo aymwoo/OpenLearn-Next
 `ctx` 上还有：`ctx.i18n.t(key, default?, params?)`、`ctx.config.get(key, { classId })`、`ctx.http`（REST 路由）、
 `ctx.contributions.list()`、`ctx.require(moduleName)`、`ctx.manifest`、`ctx.pluginId`、`ctx.log`。
 
-### 2. Capabilities 权限全集（v0.7.7 / SDK 3.7.4 真源，20 条，与官方矩阵逐条一致）
+### 2. Capabilities 权限全集（v0.7.11 / SDK 3.8.0 真源，**31 条**，与官方矩阵逐条一致）
 
-平台真实存在 **20 条** `resource:action` 权限：
+平台真实存在 **31 条**可声明权限（= SDK 的 `CAPABILITIES`，真源 `packages/core/capability/catalog.ts`，平台 Issue #368）：
+
+**① 资源型 19 条**（`ActionDescriptor.capabilityRequired` 闸门）：
 
 `management:read` `management:write` `lesson:read` `lesson:write` `lesson:delete`
 `whiteboard:read` `whiteboard:write` `student:write` `plugin:read` `plugin:write`
 `vfs:read` `vfs:write` `process:read` `process:write`
 `assignment:read` `assignment:write` `assignment:submit` `assignment:review` `assignment:manage`
+
+**② 方法级 8 条**（`method-policy` 闸门，调对应 `ctx` 方法时必需）：
+
+`api:write` `api:admin` `grades:write` `agent:tool` `ai:invoke` `task:register`
+`student-data:read` `student-data:write`
+
+**③ 仅可声明 3 条**（无闸门，声明无害也不构成约束）：`class:read` `class:write` `student:read`
+
+**④ 平台内部 1 条**（片段命令 gate）：`segment:gate_eval`
+
+> ⚠️ **`ai:invoke` 是真实权限串**（方法型），同时也是 `RuntimePermission` 成员（运行时开关）——两个登记互不相干，两处都要写。
+> ⚠️ **别把 `RuntimePermission` 的其余 6 条写进 `capabilitiesProposed`**：`lesson:control` `stage:navigate`
+> `whiteboard:draw` `quiz:submit` `plugin:execute` `session:manage` 会被 `assertValidManifestCapabilities` 判为未知串。
 
 **⚠️ 不存在、写了也不生效的写法**（平台文档明文「切勿捏造」）：
 
@@ -1119,9 +1147,13 @@ bash scripts/sync-mirror.sh sync-main --from github --repo aymwoo/OpenLearn-Next
 |----------|----------|
 | `user:read` | `management:read` |
 | `system:process` | `process:read` / `process:write` |
-| `ai:invoke` | AI 层用 `capability_*` ID，不是 RBAC 字符串 |
+| `ai:read` / `ai:write` | AI 层用 `capability_*` ID；`ai:invoke` 本身是真实权限串（见上） |
 | `network:fetch` | `manifest.network.outbound` 申请 + 管理员批准域名白名单 |
 
+> **打包期自检**（SDK 3.8.0 新增，平台 Issue #368）：
+> `assertValidManifestCapabilities(manifest.capabilitiesProposed)` 会在构建期拦住拼错 / 捏造的权限串；
+> `validateManifestCapabilities(caps)` 返回 `{ valid, unknown }` 不抛错。**别再靠手抄权限名。**
+>
 > 完整映射、4 套「能力」机制的辨析、错误码见 `references/capability-matrix-0.7.md`。
 
 ### 3. UI 扩展槽位与真实 Props
@@ -1290,7 +1322,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | 脚手架指南 | `.../sdk/scaffold-cli.html` |
 | SDK API 参考 | `.../sdk/plugin-sdk.html` |
 | 故障排查 FAQ | `.../troubleshooting/troubleshooting-faq.html` |
-| Release Notes | `.../release-notes/v0.7.7.html`（线上构建若仍停在 0.7.4，改看仓库 `~/Develop/openlearnv2/docs/release-notes/`） |
+| Release Notes | `.../release-notes/v0.7.11.html`（线上构建若仍停在旧版，改看仓库 `~/Develop/openlearnv2/docs/release-notes/`） |
 
 > 文档站路径在版本间会变动（例：`plugin-update-distribution` 从 `plugin/` 移到 `reference/`）。
 > **以平台仓库 `~/Develop/openlearnv2/docs/` 的一手源为准**，线上只用于校验版本号与最终确认。

@@ -46,19 +46,18 @@ function loadContractJson(fileName) {
   return null;
 }
 
-// ── 平台真源：RBAC 权限 + 能力型权限 (method_policy) + 运行时权限全集 ──────
+// ── 平台真源：可声明权限全集（catalog.ts 的 CAP 全量 = SDK 的 CAPABILITIES）──
+// 口径：manifest.capabilitiesProposed 里能写什么，只有这一份答案。
+// 真源优先读平台契约的 `declarable` 字段（平台 Issue #368 之后由
+// packages/core/capability/catalog.ts 机器抽取，audit-tools/agent_facts.py 校验）。
+//
+// ⚠️ **契约缺失时不做能力校验，绝不用陈旧硬编码兜底**——
+// 那正是「student-data:write 被误判为不存在」的根因（技能仓 Issue #1）：
+// 误报的 error 级结论会诱导维护者删掉正确声明，而删掉后运行期是静默 403 /
+// PluginCapabilityDeniedError，比误报更难排查。宁可漏报，不可错杀。
 const CAP_DATA = loadContractJson('capabilities.json');
-const REAL_CAPS = new Set([
-  'management:write', 'lesson:write', 'whiteboard:write', 'management:read',
-  'plugin:write', 'lesson:read', 'vfs:write', 'process:write',
-  'assignment:manage', 'whiteboard:read', 'vfs:read', 'process:read',
-  'assignment:read', 'lesson:delete', 'plugin:read', 'student:write',
-  'assignment:write', 'assignment:submit', 'assignment:review',
-  'class:read', 'class:write', 'student:read', 'database',
-  ...(CAP_DATA?.command_required ?? []),
-  ...Object.values(CAP_DATA?.method_policy ?? {}),
-  ...(CAP_DATA?.runtime_permission ?? []),
-]);
+const DECLARABLE = Array.isArray(CAP_DATA?.declarable) ? CAP_DATA.declarable : null;
+const REAL_CAPS = DECLARABLE ? new Set(DECLARABLE) : null;
 
 // 3.7.2 起仅 type-only 导出的宿主内部类
 const TYPE_ONLY = [
@@ -219,7 +218,11 @@ if (manifest) {
 
   // capabilities
   const caps = Array.isArray(manifest.capabilitiesProposed) ? manifest.capabilitiesProposed : [];
-  for (const cap of caps) if (!REAL_CAPS.has(cap)) add('error', 'CAP_UNKNOWN', `权限串不存在于平台真实集合：${cap}（声明了也不生效）`, manifestPath);
+  if (REAL_CAPS) {
+    for (const cap of caps) if (!REAL_CAPS.has(cap)) add('error', 'CAP_UNKNOWN', `权限串不存在于平台真实集合：${cap}（声明了也不生效）`, manifestPath);
+  } else if (caps.length) {
+    add('warn', 'CAP_CONTRACT_MISSING', `未找到平台契约 capabilities.json，跳过 ${caps.length} 条权限串的真伪校验（不是「权限串无效」的结论）`, manifestPath);
+  }
 
   // api.routes
   for (const [i, r] of (manifest.api?.routes ?? []).entries()) {
@@ -328,7 +331,7 @@ for (const [type, info] of actions) {
   if (!info.hasSchema) add('warn', 'ACTION_SCHEMA_MISSING', `ActionDescriptor '${type}' 未声明 inputSchema`, 'src/index.ts');
   else if (!info.schemaCaseOk) add('warn', 'ACTION_SCHEMA_CASE', `inputSchema 的类型名应为大写 GenAI 枚举（OBJECT / STRING …）`, 'src/index.ts');
   if (!info.cap) add('error', 'ACTION_CAP_MISSING', `ActionDescriptor '${type}' 缺 capabilityRequired（宿主按它做授权）`, 'src/index.ts');
-  else if (!REAL_CAPS.has(info.cap)) add('error', 'ACTION_CAP_UNKNOWN', `ActionDescriptor '${type}' 的 capabilityRequired '${info.cap}' 不存在于平台真实集合`, 'src/index.ts');
+  else if (REAL_CAPS && !REAL_CAPS.has(info.cap)) add('error', 'ACTION_CAP_UNKNOWN', `ActionDescriptor '${type}' 的 capabilityRequired '${info.cap}' 不存在于平台真实集合`, 'src/index.ts');
 }
 
 // 运行期扩展点必须全限定（只匹配真实调用：第一个参数是字符串字面量，排除类型声明）
