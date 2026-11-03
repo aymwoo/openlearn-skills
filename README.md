@@ -4,6 +4,9 @@
 
 [![skills.sh](https://skills.sh/b/aymwoo/openlearn-skills)](https://skills.sh/aymwoo/openlearn-skills)
 
+> **主仓**：[GitHub](https://github.com/aymwoo/openlearn-skills) ｜ **镜像**：[Gitee](https://gitee.com/aymwoo/openlearn-skills)
+> issue / PR 优先在 GitHub 提交；GitHub 不可达时可到 Gitee 镜像提交，一个变更只在一个平台开 PR。
+
 ## 安装
 
 ```bash
