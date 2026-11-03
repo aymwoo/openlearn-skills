@@ -305,12 +305,24 @@ ctx.ui.registerExtensionPoint('teacher.dashboard.widget', {
 
 除了手动参考本指南编写代码，推荐使用官方的 **OpenLearn 插件开发 Skill** 来辅助开发。Skill 是运行在 Antigravity / Codex / Claude Code 中的 AI 代理套件，整合了最新 OpenLearn V2（平台 `0.2.9`、SDK `@openlearn/plugin-sdk@3.5.2` 与测试包 `@openlearn/plugin-test-kit`）的架构规范，能自动化插件开发的大部分流程。
 
-**安装与配置：**
+**安装与配置（GitHub / Gitee 双入口）：**
 
 ```bash
-# 使用 Antigravity CLI 或 npx 快捷添加官方开发 Skill
+# ① skills.sh 注册表安装（主仓在 GitHub，registry 只索引 GitHub 仓库）
 npx skills add aymwoo/openlearn-skills/openlearn-next-plugin-dev
+
+# ② 国内网络访问 GitHub 受限时，直连 Gitee 镜像
+#    skills CLI 会把非 GitHub 的完整 URL 当作 git 仓库克隆，因此必须写全仓库地址，
+#    不要用 owner/repo 简写（简写会固定拼成 https://github.com/...）。
+npx skills add https://gitee.com/aymwoo/openlearn-skills.git
+
+# ③ 彻底离线兑底：自己克隆后拷进 Agent 的 skills 目录
+#    git clone https://gitee.com/aymwoo/openlearn-skills.git
+#    cp -r openlearn-skills/openlearn-next-plugin-dev <Agent skills 目录>
+#    （Claude Code: ~/.claude/skills/；pi: ~/.pi/agent/skills/；Codex / Antigravity 同理）
 ```
+
+> 🔁 **Skill 仓库双平台**：主仓 [github.com/aymwoo/openlearn-skills](https://github.com/aymwoo/openlearn-skills)（Issue / PR / Release / CI 主入口）｜ 镜像 [gitee.com/aymwoo/openlearn-skills](https://gitee.com/aymwoo/openlearn-skills)（单向同步，不跑 CI、不发 Release；Issue / PR 只在一个平台开一份）。
 
 安装后，在 Agent 对话中提及 OpenLearn 插件开发相关需求（例如：“*帮我写一个基于 Node 隔离沙箱的课堂互动抽奖插件*”），Skill 将会自动激活。
 

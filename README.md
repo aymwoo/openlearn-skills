@@ -10,8 +10,20 @@
 ## 安装
 
 ```bash
+# ① GitHub 主仓（skills.sh 注册表，registry 只索引 GitHub 仓库）
 npx skills add aymwoo/openlearn-skills/openlearn-next-plugin-dev
+
+# ② 国内网络访问 GitHub 受限时：直连 Gitee 镜像
+#    skills CLI 会把非 GitHub 的完整 URL 当作 git 仓库克隆，
+#    所以必须写全仓库地址，不能用 owner/repo 简写（简写会固定拼成 https://github.com/...）。
+npx skills add https://gitee.com/aymwoo/openlearn-skills.git
 ```
+
+> **镜像策略**：镜像由 GitHub → Gitee **单向同步**，与 `main` 保持一致，但 **CI 与 Release 只在 GitHub 侧运行**。
+> 提 Issue / PR 请**只在一个平台开一份**；合并后把 `main` 快进到另一侧（绝不 force-push、不开自动双向镜像）。
+>
+> 完全离线也可以兑底：`git clone https://gitee.com/aymwoo/openlearn-skills.git` 后，把 `openlearn-next-plugin-dev/` 拷进 Agent 的 skills 目录
+> （Claude Code `~/.claude/skills/`、pi `~/.pi/agent/skills/`，Codex / Antigravity 同理）。
 
 ## 已有技能
 

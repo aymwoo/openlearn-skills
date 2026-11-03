@@ -6,6 +6,20 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.16.1] - 2026-11-03
+
+补齐面向国内开发者的**安装入口**：上一版（2.16.0）已让 issue / PR / push 流程支持 Gitee 回退，但「怎么装到这个 skill」仍只写了 GitHub 简写——GitHub 不可达时连安装都迈不出第一步。`skills.sh` 注册表只索引 GitHub 仓库，所以 Gitee 侧必须用**完整仓库 URL**（skills CLI 对非 GitHub 地址退化为 `git clone`）。
+
+### 新增
+
+- **`SKILL.md`《获取与更新（GitHub 主仓 / Gitee 镜像）》**：双平台地址表 + GitHub 简写 / Gitee 全 URL 两条安装命令 + 离线拷目录兑底；明确「镜像不跑 CI 不等于镜像过期，先 `sync-mirror.sh status`」「提 Issue / PR 只在一个平台开一份」两条判定与红线。
+- **`README.md` 安装段**：补 Gitee 安装命令与镜像策略说明（单向同步、不发 Release、同一个变更只开一份 Issue / PR）。
+- **`references/plugin-development-tutorial.md`**：快照的安装段与平台教程 §2.8 同步为 GitHub / Gitee 双入口。
+
+### 注意
+
+- **不要让用户用 `owner/repo` 简写装 Gitee**：简写会被 CLI 固定拼成 `https://github.com/...`，在国内网络下直接失败。
+
 ## [2.16.0] - 2026-11-03
 
 仓库协作从 GitHub 单平台扩展为 **GitHub 主仓 + Gitee 镜像** 双平台：GitHub 优先，只有网络/鉴权不可用时才回退 Gitee；一个变更只在一个平台开 PR，合并后把 `main` 快进到另一个平台，绝不 force-push。起因是平台仓库同时托管在 GitHub 与 Gitee，但 skill 的 issue/PR/push 流程只认 GitHub，GitHub 不可达时协作会中断。
