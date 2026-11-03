@@ -347,6 +347,7 @@ npx skills add aymwoo/openlearn-skills/openlearn-next-plugin-dev
 | `frontend-only` | 前端 React 19 渲染层 | `package.json`, `tsconfig.json`, `src/index.ts`, `src/frontend.tsx` |
 
 **官方 Skill 资源与存储库**：[github.com/aymwoo/openlearn-skills](https://github.com/aymwoo/openlearn-skills)
+（镜像：[gitee.com/aymwoo/openlearn-skills](https://gitee.com/aymwoo/openlearn-skills)）
 
 > 💡 **提示**：在开发复杂插件时，直接使用 AI Skill 生成的基础代码天然遵循平台的 5 阶段启动流水线、DI Token 依赖注入与沙箱隔离规范，可提升 5~10 倍的开发效率。
 
