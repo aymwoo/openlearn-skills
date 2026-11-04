@@ -1,0 +1,205 @@
+name: OpenLearn Plugin L0 / Build
+
+# 可被**插件仓库**复用的护栏 workflow（技能仓 Issue #2）。
+#
+# 解决的问题：`assets/test-harness/` 过去是「拷贝到各插件仓库」用的 ——
+# 9 个插件各存一份，规则版本不一致、改动只能人工同步，而且插件仓本身没有 CI，
+# L0 只在本地手动跑，回归全靠自觉。
+#
+# 这里把护栏的**真源固定在本仓库**：workflow 用 `actions/checkout` 取
+# `aymwoo/openlearn-skills` 的 `assets/test-harness/`，**不依赖调用方仓库里的拷贝**，
+# 于是规则一改，所有插件仓下一次 CI 就立刻生效。
+#
+# 插件仓三行接入：
+#
+#   # .github/workflows/l0.yml
+#   on: [push, pull_request]
+#   jobs:
+#     l0:
+#       uses: aymwoo/openlearn-skills/.github/workflows/plugin-l0.yml@main
+#       with:
+#         plugin-dir: '.'        # 可选：单仓多插件时指定子目录
+#         fail-on: 'error'       # error | warn
+#
+# 版本锁定：生产插件建议用 `@v2`（跟随 2.x 线，与 `skill-ref` 保持一致）；
+# 尝鲜用 `@main`。两者不一致时**以 `skill-ref` 取到的护栏为准**，
+# 因此两个要一起改（见下面对 `skill-ref` 的说明）。
+
+on:
+  workflow_call:
+    inputs:
+      plugin-dir:
+        description: '插件目录（相对仓库根）。单仓多插件时指定子目录，如 plugins/my-plugin'
+        required: false
+        default: '.'
+        type: string
+      fail-on:
+        description: '阻断阈值：error = 只有 error 阻断；warn = warn 也阻断'
+        required: false
+        default: 'error'
+        type: string
+      skill-ref:
+        description: '取护栏的技能仓版本。应与 uses: 上的 @ref 保持一致（@main ↔ main，@v2 ↔ v2）'
+        required: false
+        default: 'main'
+        type: string
+      require-contract:
+        description: '是否强制要求 plugin.contract.json 存在（缺失即视为 error）'
+        required: false
+        default: false
+        type: boolean
+      run-build:
+        description: '是否执行真实构建（npm run build / pnpm build 自适应）'
+        required: false
+        default: true
+        type: boolean
+      node-version:
+        description: 'Node 版本'
+        required: false
+        default: '22'
+        type: string
+    secrets: {}
+
+permissions:
+  contents: read
+
+jobs:
+  l0:
+    name: L0 契约静态检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出插件仓库
+        uses: actions/checkout@v7
+        with:
+          path: plugin
+
+      - name: 检出护栏真源（技能仓）
+        uses: actions/checkout@v7
+        with:
+          repository: aymwoo/openlearn-skills
+          ref: ${{ inputs.skill-ref }}
+          path: .skill
+
+      - name: 准备 Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: 运行 L0 静态契约检查
+        id: l0
+        env:
+          PLUGIN_DIR: ${{ inputs.plugin-dir }}
+          SKILL_REF: ${{ inputs.skill-ref }}
+        run: |
+          set -uo pipefail
+          HARNESS=".skill/openlearn-next-plugin-dev/assets/test-harness/static-check.mjs"
+          PLUGIN="plugin/${PLUGIN_DIR}"
+
+          if [ ! -d "$PLUGIN" ]; then
+            echo "::error::插件目录不存在：$PLUGIN（plugin-dir 输入有误？）"
+            exit 1
+          fi
+
+          # 护栏自带平台契约快照（assets/test-harness/contracts/），
+          # 因此 L0 不需要克隆平台仓库；如需以平台 HEAD 为准可设 PLATFORM_REPO。
+          echo "护栏来源：aymwoo/openlearn-skills@${SKILL_REF}"
+          echo "插件目录：${PLUGIN}"
+
+          # static-check 的退出码只区分「有 error / 无 error」，
+          # 阈值判定统一交给下一步（才能支持 fail-on=warn）。
+          node "$HARNESS" "$PLUGIN" --json > l0-report.json || true
+
+          if [ ! -s l0-report.json ]; then
+            echo "::error::L0 未产出 JSON 报告（护栏脚本可能异常退出）"
+            exit 1
+          fi
+          echo "报告字节数：$(wc -c < l0-report.json)"
+
+      - name: 写入 Job Summary
+        env:
+          PLUGIN_DIR: ${{ inputs.plugin-dir }}
+        run: |
+          node .skill/openlearn-next-plugin-dev/assets/test-harness/render-summary.mjs l0-report.json
+
+      - name: 判定是否阻断
+        env:
+          FAIL_ON: ${{ inputs.fail-on }}
+          REQUIRE_CONTRACT: ${{ inputs.require-contract }}
+        run: |
+          set -uo pipefail
+          ERR=$(node -p "require('./l0-report.json').errors.length")
+          WARN=$(node -p "require('./l0-report.json').warns.length")
+          MISSING_CONTRACT=$(node -p "require('./l0-report.json').warns.filter(w => w.code === 'CONTRACT_MISSING').length")
+          echo "error=$ERR warn=$WARN（阈值 fail-on=${FAIL_ON}）"
+
+          if [ "$ERR" -gt 0 ]; then
+            echo "::error::L0 发现 $ERR 个 error，阻断。"
+            exit 1
+          fi
+          if [ "$REQUIRE_CONTRACT" = "true" ] && [ "$MISSING_CONTRACT" -gt 0 ]; then
+            echo "::error::require-contract=true 但缺少 plugin.contract.json，阻断。"
+            exit 1
+          fi
+          if [ "$FAIL_ON" = "warn" ] && [ "$WARN" -gt 0 ]; then
+            echo "::error::fail-on=warn 且存在 $WARN 个 warn，阻断。"
+            exit 1
+          fi
+          echo "✅ L0 通过（error=0 warn=$WARN）"
+
+  build:
+    name: 真实构建
+    needs: l0
+    # 用 !cancelled()：L0 挂了也要把构建结果跑出来，否则只看到一个红叉，
+    # 不知道是契约问题还是构建问题。
+    if: ${{ !cancelled() && inputs.run-build }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出插件仓库
+        uses: actions/checkout@v7
+        with:
+          path: plugin
+
+      - name: 准备 Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: 安装依赖（按 lockfile 自适应）
+        env:
+          PLUGIN_DIR: ${{ inputs.plugin-dir }}
+        run: |
+          set -euo pipefail
+          cd "plugin/${PLUGIN_DIR}"
+          if [ -f pnpm-lock.yaml ]; then
+            echo "→ pnpm install --frozen-lockfile"
+            pnpm install --frozen-lockfile
+          elif [ -f package-lock.json ]; then
+            echo "→ npm ci"
+            npm ci
+          elif [ -f yarn.lock ]; then
+            echo "→ yarn install --frozen-lockfile"
+            yarn install --frozen-lockfile
+          else
+            echo "→ npm install（无 lockfile）"
+            npm install --no-audit --no-fund
+          fi
+
+      - name: 构建
+        env:
+          PLUGIN_DIR: ${{ inputs.plugin-dir }}
+        run: |
+          set -euo pipefail
+          cd "plugin/${PLUGIN_DIR}"
+          HAS_BUILD=$(node -p "!!(require('./package.json').scripts || {}).build")
+          if [ "$HAS_BUILD" != "true" ]; then
+            echo "::notice::package.json 没有 build 脚本，跳过构建检查。"
+            exit 0
+          fi
+          echo "→ npm run build"
+          npm run build
+          # 产物自检：官方 CLI 打包会产出这三个文件，缺一即为构建不完整
+          ls -l index.js manifest.json 2>/dev/null || true
+          if [ ! -f manifest.json ]; then
+            echo "::error::构建后仍找不到 manifest.json，构建产物不完整。"
+            exit 1
+          fi

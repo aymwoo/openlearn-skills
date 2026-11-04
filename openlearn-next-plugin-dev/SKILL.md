@@ -2,7 +2,7 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.17.0
+version: 2.18.0
 description: 为 OpenLearnV2 教学平台（当前平台 0.7.11 / SDK 仓库 3.8.0·npm 3.8.0）开发插件，并协作处理 OpenLearn 相关 GitHub / Gitee 仓库的 issue 与 PR（GitHub 优先，GitHub 不可达时回退 Gitee 镜像）。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；双平台协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并、合并后 main 镜像同步。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
@@ -1274,7 +1274,8 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | `references/ui-channel-decision.md` | **UI 通道决策真源**（4 条通道：声明式 / `view` 沙箱页面 / inline React / 内置；执行模式与白名单机制、槽位全集、白板挂件端到端契约、失败模式对照） |
 | `references/testing-strategy.md` | **开发期测试策略**（L0–L3 阶梯、必测矩阵、Guardrail→用例映射、Mock 与生产宿主 8 处差异、环境坑、L3 冒烟清单、CI 片段） |
 | `references/integration-facts.json` | **集成事实表**（条目见文件，勿照抄数字：view 桥接返回形态 / 方法策略差异 / 网关 1MB·5s·roles / 安装只解压 `storage/` / CLI 三件套 / 渲染器隐藏 / SQL 守卫前缀与禁用语句 / **注册先于 fetch、缺 frontend.js 不阻断入口** / `@openlearn/*` 外部化与 SDK 软链 / ServiceHost Barrier 2 空能力门禁 / 浮层隔离 / 学生端上下文来源）。每条带**源码锚点**（支持 `before` **顺序断言**）与「写错会怎样」的 `impact` |
-| `assets/test-harness/` | **插件测试护栏（用户侧）**：`static-check.mjs`（零依赖 L0，含 UI 通道/槽位/白板/`view` 检查）+ `slot-registry.json`（真实槽位全集，与平台 `docs/agent/contracts/slots.json` 同源）+ `contract.test.ts`（L1）+ `view-smoke.test.ts`（L1，jsdom 加载 `storage/*.html` 并接假桥接）+ `smoke.test.ts`（L2，含白板下发断言）+ `vitest.config.ts` + `README.md` |
+| `assets/test-harness/` | **插件测试护栏（用户侧）**：`static-check.mjs`（零依赖 L0，含 UI 通道/槽位/白名单/`view` 检查）+ `slot-registry.json`（真实槽位全集，与平台 `docs/agent/contracts/slots.json` 同源）+ `contract.test.ts`（L1）+ `view-smoke.test.ts`（L1，jsdom 加载 `storage/*.html` 并接假桥接）+ `smoke.test.ts`（L2，含白板下发断言）+ `render-summary.mjs`（把 L0 JSON 渲染成 Job Summary 表格）+ `vitest.config.ts` + `README.md` |
+| `.github/workflows/plugin-l0.yml` | **可复用 CI workflow（`workflow_call`）**：插件仓三行接入即得 L0 + 真实构建；护栏真源固定在本仓（`actions/checkout` 取 `aymwoo/openlearn-skills`），规则一改所有插件仓即刻生效。用法见 `assets/test-harness/README.md` §6 |
 | `references/troubleshooting.md` | **故障归因 SOP**（受理报错的五要素、证据清单、归因决策树、系统侧证据门槛、最小复现实验、已知系统问题索引、输出规范、上报 issue 衔接） |
 | `references/github-collaboration.md` | **GitHub / Gitee Issue/PR 协作 SOP**（平台探测与回退、双平台命令对照、**§1A 缺陷 Issue 创建**、issue 预检与占位、worktree、PR 模板、CI、审查、返工、合并后 main 同步、清理、异常表、输出模板、红线） |
 | `references/repo-mirrors.json` | **平台仓库镜像登记表**（GitHub ↔ Gitee 映射、默认分支与回退策略；未登记的仓库不启用 Gitee 回退） |
