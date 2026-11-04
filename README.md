@@ -57,6 +57,35 @@ bash scripts/facts-check.sh              # 集成事实的源码锚点校验（�
 | `platform-head-diff` | 与**平台仓库 HEAD** 比对（提前预警下一次发版的变化） | ❌ 仅预警 |
 | `contract-drift` | 与**平台契约真源**（`docs/agent/contracts/`）比对（漂移预警，提示水合） | ❌ 仅预警 |
 
+---
+
+## 给插件仓库用：可复用 CI workflow
+
+护栏（`assets/test-harness/`）过去只能**拷贝**进插件仓库，于是各仓版本不一致、改规则靠人工同步、
+插件仓自身没有 CI。本仓现在提供一个**可复用 workflow**，护栏真源固定在这里 —— 规则一改，
+所有插件仓下一次 CI 就立刻生效，不需要各仓同步文件。
+
+插件仓三行接入：
+
+```yaml
+# 插件仓库：.github/workflows/l0.yml
+on: [push, pull_request]
+jobs:
+  l0:
+    uses: aymwoo/openlearn-skills/.github/workflows/plugin-l0.yml@main
+    with:
+      plugin-dir: '.'        # 可选：单仓多插件时指定子目录
+      fail-on: 'error'       # error | warn
+```
+
+| Job | 做什么 | 失败后果 |
+| --- | --- | --- |
+| `l0` | 跑 L0 静态契约检查（零依赖、秒级）→ 结果渲染成 Job Summary 表格 | 有 error（或 `fail-on=warn` 且有 warn）则阻断 |
+| `build` | 按 lockfile 自适应装依赖 → `npm run build` | 构建失败则阻断 |
+
+输入项、版本锁定（`@main` 尝鲜 / `@v2` 固定）与本地复现方式，见
+[护栏 README §6](./openlearn-next-plugin-dev/assets/test-harness/README.md)。
+
 > **为什么契约漂移不阻塞**：契约快照直连平台 `docs/agent/contracts/`，平台改一次契约就会漂移，
 > 但那只意味着「可以水合一次」，不代表 skill 产物有错——发布版 API 面由 `scaffold-diff` /
 > `build-verify` 两个阻塞 job 把关。因此契约漂移与平台 HEAD 比对一样只作预警，

@@ -1,3 +1,67 @@
+## [2.18.0] - 2026-11-04
+
+把插件测试护栏（L0）从「**拷贝进各插件仓库**」升级为「**CI 里直接复用**」（技能仓 Issue #2）。
+
+背景：`assets/test-harness/` 过去靠拷贝分发，9 个插件仓各存一份 —— 规则版本不一致、
+改规则只能人工同步，而且插件仓自身没有 CI，L0 只在本地手动跑，回归全靠自觉。
+本轮维护里同类问题（裸说明符、字号、权限串、ActionDescriptor）在多个仓库重复出现，
+根因就是没有统一门禁。
+
+### 新增
+
+- **`.github/workflows/plugin-l0.yml`（`workflow_call` 可复用 workflow）**：插件仓三行接入即得 L0 + 真实构建。
+
+  ```yaml
+  # 插件仓库：.github/workflows/l0.yml
+  on: [push, pull_request]
+  jobs:
+    l0:
+      uses: aymwoo/openlearn-skills/.github/workflows/plugin-l0.yml@main
+      with:
+        plugin-dir: '.'        # 可选：单仓多插件时指定子目录
+        fail-on: 'error'       # error | warn
+  ```
+
+  **关键设计**：workflow 用 `actions/checkout` 取**技能仓**的 `assets/test-harness/`
+  （`repository: aymwoo/openlearn-skills`），**不读调用方仓库里的拷贝** —— 规则一改，
+  所有插件仓下一次 CI 立刻生效，不需要各仓同步文件。
+
+  两个 job：`l0`（跑 `static-check.mjs --json` → 渲染成 Job Summary 表格）与
+  `build`（按 lockfile 自适应装依赖 → `npm run build`）。`build` 用
+  `if: !cancelled() && inputs.run-build`：**L0 挂了也照样跑构建**，
+  否则只看到一个红叉，分不清是契约问题还是构建问题。
+
+  输入项：`plugin-dir` / `fail-on`（error|warn）/ `skill-ref` / `require-contract` /
+  `run-build` / `node-version`。
+
+- **`assets/test-harness/render-summary.mjs`**：把 L0 的 JSON 报告渲染成 GitHub Job Summary
+  的 Markdown 表格。独立成文件而不是塞进 workflow 的 `run:` 里 —— 那样会变成一大坨内联 YAML，
+  难读也难测；插件作者还能在本地复现 CI 里看到的同一张表
+  （`GITHUB_STEP_SUMMARY=... node render-summary.mjs report.json`）。
+
+- **`v2` 浮动 tag**：指向 2.x 线当前版本，供生产插件固定护栏版本
+  （`uses: ...@v2` + `skill-ref: v2`）；`@main` 用于尝鲜。
+
+### 变更
+
+- **`scripts/check-templates.sh`**：新增两项自检 —— ① 可复用 workflow 必须存在且带
+  `workflow_call` 触发器（否则插件仓一接入就报「找不到 workflow」）；② `v2` 浮动 tag
+  是否指向 CHANGELOG 最新版本，落后则给出**移动 tag 的具体命令**（提醒，不阻断 ——
+  tag 由维护者在发版后移动）。路径上注意：脚本的 `ROOT` 是**技能子目录**，
+  而 `.github/` 与 `CHANGELOG.md` 在**仓库根**，需显式算出 `REPO_ROOT`。
+- **`assets/test-harness/README.md` §6**：新增「在 CI 里用」——接入方式、为什么能解决
+  版本漂移、输入项、版本锁定规则、两个 job 的失败后果、本地复现方式。
+- **`README.md`**：新增「给插件仓库用：可复用 CI workflow」小节。
+- **`SKILL.md`**：资源文件说明表补 `render-summary.mjs` 与可复用 workflow 两行。
+
+### 注意
+
+- **`uses:` 的 `@ref` 与 `skill-ref` 必须一起改**：`uses:` 决定 workflow 文件本身取自哪个版本，
+  `skill-ref` 决定护栏脚本取自哪个版本；两者不一致时**以 `skill-ref` 取到的护栏为准**。
+- L0 已覆盖 issue 建议的全部检查项（槽位注册表比对、`plugin.contract.json` 存在性与
+  `executionMode` / `uiChannel` 一致性都在 `static-check.mjs` 内），因此这个 workflow
+  是**薄封装**——不重复实现规则，只负责「取真源 → 跑 → 报告 → 按阈值阻断」。
+
 # Changelog
 
 本仓库所有值得记录的变更都写在这里。

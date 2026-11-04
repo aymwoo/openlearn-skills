@@ -113,3 +113,83 @@ L0 是**启发式**（正则 + 注释遮蔽），用于秒级反馈；L1/L2 才�
 3. 每加一个命令：L0 + L1 跑一次；命令里出现 `payload.x.y` 解构时，补 L2 的最小 payload 用例。
 4. 提交前：L0 0 error、L1/L2 全绿、`npm run build` 成功，三条齐了再上传。
 5. 上传后按 L3 清单做一次真实宿主冒烟（见 `references/testing-strategy.md` §7）。
+
+---
+
+## 6. 在 CI 里用（可复用 workflow · Issue #2）
+
+护栏过去只能**拷贝**进插件仓库，于是 9 个插件各存一份：版本不一致、改规则靠人工同步、
+插件仓本身没有 CI，L0 只在本地手动跑。
+
+现在护栏的**真源固定在技能仓**，插件仓三行接入即可：
+
+```yaml
+# 插件仓库：.github/workflows/l0.yml
+on: [push, pull_request]
+jobs:
+  l0:
+    uses: aymwoo/openlearn-skills/.github/workflows/plugin-l0.yml@main
+    with:
+      plugin-dir: '.'        # 可选：单仓多插件时指定子目录
+      fail-on: 'error'       # error | warn
+```
+
+### 为什么这样能解决版本漂移
+
+workflow 用 `actions/checkout` **取技能仓的 `assets/test-harness/`**，不读调用方仓库里的拷贝：
+
+```yaml
+- uses: actions/checkout@v7
+  with:
+    repository: aymwoo/openlearn-skills   # ← 护栏真源
+    ref: ${{ inputs.skill-ref }}
+    path: .skill
+```
+
+于是规则一改，所有插件仓下一次 CI 就立刻生效 —— 不需要各仓同步文件。
+
+### 输入项
+
+| 输入 | 默认 | 说明 |
+| --- | --- | --- |
+| `plugin-dir` | `.` | 插件目录（相对仓库根）；单仓多插件时指定子目录 |
+| `fail-on` | `error` | 阻断阈值：`error` = 只有 error 阻断；`warn` = warn 也阻断 |
+| `skill-ref` | `main` | 取护栏的技能仓版本。**应与 `uses:` 上的 `@ref` 保持一致** |
+| `require-contract` | `false` | 强制要求 `plugin.contract.json` 存在（缺失即视为 error） |
+| `run-build` | `true` | 是否执行真实构建 |
+| `node-version` | `22` | Node 版本 |
+
+### 版本锁定
+
+| 场景 | `uses:` | `skill-ref` |
+| --- | --- | --- |
+| 尝鲜（规则即时生效） | `@main` | 省略（默认 `main`） |
+| 生产固定 | `@v2` | `v2` |
+
+> ⚠️ `uses:` 的 `@ref` 与 `skill-ref` **必须一起改**：`uses:` 决定 workflow 文件本身取自哪个版本，
+> `skill-ref` 决定护栏脚本取自哪个版本。两者不一致时**以 `skill-ref` 取到的护栏为准**。
+> `v2` 是指向 2.x 线当前版本的浮动 tag（发新版时需移动）。
+
+### 两个 job
+
+| Job | 做什么 | 失败后果 |
+| --- | --- | --- |
+| `l0` | 跑 `static-check.mjs --json` → 结果渲染成 Job Summary 表格 | 有 error（或 `fail-on=warn` 且有 warn）则阻断 |
+| `build` | 按 lockfile 自适应装依赖（pnpm / npm / yarn）→ `npm run build` | 构建失败则阻断 |
+
+- `build` 用 `if: !cancelled() && inputs.run-build`：**L0 挂了也照样跑构建**，
+  否则只看到一个红叉，分不清是契约问题还是构建问题。
+- L0 覆盖的检查项（都在 `static-check.mjs` 内）：manifest 必填项 · engines ·
+  命令/Handler/Action 三件套配对 · **权限串真伪** · **槽位注册表比对**
+  （`SLOT_UNKNOWN` / `SLOT_NOT_DECLARED`）· 隔离模式空能力门禁 · 前端沙箱边界 ·
+  裸模块说明符 · DB 表名与分号 · type-only 导入 · 密钥泄露 ·
+  **`plugin.contract.json` 存在性与 `executionMode` / `uiChannel` 一致性**。
+- 无 `build` 脚本的插件会打 `::notice::` 跳过，不算失败。
+
+### 本地复现 CI 里的同一张表
+
+```bash
+node test-harness/static-check.mjs . --json > report.json
+node test-harness/render-summary.mjs report.json          # 打到 stdout
+GITHUB_STEP_SUMMARY=/tmp/summary.md node test-harness/render-summary.mjs report.json
+```

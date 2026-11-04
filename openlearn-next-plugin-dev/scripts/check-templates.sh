@@ -339,6 +339,38 @@ for pat in 'COMMAND_NOT_REGISTERED' 'COMMAND_CAPABILITY_DENIED' 'manifest\.main'
   fi
 done
 
+# ── 可复用 CI workflow（Issue #2）─────────────────────────────────────────
+# 插件仓靠 `uses: aymwoo/openlearn-skills/.github/workflows/plugin-l0.yml@<ref>` 接入，
+# 所以该文件必须存在且带 workflow_call 触发器；否则插件仓一接入就报「找不到 workflow」。
+#
+# 注意路径：ROOT 是**技能子目录**（openlearn-next-plugin-dev/），而 .github/ 与 CHANGELOG.md
+# 在**仓库根** —— 这里显式算出 REPO_ROOT，避免在子目录里找不到文件而误报。
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
+if [ -f "$REPO_ROOT/.github/workflows/plugin-l0.yml" ]; then
+  ok "可复用 workflow plugin-l0.yml 存在"
+  if grep -qE '^\s*workflow_call:' "$REPO_ROOT/.github/workflows/plugin-l0.yml"; then
+    ok "plugin-l0.yml 含 workflow_call 触发器"
+  else
+    bad "plugin-l0.yml 缺少 workflow_call 触发器（插件仓无法 uses: 复用）"
+  fi
+else
+  bad "缺少 .github/workflows/plugin-l0.yml（插件仓无法复用护栏 CI）"
+fi
+
+# v2 浮动 tag：插件仓用 @v2 固定护栏版本；tag 落后于最新版本只会让插件仓拿到旧规则，
+# 所以这里给提醒（不阻断 —— tag 由维护者在发版后移动）。
+LATEST_VER="$(grep -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' "$REPO_ROOT/CHANGELOG.md" 2>/dev/null | head -1 | sed 's/^## \[//; s/\]$//')"
+if git rev-parse -q --verify "refs/tags/v2^{commit}" >/dev/null 2>&1; then
+  V2_VER="$(git show "v2:openlearn-next-plugin-dev/SKILL.md" 2>/dev/null | grep -m1 -oE '^version: .*' | sed 's/version: //')"
+  if [ "$V2_VER" = "$LATEST_VER" ]; then
+    ok "v2 浮动 tag 指向最新版本（$V2_VER）"
+  else
+    warn "v2 浮动 tag 指向 ${V2_VER:-未知}，而 CHANGELOG 最新版本是 ${LATEST_VER:-未知} —— 插件仓用 @v2 会拿到旧规则。发版后请移动：git tag -f v2 <新版本提交> && git push origin v2 --force"
+  fi
+else
+  warn "没有 v2 浮动 tag —— 插件仓只能用 @main（无法固定护栏版本）。创建：git tag -a v2 -m '...' <最新版本提交> && git push origin v2"
+fi
+
 # ── 汇总 ──────────────────────────────────────────────────────────────────
 printf '\n\033[1m结果\033[0m：通过 %d，失败 %d，跳过 %d\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" -eq 0 ] || exit 1
