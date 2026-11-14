@@ -1,4 +1,4 @@
-# 前端插件：沙箱桥接模型（v0.7.11 真源，SDK 3.8.0）
+# 前端插件：沙箱桥接模型（v0.7.14 真源，SDK 3.8.0）
 
 > 整理自官方文档 `plugin/frontend-sandbox-capability-boundary.html`（`doc-version: sdk=3.8.0`）与
 > `reference/plugin-host-shared-deps.html` 的 v0.7.0 勘误；源码见 `src/plugin-host/plugin-host.ts`

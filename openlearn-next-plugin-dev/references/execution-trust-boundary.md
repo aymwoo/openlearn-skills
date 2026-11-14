@@ -1,4 +1,4 @@
-# 执行模式与信任边界（v0.7.11 真源，SDK 3.8.0）
+# 执行模式与信任边界（v0.7.14 真源，SDK 3.8.0）
 
 > 整理自官方文档 `reference/plugin-trust-boundary.html`（`doc-version: sdk=3.8.0`）与源码
 > `packages/core/plugin-host/execution-policy.ts`、`packages/core/worker-runtime/plugin-net-preload.cjs`。

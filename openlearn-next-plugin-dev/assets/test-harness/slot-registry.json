@@ -1,7 +1,7 @@
 {
   "source": "src/plugin-host/types.ts (export type ExtensionSlot)",
-  "platformVersion": "0.7.7",
-  "platformCommit": "584eb0e",
+  "platformVersion": "0.7.14",
+  "platformCommit": "4ada5ad",
   "anchorPattern": "anchor:{区域}:{锚点id}",
   "note": "槽位是封闭集合；未列出的名字宿主没有消费方，声明了也不会渲染。anchor:* 为动态模式。",
   "count": 120,

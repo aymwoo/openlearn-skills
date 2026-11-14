@@ -1,6 +1,7 @@
 # UI 通道决策：执行模式 / 槽位 / 白板挂件
 
-> 适用平台 v0.7.7 / SDK 3.7.4（2026-10-28 核对）。
+> 适用平台 v0.7.14 / SDK 3.8.0（2026-11-08 复核）。
+> 文中 `v0.7.7 + #350 起`、`SDK CLI 3.7.2+`、`schema < v0.7.7` 等均为「行为何时变更」的历史锚点，不代表当前版本。
 > 本文件解决一类高频事故：**教师点了按钮，学生端什么也看不到**。根因往往不在某一行代码，
 > 而是「UI 意图」与「执行模式 + 槽位 + 数据写入」三者没对齐，且平台不会报错，只会静默不渲染。
 >
@@ -42,7 +43,9 @@ else → process + coerced=true（静默降档）
       ├─ 只需列表/按钮/文本/跳转 → manifest 声明式槽位（process 可行）
       └─ 需要自定义界面
          ├─ 能用 HTML/CSS/原生 JS 写（不需要宿主 React 组件） → **沙箱 HTML 视图（view）**，process 可行，无需白名单（见 §4.5）
-         └─ 必须是 React 组件 / 要进白板画布卡片 → 必须 inline
+         │    └─ 白板画布卡片也走这条：在 `teacher.dashboard.widget` / `student.view` 配置 `view`，
+         │       宿主 `PluginCardRenderer` 用 `PluginSandboxIframeView` 渲染（见 §5.3）
+         └─ 必须是 React `component` → 必须 inline
             ├─ 能改宿主 .env 并重启、且接受该插件同进程运行？ → 走白名单（见 §3）
             └─ 不能 → 放弃，改成：view 页面 + 命令 + 轮询
 ```
@@ -92,6 +95,9 @@ else → process + coerced=true（静默降档）
     }
   ]
   ```
+  > `classroomTools` 是 legacy 字段；新插件推荐写 `contributes["classroom.tool"]`（zod 严格校验，
+  > 形状错误挡在安装期，见平台 `docs/agent/reference/manifest.md`）。二者二选一，同时写会跳过
+  > `contributes` 版本以防双注册；`$lessonId` / `$classId` 占位替换对两者都生效。
 - **模式 B：插件后端级联派发**
   若下发前必须由插件后端执行校验或前置准备，在 manifest 申请并获批 `whiteboard:write` 能力，在 handler 中调用：
   ```ts
@@ -245,11 +251,13 @@ export default {
 }
 ```
 
-规则（`sanitizeViewPath` 会校验，违规直接显示「非法的插件视图路径」）：
+规则分两层，别混为一谈：
 
-- 必须是**相对路径**，禁止 `://`、`//` 开头、`..`、`javascript:` / `data:` / `blob:`；
-- **必须以 `storage/` 开头**：安装器（`install.ts`）只解压 `storage/**`；
-  官方教程里 `"views/index.html"` 的示例对本仓库的 ZIP 插件是**错的**（装上去 404 → 空白面板）；
+- **路径安全**（`sanitizeViewPath` 校验，违规显示「非法的插件视图路径」）：必须是相对路径，
+  禁止 `://`、`//` 开头、`..`、`javascript:` / `data:` / `blob:`；命中这些才返回 `null`。
+- **落盘约束**（安装器 `install.ts`，**不是** `sanitizeViewPath`）：**必须以 `storage/` 开头**——
+  安装器只解压 ZIP 里 `storage/**` 的条目。官方教程的 `"views/index.html"` 示例路径本身合法，
+  但文件不会落盘 → 404 / 空白面板（L0 `VIEW_NOT_IN_STORAGE` 会拦）；
 - 实际 URL 是 `/plugins/<插件安装 id>/<storage/...>`，文件放在插件包的 `storage/` 下；
 - `.html` 响应带 `PLUGIN_VIEW_CSP`（允许内联脚本/样式与 https 资源，`frame-ancestors 'self'`）。
 
@@ -268,7 +276,7 @@ export default {
     let ctx = null, lessonId = null;
 
     OpenLearnPluginBridge.onInit((c) => {
-      ctx = c; lessonId = c.lessonId;          // { pluginId, slot, lessonId, classId, lang, theme }
+      ctx = c; lessonId = c.lessonId;          // { pluginId, slot, lessonId, classId, studentId, studentName, lang, theme }
       document.documentElement.lang = c.lang || 'zh-CN';
       render();
     });
@@ -301,7 +309,7 @@ export default {
 |-----|------|
 | `onInit(cb)` / `onContextUpdate(cb)` / `getContext()` | 拿 `{ pluginId, slot, lessonId, classId, lang, theme }`，课堂切换时同步 |
 | `invokeCommand(type, payload)` | 调**本插件**已注册的命令（自动加命名空间前缀） |
-| `api.get/post/del(path, body)` | 走宿主代发到 `/api/plugins/<id>/<path>`（推荐，鉴权与审批一致） |
+| `api.get(path)` / `api.post(path, body)` / `api.del(path)` | 走宿主代发到 `/api/plugins/<id>/<path>`（推荐，鉴权与审批一致）；仅 `post` 可带 body |
 | `storage.get/set/delete(key)` | 宿主 localStorage 命名空间（`ol_pv_<pluginId>_*`） |
 | `ui.toast/showToast(msg, type)` / `ui.resize(h)` | 提示与高度自适应 |
 
@@ -326,7 +334,9 @@ const walk = (dir, base = '') =>
     return statSync(p).isDirectory() ? walk(p, `${base}${name}/`) : [`${base}${name}`];
   });
 
-for (const rel of walk('storage')) zip.file(rel, readFileSync(join('storage', rel)));
+// ZIP 条目名必须带 storage/ 前缀：安装器只解压 name.startsWith('storage/') 的条目，
+// 写成 zip.file(rel, ...) 会得到根级 teacher.html，文件不落盘 → 运行时 404。
+for (const rel of walk('storage')) zip.file(`storage/${rel}`, readFileSync(join('storage', rel)));
 writeFileSync(zipPath, await zip.generateAsync({ type: 'nodebuffer' }));
 console.log(`repacked ${zipPath} with storage/**`);
 ```
@@ -337,7 +347,8 @@ console.log(`repacked ${zipPath} with storage/**`);
 
 - iframe **没有** `allow-same-origin`：拿不到宿主 DOM / localStorage / Cookie，只能通过桥接；
 - **不要**在页面里直接 `fetch('/api/...')`：不透明源下 Cookie 不可靠，统一走 `api.*` / `invokeCommand`；
-- 页面不能渲染到白板画布卡片里（那需要 `component`，见 §5）；view 是**页面/面板**级 UI；
+- 白板画布卡片**也支持 `view`**：`PluginCardRenderer.tsx` 读 `ext.view` 后用 `PluginSandboxIframeView`
+  在卡片内渲染沙箱页面，process 插件无需 inline（见 §5.3）；只有要提供 React `component` 时才必须 inline；
 - 天然 CSP 允许内联脚本与 https 资源，但宿主无法审计你的 JS —— 只加载自己打包的代码。
 
 ## 5. 白板挂件端到端契约（教师下发 → 学生看到）
@@ -361,7 +372,7 @@ console.log(`repacked ${zipPath} with storage/**`);
 
 ```ts
 // 1) manifest：教师工具架按钮
-classroomTools: [{ id: 'open-board', name: '便签板', commandType: '{{commandPrefix}}.open_board' }]
+classroomTools: [{ id: 'open-board', name: '便签板', commandType: '{{commandPrefix}}.open_board' }]  // legacy，等价于 contributes["classroom.tool"]，见 §2.1
 
 // 2) ActionDescriptor（capabilityRequired 必须是 whiteboard:write）
 await actionRegistry.register({
@@ -392,15 +403,33 @@ await commandBus.registerHandler('{{commandPrefix}}.open_board', {
 });
 ```
 
-### 5.3 前端注册（必须 inline）
+### 5.3 前端注册（`component` 或 `view` 二选一）
+
+**路径 A：inline + React `component`**（需白名单，见 §3）：
 
 ```ts
 ctx.ui.registerExtensionPoint('teacher.dashboard.widget', { id: 'my-widget', component: TeacherWidget });
 ctx.ui.registerExtensionPoint('student.view', { id: 'my-widget-student', component: StudentWidget });
 ```
 
-`classroomTools.payload` 里可写 `$lessonId` / `$classId`，宿主点击时替换成当前课堂上下文
-——这是按钮拿到 `lessonId` 的唯一通道。
+**路径 B：process + `view`（推荐，无需 inline / 无需 `component`）**：
+`PluginCardRenderer.tsx` 读扩展点的 `ext.view`，用 `PluginSandboxIframeView` 在卡片内渲染沙箱页面：
+
+```jsonc
+{
+  "contributes": {
+    "teacher.dashboard.widget": [{ "id": "my-widget", "view": "storage/teacher.html" }],
+    "student.view": [{ "id": "my-widget-student", "view": "storage/student.html" }]
+  }
+}
+```
+
+两条路径都按「槽位 + 扩展点 id」精确匹配；`whiteboard.draw` 里的 `teacherWidgetId` / `studentWidgetId`
+必须与这里的 `id` 逐字一致。L0 `WHITEBOARD_WIDGET_NEEDS_INLINE` 只在你写了 `whiteboardWidget=true`
+却既没 inline、也没配 `sandbox-view` 视图时报错。
+
+`classroomTools.payload`（或 `contributes["classroom.tool"].payload`）里可写 `$lessonId` / `$classId`，
+宿主点击时替换成当前课堂上下文——这是按钮拿到 `lessonId` 的通道。
 
 ---
 
@@ -450,7 +479,7 @@ ctx.ui.registerExtensionPoint('student.view', { id: 'my-widget-student', compone
 | 只声明 `teacher.tab` | 学生端没有渲染容器 | 加 `student.view` + 成对 widget id；浮层用 `student.classroom.overlay` | L0 `STUDENT_ENTRY_MISSING` / `SLOT_UNKNOWN` |
 | `frontend.tsx` 只有命令面板数据项 | 没有可渲染组件 | inline + `registerExtensionPoint({component})` | L0 `UI_MODE_MISMATCH` / `CONTRACT` |
 | 被强制 `process`，React 不挂载 | 不在白名单，且 `@openlearn-ext/` 前缀不算信任 | 写 `.env` 白名单 + 重启 + 重装/切档位 + 验证 `executionMode` | L0 `INLINE_TRUST_MISSING` / `INLINE_NOT_WHITELISTED`；L3 冒烟 |
-| 面板/学生页空白，或提示「非法的插件视图路径」 | ① 该用 `view` 却写了 component；② view 路径含 `..`/绝对路径；③ `storage/**` 没打进 ZIP | 改 `view` 相对路径 + 桥接脚本 + 自写打包脚本 | L0 `VIEW_PATH_UNSAFE` / `VIEW_FILE_MISSING` / `VIEW_BRIDGE_MISSING` / `VIEW_NOT_PACKED` |
+| 面板/学生页空白，或提示「非法的插件视图路径」 | ① 该用 `view` 却写了 component；② view 路径含 `..`/绝对路径；③ `storage/**` 没打进 ZIP | 改 `view` 相对路径 + 桥接脚本 + 自写打包脚本 | L0 `VIEW_PATH_UNSAFE` / `VIEW_NOT_IN_STORAGE` / `VIEW_FILE_MISSING` / `VIEW_BRIDGE_MISSING` / `VIEW_FILES_MISSING`，`VIEW_PACK_HINT`（提醒级） |
 | **所有贡献都不出现，日志也没有 404** | DB 里 `view` 已被安装期 schema strip（#350 后不再由缺 frontend.js 引起） | 先跑 `post-install-check.sh` 确认 strip，再**重新安装** | 人工：`SELECT manifest FROM plugins` |
 | 入口都在，但插件自身命令不存在 / 定时任务没跑 | 没有 `dist/frontend.js`，隐藏前端逻辑没加载 | 需要时加空 `src/frontend.tsx`（纯 view 插件不必） | L0 `FRONTEND_ENTRY_MISSING`（提醒级） |
 | DB 里 `teacher.tab` 丢了 `view`，但 overlay 还留着 | 安装时平台 schema < v0.7.7，zod strip 后落库；升级不回填 | 升到 ≥0.7.7 后**重新安装**插件 | 人工：`SELECT manifest FROM plugins` |
@@ -467,5 +496,5 @@ grep -n "OPENLEARN_TRUSTED_INLINE_PLUGINS" ~/Develop/openlearnv2/.env
 curl -s -b cookie.txt http://localhost:3000/api/plugins | jq '.[] | select(.id=="@openlearn-ext/stickynotes") | {id, executionMode, executionModeCoerced}'
 
 # 槽位是否存在
-node -e "const r=require('./test-harness/slot-registry.json');console.log(r.slots.includes('student.view'))"
+node -e "const r=require('./assets/test-harness/slot-registry.json');console.log(r.slots.includes('student.view'))"  # 在 skill 根目录执行
 ```

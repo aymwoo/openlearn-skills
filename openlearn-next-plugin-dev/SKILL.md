@@ -2,15 +2,15 @@
 name: openlearn-next-plugin-dev
 slug: openlearn-next-plugin-dev
 displayName: OpenLearnV2 插件开发与仓库协作助手
-version: 2.17.0
-description: 为 OpenLearnV2 教学平台（当前平台 0.7.11 / SDK 仓库 3.8.0·npm 3.8.0）开发插件，并协作处理 OpenLearn 相关 GitHub / Gitee 仓库的 issue 与 PR（GitHub 优先，GitHub 不可达时回退 Gitee 镜像）。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；双平台协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并、合并后 main 镜像同步。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
+version: 2.17.1
+description: 为 OpenLearnV2 教学平台（当前平台 0.7.14 / SDK 仓库 3.8.0·npm 3.8.0）开发插件，并协作处理 OpenLearn 相关 GitHub / Gitee 仓库的 issue 与 PR（GitHub 优先，GitHub 不可达时回退 Gitee 镜像）。覆盖 server-only / full-stack / frontend-only 三类模板，远程前端沙箱桥接（隐藏 iframe、无 React、声明式贡献点）范式、manifest 与能力权限规范、构建与安装验证；内置「平台变更观察清单」与漂移检测（文档与源码不一致的高风险点）、UI 通道可行性判定（执行模式/槽位/白板挂件/白名单）与 L0–L3 四层测试护栏（static-check 契约静态检查 + plugin-test-kit 契约/冒烟测试 + 真实宿主冒烟，含 process 隔离模式「空 capabilitiesProposed 却调非 get RPC」门禁）让潜在问题在开发期就暴露；第三方作者完成插件开发并自检通过后，引导其在自身仓库发布 Gitee Release（附带可安装 .zip）并向 https://gitee.com/aymwoo/openlearn-next-plugins 提交接入社区的 PR；用户粘贴插件报错/堆栈时先做插件侧 vs 平台插件系统侧归因（讲清问题缘由），判为平台侧则去重后向 aymwoo/OpenLearn-Next-V2 提交缺陷 Issue（含问题原因、影响、建议解决方式）；双平台协作支持 issue 占位、worktree 开发、PR 提交/审查/返工/合并、合并后 main 镜像同步。当用户提到开发 OpenLearn 插件、openlearn-next 插件、教学平台插件、课堂工具、发布插件 Release 或加入社区插件源，粘贴插件报错/不工作/白屏，或要处理 OpenLearn 仓库的 issue、PR、worktree 时使用此 skill。
 ---
 
-> ✅ **版本基线口径（2026-11-03 核对）**
+> ✅ **版本基线口径（2026-11-08 核对）**
 >
 > | 信号 | 值 | 用途 |
 > |------|----|------|
-> | 平台 `package.json` version | **0.7.11** | 仅探活；**不随每处行为变化升号** |
+> | 平台 `package.json` version | **0.7.14** | 仅探活；**不随每处行为变化升号** |
 > | SDK（本地仓库） | **3.8.0** | 运行时真实行为 |
 > | SDK（npm `latest`） | **3.8.0** | 脚手架模板与示例代码 |
 > | plugin-test-kit | 3.3.3 | 契约/冒烟测试 |
@@ -20,7 +20,7 @@ description: 为 OpenLearnV2 教学平台（当前平台 0.7.11 / SDK 仓库 3.8
 > 并一并校验 `docs/agent/agent-handbook.md` 顶部的版本表与源码一致）。
 >
 > ⚠️ **别用版本号判断行为变化**：#350 反转了激活顺序、#375 把权限清单收敛到单一真源，
-> 而平台 version 只从 `0.7.7` 走到 `0.7.11`。判行为只能看**锚点**（`facts-check.sh`）或 CHANGELOG。
+> 而平台 version 只从 `0.7.7` 走到 `0.7.14`。判行为只能看**锚点**（`facts-check.sh`）或 CHANGELOG。
 > 仓库 `main` 与 npm 目前**已对齐**（均 3.8.0）；若后续仓库先行、npm 未发，
 > 则：**生成代码看 npm、判运行时看仓库**，并在交付时当场指出差异。
 >
@@ -97,10 +97,10 @@ npx skills add https://gitee.com/aymwoo/openlearn-skills.git
   「文档看不出、一错就整套方案跑偏」的条目；**远端文档一有更新，先跑 `bash scripts/platform-drift-check.sh`
   逐条复核，再改 skill**（例：白名单变量被 README 删表但代码仍在；教程写 `views/index.html` 但安装器只解压 `storage/`）。
 
-> ⚠️ **当前基线：平台 0.7.11（commit 260addb）/ SDK 仓库 3.8.0 · npm 3.8.0**。
+> ⚠️ **当前基线：平台 0.7.14（commit 4ada5ad）/ SDK 仓库 3.8.0 · npm 3.8.0**。
 > 模板与权限字典以 npm 为准，运行时行为以本地 HEAD 为准。
 >
-> **时效规则**：本文事实截至 **2026-11-03**。若你遇到的平台 commit 新于此：
+> **时效规则**：本文事实截至 **2026-11-08**。若你遇到的平台 commit 新于此：
 > 1. 先跑第一步探活，比对 `platformVersion` / `sdkVersion` / `docSiteVersion`；
 > 2. 仍不确定时，以**平台源码**为准（`~/Develop/openlearnv2/packages/core/`、`packages/plugin-sdk/`）——
 >    源码是最终真理，文档与官方模板都可能滞后；
@@ -146,7 +146,7 @@ npx skills add https://gitee.com/aymwoo/openlearn-skills.git
 > - 平台本体开发（`packages/core`、内核服务、数据库迁移）
 > - 宿主内置插件（`packages/plugins/`，属于平台仓库而非第三方 ZIP 插件）
 > - 白板 / 课件渲染器扩展（宿主 React 侧，非插件 API）
-> - 插件市场审核、运营与发布流程（仅覆盖到「签名」层面）
+> - 插件市场后台运营与合入审核决策（可引导第三方作者发布仓库 Release 并向 `aymwoo/openlearn-next-plugins` 提交接入 PR，但审核与合入由社区维护者决定）
 > - 第三方前端 UI 的深度定制 —— 当前**没有**可用的自定义 UI 通道（见「实时同步」与「可见 UI 走声明式」）
 
 ---
@@ -679,8 +679,76 @@ npm test                # L1 + L2
 测试：L0 <0 error|N error> · L1/L2 <n passed / n failed> · L3 <已跑|未跑（原因）>
 已核对：main / ActionDescriptor 配对 / 权限串 / 可见入口 / 中文字号 ≥ 13px
 自检：post-install-check <n 通过 / n 失败>（frontend.js / view 未 strip / storage 齐全）
-待办：<需要用户做的事，如"管理员批准出站域名"、"申请某权限">
+待办：<需要用户做的事，如"管理员批准出站域名"、"申请某权限"、"发布 Release 并提交 PR 加入社区插件源">
 ```
+
+---
+
+### 第五步 B：发布 Release 并申请加入社区插件源（第三方作者完成开发后）
+
+> **触发时机**：当第三方作者的插件已完成本地 L0–L3 测试与宿主机安装验证（满足「完成定义」）后，**主动提示作者**：是否要在自己的 Gitee 仓库发布 `v<version>` Release，并向社区插件汇总仓库 [`https://gitee.com/aymwoo/openlearn-next-plugins`](https://gitee.com/aymwoo/openlearn-next-plugins) 提交 PR 申请收录。
+>
+> **公开动作门禁**：打 tag、推送远端、创建 Release、Fork 与提交 PR 均属于公开可见操作——**必须先展示版本号、Release 附件路径、PR 标题/正文并得到作者明确同意后才可执行**，绝不静默推送或提 PR。
+
+#### 1. 发布插件仓库自己的 Gitee Release
+
+1. **仓库形态检查**（二选一，供社区注册表识别与兼容校验）：
+   - **源码构建型**：仓库根目录有 `package.json` 与锁文件（`pnpm-lock.yaml` / `package-lock.json`），且运行时依赖不含无法脱离 monorepo 的 `workspace:*`；
+   - **预构建解包型**：无 `package.json` 时，仓库根目录提供 `dist-package/`（内部直接包含 `manifest.json`、`index.js`、`storage/` 等）。
+2. **推送 tag 并创建 `v<version>` Release**：
+   - tag 必须为 `v<manifest.version>`（如 `v1.0.0`），确保代码已推送到公开可访问的 Gitee 仓库。
+   - **必须手动上传最终可安装的 `.zip` 附件**（如 `<repo>-<version>.zip`；ZIP 根层直接是 `manifest.json`、`index.js`、`storage/`，单附件 ≤ 100 MB）。**不要**只留 Git 自动生成的源码归档 `v<version>.zip`。
+   - 当前平台已不再校验社区私钥签名，社区注册表会直接复用你 `v<version>` Release 中上传的 `.zip` 附件并计算其 SHA-256（`integrity`），无需再向社区申请签名或额外托管。
+
+```bash
+# 示例：打 tag 并推送（需用户确认后执行）
+VERSION=$(node -p "require('./manifest.json').version") # 或 dist-package/manifest.json
+git tag "v${VERSION}"
+git push origin "v${VERSION}"
+
+# 使用 Gitee CLI 创建 Release（若未安装或需上传附件，可引导作者在 Gitee 仓库「发行版」页面创建并上传 .zip）
+gitee release create -R "<author>/<repo>" "v${VERSION}" -t "v${VERSION}" -n "<插件说明>"
+```
+
+#### 2. 向 `https://gitee.com/aymwoo/openlearn-next-plugins` 发送加入社区的 PR
+
+第三方作者通常对主汇总仓没有直写权限，标准流程为 **Fork → 添加 submodule → 校验与合并注册表 → 补齐索引文档 → 提 PR**：
+
+```bash
+# 1. 在 Gitee Fork https://gitee.com/aymwoo/openlearn-next-plugins 到自己账号后克隆
+git clone https://gitee.com/<author>/openlearn-next-plugins.git
+cd openlearn-next-plugins
+git checkout -b "feat/add-<repo>"
+
+# 2. 添加自己的插件仓库为 submodule（目录名须与仓库名一致）
+git submodule add "https://gitee.com/<author>/<repo>.git" "plugins/<repo>"
+
+# 3. 兼容性检查 + 安装注册表脚本依赖 + 合并生成社区注册表条目
+node scripts/check-compat.mjs --filter "<repo>" --build --test --offline
+npm install --no-audit --no-fund
+node scripts/build-community-registry.mjs --only "<repo>" --merge
+```
+
+> 说明：`build-community-registry.mjs --only <repo> --merge` 会自动读取 `.gitmodules` 中的作者仓库地址，抓取该仓库 `v<version>` Release 中的 `.zip` 附件计算 `integrity`（SHA-256），保留 `homepage` / `repository` 指向作者原仓库，并将该插件条目合并进 `community-plugins.json`（保留其余既有插件条目）。
+
+4. **同步补充两份索引文档**：
+   - `README.md`：「插件清单」表格新增一行（目录、功能简述、作者仓库链接）。
+   - `PLUGINS.md`：「速查表」与对应分类小节下补充版本号、`engines.openlearn` 要求、扩展点、API/能力及构建/打包方式。
+5. **推送分支并向 `aymwoo/openlearn-next-plugins` 发起 PR**（目标分支为仓库默认主分支，创建前先向作者展示 PR 标题与正文确认）：
+
+```bash
+git add .gitmodules "plugins/<repo>" README.md PLUGINS.md community-plugins.json
+git commit -m "feat: 申请收录社区插件 <repo> (v${VERSION})"
+git push -u origin "feat/add-<repo>"
+
+# 通过 Gitee CLI 或 Gitee 网页向 aymwoo/openlearn-next-plugins 发起 PR
+# （目标仓库分支以仓库当前默认分支为准，如 master / main）
+```
+
+PR 正文建议包含：
+- **插件信息**：`manifest.id`、显示名称、`version`、作者仓库 URL 与 `v<version>` Release 附件直链；
+- **功能与边界**：核心功能、扩展点（`contributes`）、申请权限（`capabilitiesProposed`）、并确认在 `process` 沙箱下通过 `storage/*.html` + `OpenLearnPluginBridge` 正常工作；
+- **验证证据**：`node scripts/check-compat.mjs --filter <repo> --build --test --offline`、`node scripts/build-community-registry.mjs --only <repo> --merge` 结果，以及 L0–L3 / 宿主机实测通过说明。
 
 ---
 
@@ -925,7 +993,7 @@ Issue：#<n> 或 #I... <url>
 
 1. 默认**只生成文件与命令**，不替用户执行 `npm install` / 构建 / 上传 / 激活（用户明确要求时才执行）。
 2. 不覆盖用户项目中已存在的文件；目标目录非空时先说明并确认。
-3. 不修改用户的 git 状态（不 commit / 不打 tag / 不 push），除非用户明确要求。
+3. 不修改用户的 git 状态（不 commit / 不打 tag / 不 push / 不发 Release / 不代开 PR），除非用户明确要求并审阅过内容。
 4. 权限字符串、宿主版本、槽位名等**不确定时不猜**：先查 `references/`，仍不确定就问用户。
 5. 需求有歧义时先问，不擅自扩大范围（尤其"要不要建表""要不要申请高危权限""要不要占新槽位"）。
 6. 归因未达「系统侧」证据门槛时，**不生成 bug 报告、不提 Issue**，只给结论与取证命令。
@@ -1117,7 +1185,7 @@ bash scripts/sync-mirror.sh sync-main --from github --repo aymwoo/OpenLearn-Next
 `ctx` 上还有：`ctx.i18n.t(key, default?, params?)`、`ctx.config.get(key, { classId })`、`ctx.http`（REST 路由）、
 `ctx.contributions.list()`、`ctx.require(moduleName)`、`ctx.manifest`、`ctx.pluginId`、`ctx.log`。
 
-### 2. Capabilities 权限全集（v0.7.11 / SDK 3.8.0 真源，**31 条**，与官方矩阵逐条一致）
+### 2. Capabilities 权限全集（v0.7.14 / SDK 3.8.0 真源，**31 条**，与官方矩阵逐条一致）
 
 平台真实存在 **31 条**可声明权限（= SDK 的 `CAPABILITIES`，真源 `packages/core/capability/catalog.ts`，平台 Issue #368）：
 
@@ -1322,7 +1390,7 @@ v0.7.0 起第三方插件被策略层**强制改写为 `process` 子进程模式
 | 脚手架指南 | `.../sdk/scaffold-cli.html` |
 | SDK API 参考 | `.../sdk/plugin-sdk.html` |
 | 故障排查 FAQ | `.../troubleshooting/troubleshooting-faq.html` |
-| Release Notes | `.../release-notes/v0.7.11.html`（线上构建若仍停在旧版，改看仓库 `~/Develop/openlearnv2/docs/release-notes/`） |
+| Release Notes | `.../release-notes/v0.7.14.html`（线上构建若仍停在旧版，改看仓库 `~/Develop/openlearnv2/docs/release-notes/`） |
 
 > 文档站路径在版本间会变动（例：`plugin-update-distribution` 从 `plugin/` 移到 `reference/`）。
 > **以平台仓库 `~/Develop/openlearnv2/docs/` 的一手源为准**，线上只用于校验版本号与最终确认。

@@ -1,4 +1,4 @@
-# Manifest 规范（v0.7.11 真源，SDK 3.8.0）
+# Manifest 规范（v0.7.14 真源，SDK 3.8.0）
 
 > 整理自官方文档 `plugin/plugin-manifest-spec.html`（`doc-version: sdk=3.8.0`）与权威 Schema
 > `packages/core/esm-loader/manifest-schema.ts`。

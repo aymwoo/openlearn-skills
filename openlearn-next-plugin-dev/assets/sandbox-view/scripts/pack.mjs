@@ -27,8 +27,11 @@ const walk = (dir, base = '') =>
   });
 
 const zip = await JSZip.loadAsync(readFileSync(zipName));
+// ZIP 条目名必须带 storage/ 前缀：安装器（install.ts）只解压
+// name.startsWith('storage/') 的条目；写成 zip.file(rel, ...) 会得到根级
+// teacher.html / student.html，文件不落盘 → 安装后 /plugins/<id>/storage/*.html 404。
 for (const rel of walk('storage')) {
-  zip.file(rel, readFileSync(join('storage', rel)));
+  zip.file(`storage/${rel}`, readFileSync(join('storage', rel)));
 }
 writeFileSync(zipName, await zip.generateAsync({ type: 'nodebuffer' }));
 

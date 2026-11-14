@@ -1,4 +1,4 @@
-# 能力权限矩阵（v0.7.11 真源，SDK 3.8.0）
+# 能力权限矩阵（v0.7.14 真源，SDK 3.8.0）
 
 > 本文件整理自 OpenLearnV2 官方文档 `reference/plugin-capability-matrix.html`（`doc-version: sdk=3.8.0`）与源码
 > `packages/core/capability/catalog.ts`（Issue #368 之后的**唯一权威清单**）。

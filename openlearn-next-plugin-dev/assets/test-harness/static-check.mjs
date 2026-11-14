@@ -716,7 +716,7 @@ for (const v of viewPaths) {
 if (viewPaths.size > 0) {
   const pkg = (() => { try { return JSON.parse(read(join(ROOT, 'package.json')) ?? '{}'); } catch { return {}; } })();
   const hasPack = Object.keys(pkg.scripts ?? {}).some((k) => /pack|zip|postbuild/.test(k));
-  if (!hasPack) add('warn', 'VIEW_PACK_HINT', '官方 CLI 只打 manifest.json/index.js/frontend.js：storage/** 需自写打包脚本补进 ZIP（见 references/ui-channel-decision.md §4.5.4）', join(ROOT, 'package.json'));
+  if (!hasPack) add('warn', 'VIEW_PACK_HINT', '官方 CLI 只打 manifest.json/index.js/frontend.js：storage/** 需自写打包脚本补进 ZIP（见 references/ui-channel-decision.md §4.5.5）', join(ROOT, 'package.json'));
 }
 // 前端入口：宿主按 has_frontend 决定是否激活，registerManifestContributions 在 fetch 之后。
 // 没有 frontend.js → 贡献（含 view）根本不注册。这是「页面永远空白」最隐蔽的根因之一。

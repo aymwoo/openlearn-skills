@@ -6,6 +6,34 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.17.1] - 2026-11-08
+
+把 skill 的版本基线从「平台 0.7.11 / HEAD 260addb」校准到「平台 0.7.14 / HEAD 4ada5ad」（2026-11-08 核对）。SDK 仓库与 npm `latest` 仍为 3.8.0、`plugin-test-kit` 仍为 3.3.3，两侧保持对齐；readthedocs 构建版本也已到 0.7.14。
+
+### 变更
+
+- **基线口径全面对齐**：frontmatter `description`、基线口径表、当前基线 / 时效规则、`references/.cache-meta.json`（`cacheDate` / `lastUpdated` / `docSiteVersion` / `platformVersion` / `watchlist.checkedAt` / `watchlist.platformCommit`）、`references/integration-facts.json`（`platformVersion` / `platformCommit` / `verifiedAt` / `versionNote`）、`README.md`、`skills.sh.json`、`assets/test-harness/README.md` 及各 `references/*.md` 版本头。
+- **契约快照重水合**：`scripts/hydrate-contracts.sh` 对齐平台 `docs/agent/contracts/capabilities.json` —— `command_required` 补入 `segment:gate_eval`（平台 #392 把权限清单落到契约层）；`declarable` 仍为 31 条，权限真值表与「31 条全集」口径不变。
+- **历史锚点保留不动**：「v0.7.7 + #350 起」这类描述行为何时变更的锚点保持原样；因 SDK 未变，`doc-version: sdk=3.8.0`、`SDK 3.8.0` 标注与「SDK 3.8.0 新增」速查段也全部保留。
+- **`slot-registry.json` 内嵌版本标记**：`platformVersion` / `platformCommit` 从 0.7.7 / `584eb0e` 同步到 0.7.14 / `4ada5ad`。`static-check.mjs` 的 `SLOT_UNKNOWN` 报错文案会显示这个版本号，此前一直误导为 0.7.7；槽位集合本身未变（120 / 5 个 `view` 槽位），故只改标记、不重排 `slots`。
+- **新增「第五步 B：发布 Release 并申请加入社区插件源」**：第三方作者完成开发并自检通过后，引导其在自身仓库发布 `v<version>` Release（附带可安装 `.zip`），Fork `https://gitee.com/aymwoo/openlearn-next-plugins`、添加 submodule、运行 `check-compat.mjs` 与 `build-community-registry.mjs --only <repo> --merge` 更新索引与注册表，并提交 PR 申请收录。
+
+### 文档复核与模板修复
+
+按 0.7.14 / SDK 3.8.0 源码全文复核 `references/ui-channel-decision.md`，定向修订失效结论，并修复 `assets/sandbox-view/scripts/pack.mjs`。
+
+- **白板挂件不再要求 inline**：`PluginCardRenderer.tsx` 支持 `ext.view` → `PluginSandboxIframeView`，L0 `WHITEBOARD_WIDGET_NEEDS_INLINE` 的文案本就允许 process + sandbox-view；`§1` / `§4.5.6` / `§5.3` 三处与 `§1:59` 自相矛盾的「必须 inline」已统一。
+- **`pack.mjs` 前缀修复**：`zip.file(rel, ...)` 改为写入带 `storage/` 前缀的条目名（`storage/${rel}`）。实测 `walk('storage')` 产出 `student.html` / `teacher.html`，与安装器 `install.ts:359` 的 `startsWith('storage/')` 不匹配 → 不落盘 → 404；修复后条目为 `storage/*.html`，全部匹配。文档 `§4.5.5` 同源示例一并修正。
+- **其余定向修订**：头部版本标注（并注明历史锚点）、`§4.5.3` 区分路径校验与落盘约束、`§4.5.4` 补 `studentId` / `studentName` 与 api 签名、`§7` 换成真实 L0 错误码、`§8` 修正路径、`§2.1` / `§5.2` 补 `contributes["classroom.tool"]` 通道、`static-check.mjs` 引用 `§4.5.4 → §4.5.5`。
+- **历史锚点保留**：「v0.7.7 + #350 起」「SDK CLI 3.7.2+」「schema < v0.7.7」等不动。
+
+### 校验
+
+- `facts-check.sh`：27/27 集成事实锚点成立。0.7.12 → 0.7.14 期间平台 #396 / #397 / #401 删除了 `service-host.ts`、`allowed-tokens.ts`、`browser-worker-manager.ts` 等宿主门面并标记 SDK 弃用，但插件交付侧锚点全部命中。
+- `platform-drift-check.sh`：槽位 120 / 5 个 `view` 槽位、`storage/` 解压前缀、CLI 打包 3 文件、白名单、#350 激活顺序均零漂移；唯一漂移项是 `platformVersion` 数字本身，本次已消除。
+- 平台自带 `python3 audit-tools/agent_facts.py --check`：7 个契约文件与源码一致。
+- `hydrate-contracts.sh --check`：水合后全部一致。
+
 ## [2.17.0] - 2026-11-03
 
 把 skill 的版本基线从「平台 0.7.7 / SDK 3.7.5·npm 3.7.4」校准到「平台 0.7.11 / SDK 3.8.0·npm 3.8.0」，并**根治**权限真值表误报（技能仓 Issue #1）。
