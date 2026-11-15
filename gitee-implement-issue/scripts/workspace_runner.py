@@ -68,10 +68,57 @@ def get_current_branch(repo_dir: Path) -> str:
     return branch
 
 
+def list_remotes(repo_dir: Path) -> dict[str, str]:
+    """Return a mapping of remote name -> fetch URL."""
+    proc = _run_git(repo_dir, ["remote", "-v"], check=False)
+    remotes: dict[str, str] = {}
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] not in remotes:
+            remotes[parts[0]] = parts[1]
+    return remotes
+
+
+def resolve_git_remote(
+    repo_dir: Path,
+    *,
+    owner: str = "",
+    repo: str = "",
+    explicit: str = "",
+) -> str:
+    """Pick the remote that points at the target Gitee repository.
+
+    Priority: explicit override > remote whose URL matches ``<owner>/<repo>``
+    > ``origin`` > the first configured remote. Repositories often carry an
+    ``origin`` pointing at a different host (e.g. a GitHub mirror) plus a
+    ``gitee`` remote, so guessing ``origin`` blindly pushes to the wrong place.
+    """
+    if explicit.strip():
+        return explicit.strip()
+
+    remotes = list_remotes(repo_dir)
+    if owner and repo:
+        needle = f"{owner}/{repo}".lower()
+        for name, url in remotes.items():
+            normalized = url.lower().rstrip("/")
+            if normalized.endswith(".git"):
+                normalized = normalized[: -len(".git")]
+            if needle in normalized:
+                return name
+
+    if "origin" in remotes:
+        return "origin"
+    return next(iter(remotes), "origin")
+
+
+def has_remote(repo_dir: Path, remote: str = "origin") -> bool:
+    """Return True if the given remote is configured."""
+    return remote in list_remotes(repo_dir)
+
+
 def has_origin_remote(repo_dir: Path) -> bool:
     """Return True if an `origin` remote is configured."""
-    proc = _run_git(repo_dir, ["remote"], check=False)
-    return "origin" in proc.stdout.splitlines()
+    return has_remote(repo_dir, "origin")
 
 
 def prepare_branch(
@@ -79,26 +126,27 @@ def prepare_branch(
     *,
     base_branch: str,
     branch_name: str,
+    remote: str = "origin",
     secrets: tuple[str, ...] = (),
 ) -> None:
-    """Sync base branch if origin exists and checkout the target fix branch."""
-    if has_origin_remote(repo_dir):
-        _run_git(repo_dir, ["fetch", "origin"], check=False, secrets=secrets)
+    """Sync base branch if the remote exists and checkout the target fix branch."""
+    if has_remote(repo_dir, remote):
+        _run_git(repo_dir, ["fetch", remote], check=False, secrets=secrets)
         remote_branch = _run_git(
             repo_dir,
-            ["ls-remote", "--heads", "origin", branch_name],
+            ["ls-remote", "--heads", remote, branch_name],
             check=False,
             secrets=secrets,
         )
         if remote_branch.stdout.strip():
             _run_git(
                 repo_dir,
-                ["checkout", "-B", branch_name, f"origin/{branch_name}"],
+                ["checkout", "-B", branch_name, f"{remote}/{branch_name}"],
                 secrets=secrets,
             )
             return
         # Fallback if remote branch creation used API or local repo is decoupled.
-        base_ref = f"origin/{base_branch}"
+        base_ref = f"{remote}/{base_branch}"
         has_remote_base = (
             _run_git(repo_dir, ["rev-parse", "--verify", base_ref], check=False).returncode == 0
         )
@@ -128,13 +176,14 @@ def commit_and_push(
     *,
     branch_name: str,
     commit_message: str,
+    remote: str = "origin",
     secrets: tuple[str, ...] = (),
 ) -> None:
-    """Stage changes, commit, and push branch to origin (if configured)."""
+    """Stage changes, commit, and push the branch to the resolved remote."""
     _run_git(repo_dir, ["add", "-A"], secrets=secrets)
     _run_git(repo_dir, ["commit", "-m", commit_message], secrets=secrets)
-    if has_origin_remote(repo_dir):
-        _run_git(repo_dir, ["push", "-u", "origin", branch_name], secrets=secrets)
+    if has_remote(repo_dir, remote):
+        _run_git(repo_dir, ["push", "-u", remote, branch_name], secrets=secrets)
 
 
 def cleanup_branch_on_failure(
@@ -152,6 +201,45 @@ def cleanup_branch_on_failure(
         _run_git(repo_dir, ["branch", "-D", branch_name], check=False, secrets=secrets)
 
 
+def detect_package_manager(repo_dir: Path) -> str:
+    """Detect the JavaScript package manager used by the repository.
+
+    Lockfiles are authoritative; ``packageManager`` in package.json is used as a
+    fallback before defaulting to npm. Hardcoding npm breaks pnpm/yarn/bun
+    workspaces, where ``npm test`` either fails outright or resolves a different
+    dependency tree than the project expects.
+    """
+    lockfiles = (
+        ("pnpm-lock.yaml", "pnpm"),
+        ("yarn.lock", "yarn"),
+        ("bun.lockb", "bun"),
+        ("bun.lock", "bun"),
+    )
+    for filename, manager in lockfiles:
+        if (repo_dir / filename).is_file():
+            return manager
+
+    pkg_json = repo_dir / "package.json"
+    if pkg_json.is_file():
+        try:
+            pkg = json.loads(pkg_json.read_text(encoding="utf-8"))
+            declared = str(pkg.get("packageManager") or "").strip().lower()
+            for manager in ("pnpm", "yarn", "bun", "npm"):
+                if declared.startswith(manager):
+                    return manager
+        except (OSError, json.JSONDecodeError):
+            pass
+    return "npm"
+
+
+def _script_command(manager: str, script: str) -> str:
+    """Build the run command for a package.json script under a given manager."""
+    if manager == "npm":
+        # `npm test` is the canonical shorthand; other scripts need `npm run`.
+        return "npm test" if script == "test" else f"npm run {script}"
+    return f"{manager} run {script}"
+
+
 def detect_verify_commands(repo_dir: Path, override_cmd: str = "") -> list[str]:
     """Detect existing lint/test commands in priority order."""
     if override_cmd.strip():
@@ -165,12 +253,13 @@ def detect_verify_commands(repo_dir: Path, override_cmd: str = "") -> list[str]:
             pkg = json.loads(pkg_json.read_text(encoding="utf-8"))
             scripts = pkg.get("scripts") or {}
             if isinstance(scripts, dict):
+                manager = detect_package_manager(repo_dir)
                 lint_cmd = str(scripts.get("lint", "")).strip()
                 test_cmd = str(scripts.get("test", "")).strip()
                 if lint_cmd:
-                    commands.append("npm run lint")
+                    commands.append(_script_command(manager, "lint"))
                 if test_cmd and "no test specified" not in test_cmd.lower():
-                    commands.append("npm test")
+                    commands.append(_script_command(manager, "test"))
         except (OSError, json.JSONDecodeError):
             pass
 

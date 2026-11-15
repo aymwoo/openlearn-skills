@@ -54,6 +54,10 @@ description: 读取已认领 Gitee Issue 详情与评论，创建 fix/issue-{num
 export GITEE_TOKEN="your_token_here"
 export GITEE_REPO_DIR="/path/to/local-repo"
 export GITEE_ISSUE_STATE_PATH="./state/gitee_issue_state.json"
+# 可选：显式指定 fetch/push 使用的 git remote。
+# 省略时按 remote URL 自动匹配 <owner>/<repo>，找不到才回退 origin。
+# 仓库若同时挂载 GitHub origin 与 Gitee 镜像 remote，建议显式设置，避免推错远端。
+export GITEE_GIT_REMOTE=""
 
 # 1. Dry-run 只读方案预览
 python3 gitee-implement-issue/scripts/implement_issue.py --owner <owner> --repo <repo> --issue-number 12 --dry-run
