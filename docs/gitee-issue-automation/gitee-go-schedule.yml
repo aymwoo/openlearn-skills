@@ -1,0 +1,51 @@
+# Gitee Go 定时触发流水线配置示例（.gitee/workflows/issue-bot-schedule.yml）
+# 说明：
+# - 仅使用 schedule 定时触发器，暂不引入 WebHook（待流程稳定后再考虑 WebHook + 定时兜底）。
+# - GITEE_TOKEN 请在 Gitee Go 环境变量/凭据管理中配置为加密变量，禁止硬编码。
+# - 本流水线严格保持三层分离与人工审核合并原则，永不自动合并 PR。
+
+version: '1.0'
+name: gitee-issue-automation-schedule
+displayName: Gitee Issue 定时认领与草稿 PR 流水线
+
+triggers:
+  # 高频触发：每 30 分钟认领最多 1 个新 Issue；或拆为两个独立流水线分别触发 Skill A / Skill B
+  schedule:
+    - cron: '*/30 * * * *'
+
+stages:
+  - name: stage-claim-issue
+    displayName: 第二层：筛选并认领 Issue（Skill A）
+    steps:
+      - step: execute@shell
+        name: run-skill-a
+        displayName: 运行 gitee-issue-claim
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_ISSUE_STATE_PATH: ./state/gitee_issue_state.json
+        commands:
+          - |
+            python3 gitee-issue-claim/scripts/claim_issue.py \
+              --owner "$GITEE_REPO_OWNER" \
+              --repo "$GITEE_REPO_NAME"
+
+  # 建议将 Skill B 放在单独的每日流水线（cron: '0 2 * * *'）中低频执行；
+  # 若在同一配置展示，可通过每日窗口或独立 pipeline 触发：
+  - name: stage-implement-issue
+    displayName: 第三层：编码实现并开草稿 PR（Skill B）
+    steps:
+      - step: execute@shell
+        name: run-skill-b
+        displayName: 运行 gitee-implement-issue（仅每天 02:00 窗口或单独流水线）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_ISSUE_STATE_PATH: ./state/gitee_issue_state.json
+          GITEE_REPO_DIR: .
+          GITEE_AGENT_MAX_TURNS: '25'
+          GITEE_AGENT_TIMEOUT_SEC: '1200'
+          GITEE_MAX_CHANGED_FILES: '5'
+        commands:
+          - |
+            python3 gitee-implement-issue/scripts/implement_issue.py \
+              --owner "$GITEE_REPO_OWNER" \
+              --repo "$GITEE_REPO_NAME"

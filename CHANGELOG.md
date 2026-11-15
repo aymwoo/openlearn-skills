@@ -6,6 +6,33 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.18.0] - 2026-11-15
+
+新增两段式 Gitee Issue 定时自动化处理 Skill（`gitee-issue-claim` 与 `gitee-implement-issue`）及共享核心，遵循「AI 起草 PR，人来审核合并」与三层分离架构。
+
+### 新增
+
+- **Skill A：`gitee-issue-claim`**（`gitee-issue-claim/SKILL.md`、`scripts/claim_issue.py`）：
+  - 轮询 `open` Issue，按规则筛选（`state=open`、空 `assignee`、无 `bot-processing` 标签、无关联开放 PR）并认领最多 1 个 Issue（评论占位 + 分配给自己 + 保留原有标签追加 `bot-processing`）。
+  - 先写远端标记再落盘本地状态，结合 `bot-processing` 标签实现即使状态文件丢失也不会重复认领的双重幂等。
+  - 支持 `--dry-run` 只读评估与 `--json` 结构化输出。
+- **Skill B：`gitee-implement-issue`**（`gitee-implement-issue/SKILL.md`、`scripts/implement_issue.py`、`workspace_runner.py`、`coding_agent.py`）：
+  - 支持 `--issue-number`；省略时自动从状态文件挑选最早处于 `claimed` 状态的 1 条 Issue。
+  - 基于默认分支创建 `fix/issue-{number}-{slug}` 分支，在“与 Issue 直接相关的有限文件”约束下（`GITEE_MAX_CHANGED_FILES`，默认 5）及 `max-turns=25` / 超时 `1200s` 闸门下起草修复。
+  - 提交前自动探测并执行已有 lint/test 校验；通过后提交含 `closes #N` 的 PR 并回写 Issue；失败或无法理解时评论失败原因、清理本地与远端分支、不创建 PR，状态经 `failed` 迁至 `skipped`。
+  - 严禁自动合并：接口与文档层面均未暴露且禁止 `merge_pull`。
+- **共享核心与定时触发文档**（`gitee-issue-shared/`、`docs/gitee-issue-automation/`）：
+  - 零第三方依赖 Python 标准库 Gitee REST v5 客户端（对齐 Gitee MCP Server 工具语义）、`fcntl.flock` + `os.replace` 原子 JSON 状态机、`TokenRedactingFilter` 日志脱敏。
+  - 提供 `crontab.example`、`gitee-go-schedule.yml` 与可执行的本地 Mock `demo_dry_run.sh`。
+  - 同步更新根目录 `README.md`、`skills.sh.json` 与 `.gitignore`（忽略 `state/`）。
+
+### 校验
+
+- `python3 -m unittest discover -s gitee-issue-claim/tests -v`：5/5 通过。
+- `python3 -m unittest discover -s gitee-implement-issue/tests -v`：7/7 通过。
+- `bash docs/gitee-issue-automation/demo_dry_run.sh`：端到端 Mock dry-run 与双重幂等验证通过。
+- `bash openlearn-next-plugin-dev/scripts/check-templates.sh`：通过 68，失败 0。
+
 ## [2.17.1] - 2026-11-08
 
 把 skill 的版本基线从「平台 0.7.11 / HEAD 260addb」校准到「平台 0.7.14 / HEAD 4ada5ad」（2026-11-08 核对）。SDK 仓库与 npm `latest` 仍为 3.8.0、`plugin-test-kit` 仍为 3.3.3，两侧保持对齐；readthedocs 构建版本也已到 0.7.14。

@@ -1,0 +1,24 @@
+# Gitee Issue 自动化处理 Crontab 示例
+# 原则：第一层只负责定时触发，不包含任何业务逻辑；每轮最多处理 1 个 Issue。
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# 统一环境变量（建议将 GITEE_TOKEN 放在受保护的 ~/.gitee-bot.env 文件中，权限 chmod 600）
+# ~/.gitee-bot.env 示例：
+#   export GITEE_TOKEN="your_gitee_personal_access_token"
+#   export GITEE_ISSUE_STATE_PATH="/var/lib/gitee-bot/gitee_issue_state.json"
+#   export GITEE_REPO_DIR="/opt/repos/your-repo"
+#   export GITEE_AGENT_MAX_TURNS="25"
+#   export GITEE_AGENT_TIMEOUT_SEC="1200"
+#   export GITEE_MAX_CHANGED_FILES="5"
+
+# 1. Skill A（gitee-issue-claim）：每 30 分钟轮询并认领最多 1 个符合条件的 Issue
+*/30 * * * * source "$HOME/.gitee-bot.env" && flock -n /tmp/gitee-issue-claim.lock python3 /opt/openlearn-skills/gitee-issue-claim/scripts/claim_issue.py --owner your-owner --repo your-repo >> /var/log/gitee-issue-claim.log 2>&1
+
+# 2. Skill B（gitee-implement-issue）：每天凌晨 02:15 运行一次
+# 不传 --issue-number 时，自动从状态文件中选取 1 个最早处于 claimed 状态的 Issue
+15 2 * * * source "$HOME/.gitee-bot.env" && flock -n /tmp/gitee-implement-issue.lock python3 /opt/openlearn-skills/gitee-implement-issue/scripts/implement_issue.py --owner your-owner --repo your-repo >> /var/log/gitee-implement-issue.log 2>&1
+
+# （可选）如希望先演练：将命令加上 --dry-run 即可，不会产生任何远端或本地写操作
+# */30 * * * * source "$HOME/.gitee-bot.env" && python3 /opt/openlearn-skills/gitee-issue-claim/scripts/claim_issue.py --owner your-owner --repo your-repo --dry-run

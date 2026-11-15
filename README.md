@@ -30,6 +30,10 @@ npx skills add https://gitee.com/aymwoo/openlearn-skills.git
 | 技能 | 说明 |
 |------|------|
 | [openlearn-next-plugin-dev](./openlearn-next-plugin-dev/SKILL.md) | OpenLearnV2 插件开发与仓库协作助手（基线：平台 v0.7.14 / SDK 3.8.0）：五套模板（server-only / full-stack / frontend-only / sandbox-view / inline-react）+ `new-plugin.sh` 一键生成、交互式需求梳理 Grilling 向导（`grill-requirements.sh`）、平台源码后台空闲同步与更新检查（`sync-platform-repo.sh`）、远程前端沙箱桥接范式、manifest 与能力权限规范、构建与安装验证；L0–L3 测试护栏（含 jsdom view 冒烟、process 隔离模式空能力门禁）+ 集成事实源码锚点校验；内置插件侧/系统侧故障归因与 Bug 报告；支持接手 GitHub / Gitee issue（assign + 占位评论）、独立 worktree 开发、PR 提交/审查/返工/合并，以及合并后 `main` 镜像同步（GitHub 优先，GitHub 不可达时回退 Gitee 镜像；一个变更只在一个平台开 PR） |
+| [gitee-issue-claim](./gitee-issue-claim/SKILL.md) | Gitee Issue 定时筛选与认领（Skill A）：轮询 open Issue，按规则筛选并认领最多 1 个 Issue（评论占位 + 分配给自己 + 添加 `bot-processing` 标签），支持状态机与标签双重幂等及 `--dry-run` 只读评估 |
+| [gitee-implement-issue](./gitee-implement-issue/SKILL.md) | Gitee Issue 编码实现与草稿 PR 提交（Skill B）：读取 Issue 详情与评论（省略编号时自动选取最早 `claimed` 的 1 条），创建 `fix/issue-{number}-{slug}` 分支，在有限相关文件范围内起草修复、运行既有 lint/test 验证，通过后提交含 `closes #N` 的 PR 并回写 Issue；失败时评论原因、清理分支并标记 `skipped`，严禁自动合并 |
+
+> Gitee Issue 自动化触发、环境变量、dry-run 演示与已知限制详见：[docs/gitee-issue-automation/README.md](./docs/gitee-issue-automation/README.md)。
 
 ## 开发
 
