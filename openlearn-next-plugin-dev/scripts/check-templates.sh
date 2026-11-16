@@ -339,6 +339,32 @@ for pat in 'COMMAND_NOT_REGISTERED' 'COMMAND_CAPABILITY_DENIED' 'manifest\.main'
   fi
 done
 
+# ── 8. 打包脚本：storage/ 前缀（安装器只解压 storage/**）────────────────
+# 背景：`npx @openlearn/plugin-sdk build` 只打 manifest/index/frontend，
+# storage/** 需要模板自带的 scripts/pack.mjs 补进去。而安装器 install.ts 只解压
+# **以 storage/ 开头** 的条目——模板曾经写成 `zip.file(rel, ...)`，产出根级
+# student.html，装到宿主后 /plugins/<id>/storage/*.html 一律 404，且构建期零报错。
+# 这里做静态断言：有 pack.mjs 的模板必须带 `storage/${rel}` 前缀，且不得再出现裸 rel。
+head_ "8. 打包脚本 storage/ 前缀（防「view 文件进包但路径错」回归）"
+
+for tpl in server-only full-stack frontend-only inline-react sandbox-view; do
+  packer="assets/$tpl/scripts/pack.mjs"
+  [ -f "$packer" ] || continue
+
+  if grep -qF 'storage/${rel}' "$packer"; then
+    ok "$tpl: pack.mjs 写入 storage/\${rel} 前缀"
+  else
+    bad "$tpl: pack.mjs 未给 ZIP 条目加 storage/ 前缀（安装后 view 页面 404）"
+  fi
+
+  # 只看代码行（跳过注释）：模板注释里会故意写出错误写法做反面例
+  if grep -vE '^[[:space:]]*(//|\*|/\*)' "$packer" | grep -qE 'zip\.file\([[:space:]]*rel[[:space:]]*,'; then
+    bad "$tpl: pack.mjs 仍存在 zip.file(rel, ...) 写法（条目落在 ZIP 根目录，安装器不解压）"
+  else
+    ok "$tpl: pack.mjs 无裸 rel 写入写法"
+  fi
+done
+
 # ── 汇总 ──────────────────────────────────────────────────────────────────
 printf '\n\033[1m结果\033[0m：通过 %d，失败 %d，跳过 %d\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" -eq 0 ] || exit 1

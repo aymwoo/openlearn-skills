@@ -225,8 +225,20 @@ describe('白板挂件下发（contract.whiteboardWidget）', () => {
     expect(failures, failures.join('\n')).toEqual([]);
   });
 
-  it.skipIf(!enabled)('contract.executionMode 必须是 inline（process 无法渲染组件）', () => {
-    expect(CONTRACT?.executionMode, 'whiteboardWidget 需要 inline：自定义组件无法跨 postMessage').toBe('inline');
+  it.skipIf(!enabled)('白板挂件在 process 下必须走 sandbox-view 双端视图（与 L0 / 平台 v0.7.6+ 一致）', () => {
+    // 旧断言要求 executionMode === 'inline'，与平台当前行为矛盾：
+    //   - L0 static-check 的 WHITEBOARD_WIDGET_NEEDS_INLINE 明确放行
+    //     「process + uiChannel=sandbox-view + teacher.dashboard.widget/student.view 均配 storage/*.html」；
+    //   - 宿主 PluginCardRenderer 对数据型贡献读 `ext.slotProps?.view || ext.view`，
+    //     用 PluginSandboxIframeView 渲染，本就不需要 React component。
+    // 仍要求「必须有可渲染的东西」：inline 组件，或 sandbox-view 页面。
+    const mode = CONTRACT?.executionMode;
+    const hasSandboxViews =
+      CONTRACT?.uiChannel === 'sandbox-view' && Array.isArray(CONTRACT?.viewFiles) && CONTRACT.viewFiles.length > 0;
+    expect(
+      mode === 'inline' || hasSandboxViews,
+      '白板挂件要么 inline 自定义组件，要么 process + sandbox-view 双端 storage/*.html',
+    ).toBe(true);
   });
 
   it.skipIf(!enabled)('contract.studentVisible 为 true 时已声明学生侧槽位', () => {

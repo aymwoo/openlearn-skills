@@ -6,6 +6,31 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本通过 git tag（`vX.Y.Z`）发布。
 
+## [2.18.1] - 2026-11-16
+
+修复 L2 冒烟护栏里一条与平台 v0.7.6+ 行为矛盾的断言，并给 `pack.mjs` 的 `storage/` 前缀补上静态回归门禁。两处都是「插件按 skill 写完、本地测试还绿、装到宿主却白屏」的成因。
+
+### 修复
+
+- **`assets/test-harness/smoke.test.ts`：`whiteboardWidget` 断言不再强制 inline**。
+  旧用例断言 `contract.executionMode === 'inline'`，但平台 v0.7.6 起白板 `type:'plugin'` 卡片支持
+  `process + sandbox-view`（宿主 `PluginCardRenderer` 读 `ext.slotProps?.view || ext.view`，
+  用 `PluginSandboxIframeView` 渲染，不需要 React component），L0 `WHITEBOARD_WIDGET_NEEDS_INLINE`
+  也早已放行该组合。结果是：按技能推荐的 sandbox-view 方案开发白板挂件，L0 绿、L2 必红，
+  反过来诱导开发者去开 inline 白名单。新断言保留原意（必须存在可渲染物），合法集合改为
+  `inline 组件` 或 `process + uiChannel=sandbox-view + viewFiles 非空`。
+- **`scripts/check-templates.sh` 新增第 8 项：打包脚本 `storage/` 前缀检查**。
+  安装器 `install.ts` 只解压 `name.startsWith('storage/')` 的条目；模板 `pack.mjs` 曾经写成
+  `zip.file(rel, ...)`，把 `student.html` 写到 ZIP 根目录 —— 构建零报错，装上后
+  `/plugins/<id>/storage/*.html` 一律 404（面板空白 / 一直加载）。现对每个含 `pack.mjs` 的模板
+  静态断言「必须写入 `storage/${rel}` 前缀」且「代码行里不得再出现裸 `rel` 写入」（注释里的反面用例不计）。
+
+### 校验
+
+- `bash openlearn-next-plugin-dev/scripts/check-templates.sh`：通过 70，失败 0（新增 2 项检查）。
+- 用真实插件（`@openlearn-ext/typewords`，process + sandbox-view 白板挂件）跑更新后的 L1/L2：26 passed。
+- 反向验证：把该插件 `plugin.contract.json` 的 `viewFiles` 清空后，新断言如预期转红（护栏未失效）。
+
 ## [2.18.0] - 2026-11-15
 
 新增两段式 Gitee Issue 定时自动化处理 Skill（`gitee-issue-claim` 与 `gitee-implement-issue`）及共享核心，遵循「AI 起草 PR，人来审核合并」与三层分离架构。
