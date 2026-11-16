@@ -26,6 +26,7 @@ build_branch_name = _shared.build_branch_name
 
 from coding_agent import AgentRunResult  # noqa: E402
 import implement_issue  # noqa: E402
+import workspace_runner  # noqa: E402
 
 
 class FakeImplGiteeClient(GiteeClient):
@@ -324,6 +325,97 @@ class TestImplementSkill(unittest.TestCase):
             self.assertEqual(res.status, "failed")
             self.assertEqual(client.created_pulls, [])
             self.assertIn("GITEE_MAX_CHANGED_FILES=2", client.comments[0][1])
+
+
+class RemoteAndPackageManagerTests(unittest.TestCase):
+    """Guard rails for git remote resolution and JS package manager detection."""
+
+    def _git_repo_with_remotes(self, remotes: dict[str, str]) -> Path:
+        tmp = tempfile.mkdtemp()
+        repo_dir = Path(tmp)
+        subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+        for name, url in remotes.items():
+            subprocess.run(
+                ["git", "remote", "add", name, url],
+                cwd=repo_dir,
+                check=True,
+                capture_output=True,
+            )
+        return repo_dir
+
+    def test_resolve_git_remote_prefers_remote_matching_owner_repo(self) -> None:
+        """A GitHub `origin` plus a `gitee` remote must resolve to `gitee`."""
+        repo_dir = self._git_repo_with_remotes(
+            {
+                "origin": "git@github.com:aymwoo/OpenLearn-Next-V2.git",
+                "gitee": "https://gitee.com/aymwoo/openlearn-next.git",
+            }
+        )
+        remote = workspace_runner.resolve_git_remote(
+            repo_dir, owner="aymwoo", repo="openlearn-next"
+        )
+        self.assertEqual(remote, "gitee")
+
+    def test_resolve_git_remote_falls_back_to_origin(self) -> None:
+        repo_dir = self._git_repo_with_remotes(
+            {"origin": "https://gitee.com/other/project.git"}
+        )
+        remote = workspace_runner.resolve_git_remote(
+            repo_dir, owner="aymwoo", repo="openlearn-next"
+        )
+        self.assertEqual(remote, "origin")
+
+    def test_resolve_git_remote_honours_explicit_override(self) -> None:
+        repo_dir = self._git_repo_with_remotes(
+            {
+                "origin": "https://gitee.com/aymwoo/openlearn-next.git",
+                "upstream": "https://gitee.com/aymwoo/openlearn-next.git",
+            }
+        )
+        remote = workspace_runner.resolve_git_remote(
+            repo_dir, owner="aymwoo", repo="openlearn-next", explicit="upstream"
+        )
+        self.assertEqual(remote, "upstream")
+
+    def _repo_with_package_json(self, extra_files: dict[str, str]) -> Path:
+        tmp = tempfile.mkdtemp()
+        repo_dir = Path(tmp)
+        (repo_dir / "package.json").write_text(
+            '{"scripts": {"lint": "tsc --noEmit", "test": "vitest run"}}',
+            encoding="utf-8",
+        )
+        for name, content in extra_files.items():
+            (repo_dir / name).write_text(content, encoding="utf-8")
+        return repo_dir
+
+    def test_detect_verify_commands_uses_pnpm_when_lockfile_present(self) -> None:
+        repo_dir = self._repo_with_package_json({"pnpm-lock.yaml": "lockfileVersion: 9\n"})
+        self.assertEqual(workspace_runner.detect_package_manager(repo_dir), "pnpm")
+        self.assertEqual(
+            workspace_runner.detect_verify_commands(repo_dir),
+            ["pnpm run lint", "pnpm run test"],
+        )
+
+    def test_detect_verify_commands_uses_yarn_when_lockfile_present(self) -> None:
+        repo_dir = self._repo_with_package_json({"yarn.lock": ""})
+        self.assertEqual(
+            workspace_runner.detect_verify_commands(repo_dir),
+            ["yarn run lint", "yarn run test"],
+        )
+
+    def test_detect_verify_commands_defaults_to_npm(self) -> None:
+        repo_dir = self._repo_with_package_json({})
+        self.assertEqual(
+            workspace_runner.detect_verify_commands(repo_dir),
+            ["npm run lint", "npm test"],
+        )
+
+    def test_detect_verify_commands_honours_override(self) -> None:
+        repo_dir = self._repo_with_package_json({"pnpm-lock.yaml": ""})
+        self.assertEqual(
+            workspace_runner.detect_verify_commands(repo_dir, override_cmd="pnpm run lint"),
+            ["pnpm run lint"],
+        )
 
 
 if __name__ == "__main__":

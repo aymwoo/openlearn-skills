@@ -27,6 +27,7 @@ from workspace_runner import (
     get_changed_files,
     get_current_branch,
     prepare_branch,
+    resolve_git_remote,
     run_verification,
 )
 
@@ -308,6 +309,7 @@ def implement_issue(
         )
 
     base_branch = ""
+    git_remote = "origin"
     remote_branch_created = False
     try:
         ensure_clean_worktree(cfg.repo_dir)
@@ -315,10 +317,17 @@ def implement_issue(
 
         client.create_branch(owner, repo, refs=base_branch, branch_name=branch_name)
         remote_branch_created = True
+        git_remote = resolve_git_remote(
+            cfg.repo_dir,
+            owner=owner,
+            repo=repo,
+            explicit=getattr(cfg, "git_remote", ""),
+        )
         prepare_branch(
             cfg.repo_dir,
             base_branch=base_branch,
             branch_name=branch_name,
+            remote=git_remote,
             secrets=(cfg.gitee_token,),
         )
         _transition_to_working(
@@ -439,6 +448,7 @@ def implement_issue(
             cfg.repo_dir,
             branch_name=branch_name,
             commit_message=f"fix: resolve #{resolved_num} - {title[:60]}",
+            remote=git_remote,
             secrets=(cfg.gitee_token,),
         )
         pr_body = (

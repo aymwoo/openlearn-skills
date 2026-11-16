@@ -36,6 +36,9 @@ class Config:
     verify_cmd: str
     max_changed_files: int
     processing_label: str
+    # Optional: pin the git remote used for fetch/push. Empty means auto-detect
+    # (remote whose URL matches <owner>/<repo>, falling back to `origin`).
+    git_remote: str = ""
 
 
 def load_config(*, require_token: bool = True, repo_dir_override: str | None = None) -> Config:
@@ -53,6 +56,7 @@ def load_config(*, require_token: bool = True, repo_dir_override: str | None = N
         (repo_dir_override or os.environ.get("GITEE_REPO_DIR", ".")).strip()
     ).resolve()
     base_branch = os.environ.get("GITEE_BASE_BRANCH", "").strip()
+    git_remote = os.environ.get("GITEE_GIT_REMOTE", "").strip()
     coding_agent_cmd = os.environ.get("GITEE_CODING_AGENT_CMD", "claude").strip()
     agent_max_turns = _parse_positive_int("GITEE_AGENT_MAX_TURNS", 25)
     agent_timeout_sec = _parse_positive_int("GITEE_AGENT_TIMEOUT_SEC", 1200)
@@ -70,6 +74,7 @@ def load_config(*, require_token: bool = True, repo_dir_override: str | None = N
         state_path=state_path,
         repo_dir=repo_dir,
         base_branch=base_branch,
+        git_remote=git_remote,
         coding_agent_cmd=coding_agent_cmd,
         agent_max_turns=agent_max_turns,
         agent_timeout_sec=agent_timeout_sec,
